@@ -11,4 +11,4 @@ From the repository root: `pnpm run dev:desktop` (runs `pnpm run build`, then `e
 ## Known Limitations and Deferred Work
 
 - **Electron e2e is not in CI** — jsdom and a Node child prove the seams; there is no Playwright Electron suite yet.
-- **Native OS dialogs stay on the Node child** — Electron `dialog.showOpenDialog` and WebView preview are later phases. Spawn keeps `windowsHide: false` so a Windows dialog can still appear.
+- **Native OS dialogs stay on the Node child** — `host.pickDirectory` opens the Node `osascript` / Zenity / `IFileOpenDialog` chooser; `host.openPath` uses the existing opener. Electron `dialog.showOpenDialog` and WebView preview are later phases. Spawn keeps `windowsHide: false` so a Windows dialog can still appear. Tests intercept those commands the same way web e2e spies `host.openPath`, and do not launch Electron or a real application.

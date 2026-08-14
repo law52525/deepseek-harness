@@ -20,7 +20,7 @@ desktop-app 的 patch 复制 web-app 中属于 Host 业务与客户端名录的�
 
 它**不**插入 `dsh-host-webserver`、`dsh-host-frontend-static`、`web-startup` / `--host` / `--port` / `--trusted-host`、`web-runtime` 的 URL 打印与 LAN 信任采样，也不插入 `dsh-client-hmr`。
 
-它**不**使用会注入 `webServer` 的 `directory-picker-auto`。patch 在 Host 上钉死 `@deepseek-ai/dsh-host-directory-picker-native`，并把 `@deepseek-ai/dsh-client-ui-directory-picker-native` 作为静态 `dsh.client` 行。后续 shell 接线持有对该配对的任何改动。
+它**不**使用会注入 `webServer` 的 `directory-picker-auto`。patch 在 Host 上钉死 `@deepseek-ai/dsh-host-directory-picker-native`，并把 `@deepseek-ai/dsh-client-ui-directory-picker-native` 作为静态 `dsh.client` 行。[P3](./2026-08-14-desktop-native-shell-capabilities.md) 保持这一钉死；Electron 对话框后端仍后置。
 
 由 desktop-app 包持有的小型 **desktop-runtime** 插件（装配胶水，对标 web-runtime）接受 `{surfaceContext}`：为 true 时注册 harness-source 提示词段落；提供不含绑定地址的 `desktopRuntime`（`{ surface: 'desktop' }`），且不打印 URL。
 
@@ -54,7 +54,7 @@ desktop-app 的 patch 复制 web-app 中属于 Host 业务与客户端名录的�
 
 **不做 YAML 层的 `desktopStartup` / `webStartup` 门控，只靠插件级 inject。** `--help` 仍会激活 modules 并扫描客户端 bundle，因为关闭是异步的。YAML 行 inject 才让图保持挂起。
 
-**改 `directory-picker-auto`，让它不再注入 `webServer`。** 不在本阶段范围内；后续 shell 接线持有选择器配对。钉死原生 Host 与 UI 行，避免经 auto 把 HTTP 拉进来。
+**改 `directory-picker-auto`，让它不再注入 `webServer`。** 不在本阶段范围内；[P3](./2026-08-14-desktop-native-shell-capabilities.md) 保持钉死原生选择器，而不是让 auto 在没有 HTTP 的情况下运行。钉死原生 Host 与 UI 行，避免经 auto 把 HTTP 拉进来。
 
 ## Testing
 
@@ -70,7 +70,7 @@ modules/connection 上可选的 `webServer` 会改变加载顺序：一份忘了
 
 在共享片段出现之前，desktop-app 会与 web-app 的名录漂移。`packages/client/AGENTS.md` 要求每条新的 `dsh.client` 行同时出现在两个组合包中。
 
-原生目录选择器会一直钉死，直到后续 shell 接线。若操作者把 `directory-picker-auto` overlay 到 desktop，会重新引入本 Host 无法满足的 `webServer` 注入。
+原生目录选择器保持钉死。若操作者把 `directory-picker-auto` overlay 到 desktop，会重新引入本 Host 无法满足的 `webServer` 注入。[P3](./2026-08-14-desktop-native-shell-capabilities.md) 经子进程 IPC 证明 Node 选择器与 opener。
 
 `dsh --profile desktop --dump-config` 与 `--help` 不启动服务器，也不打开 Electron 窗口。[Electron 壳](./2026-08-14-desktop-electron-shell.md) 读取的就是此 Host 已经组合好的同一份图。
 
@@ -79,4 +79,5 @@ modules/connection 上可选的 `webServer` 会改变加载顺序：一份忘了
 - [桌面产品](../../proposed/architecture/2026-08-14-desktop-installer-product.md)
 - [P0 IPC 载体](./2026-08-14-desktop-ipc-carrier.md)
 - [P2 Electron 壳](./2026-08-14-desktop-electron-shell.md)
+- [P3 原生壳能力](./2026-08-14-desktop-native-shell-capabilities.md)
 - [Profile 插件组合包](./2026-08-05-profile-plugin-bundles.md)

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-14-desktop-native-shell-capabilities.md
+2026-08-14-desktop-native-shell-capabilities.md: c32ce2816576ad6fdd0f621d9522bba7db0f91e9
+2026-08-14-desktop-native-shell-capabilities.zh.md: 07d823cee7264a6d98712307960bdeb1fc7f17ae

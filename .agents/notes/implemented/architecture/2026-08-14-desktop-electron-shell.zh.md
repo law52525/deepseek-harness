@@ -64,11 +64,11 @@ Electron main 用系统 Node 孵化子进程（`npm_node_execpath`、`NODE_BINAR
 
 双进程就绪握手使用显式的 `host-ready` 文档，而不是抓 stdout。
 
-原生目录选择器在 [P3](../../proposed/architecture/2026-08-14-desktop-native-shell-capabilities.md) 之前保持 Node 的 `-native` 配对。子进程孵化保持 `windowsHide: false`，以便后续 Windows 对话框仍能出现。
+原生目录选择器保持 Node 的 `-native` 配对。[P3](./2026-08-14-desktop-native-shell-capabilities.md) 经子进程 IPC 证明 `host.pickDirectory` 与 `host.openPath`。子进程孵化保持 `windowsHide: false`，以便 Windows 对话框仍能出现。
 
 ## Related
 
 - [桌面产品](../../proposed/architecture/2026-08-14-desktop-installer-product.md)
 - [P0 IPC 载体](./2026-08-14-desktop-ipc-carrier.md)
 - [P1 desktop profile Host](./2026-08-14-desktop-profile-host.md)
-- [P3 原生壳能力](../../proposed/architecture/2026-08-14-desktop-native-shell-capabilities.md)
+- [P3 原生壳能力](./2026-08-14-desktop-native-shell-capabilities.md)
