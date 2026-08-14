@@ -36,7 +36,7 @@ Host 子进程是使用捆入的 Node 运行 `host/node node_modules/@deepseek-a
 
 ### electron-builder
 
-由 `apps/desktop`（`electron-builder.yml`）持有。`pnpm run dist:desktop` 是受支持的入口（校验、构建、暂存、冒烟、打包）。`pnpm --filter @deepseek-ai/dsh-desktop run dist` 只对已经暂存的树运行 electron-builder。`electron` 是 `apps/desktop` 的 `devDependency`：electron-builder 26 拒绝把它放在 `dependencies` 下；未打包的 `electron .` 仍通过该 devDependency 启动。
+由 `apps/desktop`（`electron-builder.yml`）持有。`pnpm run dist:desktop` 是受支持的入口（校验、构建、暂存、冒烟、打包）。`pnpm --filter @deepseek-ai/dsh-desktop run dist` 只对已经暂存的树运行 electron-builder。`electron` 是 `apps/desktop` 的 `devDependency`：electron-builder 26 拒绝把它放在 `dependencies` 下；未打包的 `electron .` 仍通过该 devDependency 启动。打包使用 `resources/icon.png`（Harness favicon 浅色方案填充 `#000` 的 1024×1024 栅格）；electron-builder 从该文件生成 `.icns` / `.ico`。线上 SVG 靠 `prefers-color-scheme` 在黑/白之间切换；打包图标是单张栅格。`files` 不含 `node_modules`，因此 tsdown 的 `alwaysBundle` 会内联 `electron-updater` 和 `@deepseek-ai/dsh-desktop-app/ipc-protocol`；`lib/main.js` / `lib/preload.js` 若仍留下包 import，打包失败。
 
 extraResources 复制整个 `apps/desktop/stage/`。electron-builder 的 `createFilter` 总会丢掉拷贝根目录下的 `node_modules`，因此 `from: stage/host` 会漏掉 Host 闭包。打包后，安装包脚本要求未打包 extraResources 里存在 `host/node_modules/@deepseek-ai/dsh/lib/bin.js` 与 `frontend/index.html`。脚本从 `node_modules/.bin` 运行 `electron-builder` 和 `tsx`。
 
@@ -47,7 +47,7 @@ extraResources 复制整个 `apps/desktop/stage/`。electron-builder 的 `create
 
 在目标操作系统上构建。Intel Mac、Windows arm64 与 Linux AppImage 不是 v1。产物落在 `apps/desktop/dist/`。
 
-macOS 使用 electron-builder identity `-`（ad-hoc）。Windows 设置 `signAndEditExecutable: false`。[P5](../../proposed/process/2026-08-14-desktop-installer-release-ci.md) 公证 arm64 `.dmg`（Developer ID，外加嵌套 Host 的 `node` 与 `node-spawn-helper`）并发布到 GitHub Releases；Windows 保持未签名（不做 Authenticode）。暂存树是桌面部署根目录加上复制的 Node，不是仓库根目录；被 gitignore 的 `.env` 不是 extraResource。
+未签名的 `pnpm run dist:desktop` 传入 electron-builder identity `-`（ad-hoc）。Windows 设置 `signAndEditExecutable: false`。[P5](./2026-08-14-desktop-installer-release-ci.md) 公证 arm64 `.dmg`（Developer ID，外加嵌套 Host 的 `node` 与 `node-spawn-helper`）并发布到 GitHub Releases；Windows 保持未签名（不做 Authenticode）。暂存树是桌面部署根目录加上复制的 Node，不是仓库根目录；被 gitignore 的 `.env` 不是 extraResource。
 
 ## Alternatives considered
 
@@ -55,7 +55,7 @@ macOS 使用 electron-builder identity `-`（ad-hoc）。Windows 设置 `signAnd
 
 **用 pkg-SEA 打 Host，只把 exe 放在 Electron 旁边。** 体积上有吸引力，但 pkg VFS 加 Electron extraResources 加 Windows 是三套打包系统。v1 更想要子进程能 `import` 的真实 `node_modules` 树。
 
-**为 Electron 重建原生 addon 并丢掉 Node 子进程。** 那是同进程模型，已被[产品说明](../../proposed/architecture/2026-08-14-desktop-installer-product.md)后置。
+**为 Electron 重建原生 addon 并丢掉 Node 子进程。** 那是同进程模型，已被[产品说明](../architecture/2026-08-14-desktop-installer-product.md)后置。
 
 **在安装包里塞 npm + `npx`。** 仍需要网络，也不是离线桌面包。
 
@@ -63,12 +63,12 @@ macOS 使用 electron-builder identity `-`（ad-hoc）。Windows 设置 `signAnd
 
 安装包体积会到数百 MB（Electron + Node + 闭包）。v1 接受这一点；裁剪属于后续 simplification 说明。
 
-Windows Defender / SmartScreen 会对未签名 exe 发出警告。Gatekeeper 会拦截 ad-hoc 的 macOS 应用，直到用户从 Finder 打开。P5 公证是 Mac 路径；Windows 保持未签名，并把该警告写进文档。
+Windows Defender / SmartScreen 会对未签名 exe 发出警告。Gatekeeper 会拦截 `dist:desktop` 打出的 ad-hoc macOS 应用，直到用户从 Finder 打开。[P5](./2026-08-14-desktop-installer-release-ci.md) 公证是 GitHub Releases 上的 Mac 路径；Windows 保持未签名，并把该警告写进文档。
 
-捆入的 Node 是构建机的 `process.execPath`，与暂存的原生 addon ABI 匹配。可移植的官方二进制属于 P5 的 CI 问题（`actions/setup-node`）。
+捆入的 Node 是构建机的 `process.execPath`，与暂存的原生 addon ABI 匹配。Desktop Release 工作流使用 `actions/setup-node`，使 CI 的 Node 与暂存的原生 addon 匹配。
 
 `dsh web` 仍是根目录 README 里的默认开发者预览入口。
 
 ## Testing
 
-`scripts/runtime-closure.spec.ts` 与 `scripts/stage-runtime-closure.spec.ts` 钉住缺失 peer 失败、符号链接物化，以及 deploy 之后还原 pnpm workspace state。`apps/desktop/tests/packaged-paths.spec.ts` 钉住 extraResources 解析。`scripts/build-desktop-installer.spec.ts` 钉住宿主操作系统目标、`pnpm run` 转发 `--`、以及未打包 extraResources 路径。安装包脚本在 electron-builder 之前对暂存树冒烟 `--help` 与 `--dump-config`，随后要求未打包 extraResources 里有 Host bin 与前端 `index.html`。CI 中启动打包后的 Electron 仍属于 [P5](../../proposed/process/2026-08-14-desktop-installer-release-ci.md)。
+`scripts/runtime-closure.spec.ts` 与 `scripts/stage-runtime-closure.spec.ts` 钉住缺失 peer 失败、符号链接物化，以及 deploy 之后还原 pnpm workspace state。`apps/desktop/tests/packaged-paths.spec.ts` 钉住 extraResources 解析。`apps/desktop/tests/packager-icon.spec.ts` 钉住 `resources/icon.png` 为 1024 PNG，以及 electron-builder 的 `icon` 字段。`scripts/desktop-shell-bundle.spec.ts` 钉住残留的 `dsh-desktop-app` / `electron-updater` import 会使打包失败。`scripts/build-desktop-installer.spec.ts` 钉住宿主操作系统目标、`pnpm run` 转发 `--`、以及未打包 extraResources 路径。安装包脚本在 electron-builder 之前对暂存树冒烟 `--help` 与 `--dump-config`，随后要求未打包 extraResources 里有 Host bin 与前端 `index.html`。[P5](./2026-08-14-desktop-installer-release-ci.md) 在 Desktop Release 工作流上打包已签名 macOS 与未签名 Windows；打包后的 Electron GUI 启动仍是具名缺口。

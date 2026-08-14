@@ -24,13 +24,15 @@ The command starts the Web UI at `http://127.0.0.1:3080` by default and opens it
 
 ### Desktop (preview)
 
-`dsh web` remains the default. To build a local installer that does not need a system Node:
+`dsh web` remains the default. GitHub Releases of this repository publish a notarized macOS arm64 `.dmg` that opens without a Gatekeeper block, and an unsigned Windows x64 NSIS `.exe` on which SmartScreen will warn. Installed builds check that Release for full-app auto-updates.
+
+To build a local installer that does not need a system Node:
 
 ```sh
 pnpm run dist:desktop
 ```
 
-On macOS arm64 this writes a `.dmg` under `apps/desktop/dist/`; on Windows x64 it writes an NSIS `.exe`. The macOS app is ad-hoc signed: Gatekeeper will block it until you open it from Finder with right-click → Open. The Windows exe is unsigned: SmartScreen will warn. These builds do not auto-update. Official signed artifacts are a later phase.
+On macOS arm64 this writes an ad-hoc `.dmg` under `apps/desktop/dist/` (Gatekeeper blocks until you right-click Open). On Windows x64 it writes an unsigned NSIS `.exe`. A Mac with a Developer ID Application identity and `APPLE_*` in the gitignored root `.env` can instead run `pnpm run dist:mac:signed` to notarize and staple.
 
 ### Run from source
 

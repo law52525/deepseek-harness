@@ -423,6 +423,54 @@ describe('Python release workflows', () => {
   })
 })
 
+describe('Desktop release workflow', () => {
+  it('notarizes macOS on macos-14, keeps Windows unsigned, and uploads GitHub Release assets', () => {
+    const workflow = loadWorkflow('.github/workflows/desktop-release.yml')
+    const macos = workflowJob(workflow, 'macos')
+    const windows = workflowJob(workflow, 'windows')
+    expect(workflow.on).toMatchObject({
+      workflow_dispatch: null,
+      push: { tags: ['desktop-v*'] },
+    })
+    expect(macos).toMatchObject({
+      'runs-on': 'macos-14',
+      environment: 'desktop-release',
+      permissions: { contents: 'write' },
+    })
+    expect(windows).toMatchObject({
+      'runs-on': 'windows-2025',
+      environment: 'desktop-release',
+      permissions: { contents: 'write' },
+    })
+    expect(windows.defaults).toMatchObject({ run: { shell: 'pwsh' } })
+    const serialized = JSON.stringify(workflow)
+    expect(serialized).toContain('pnpm run dist:mac:signed')
+    expect(serialized).toContain('pnpm run dist:desktop')
+    expect(serialized).toContain('secrets.APPLE_ID')
+    expect(serialized).toContain('secrets.APPLE_TEAM_ID')
+    expect(serialized).toContain('secrets.APPLE_APP_SPECIFIC_PASSWORD')
+    expect(serialized).toContain('secrets.CSC_LINK')
+    expect(serialized).toContain('secrets.CSC_KEY_PASSWORD')
+    expect(serialized).toContain('apple-actions/import-codesign-certs@')
+    expect(serialized).toContain('gh release upload')
+    expect(serialized).not.toContain('signtool')
+    expect(serialized).not.toContain('Authenticode')
+    expect(serialized).not.toContain('DEEPSEEK_API_KEY')
+    if (!Array.isArray(macos.steps) || !Array.isArray(windows.steps)) {
+      throw new TypeError('Desktop release jobs must define steps')
+    }
+    const macosSteps = macos.steps.filter(isRecord)
+    const windowsSteps = windows.steps.filter(isRecord)
+    const pnpmSetups = [...macosSteps, ...windowsSteps].filter(step => (
+      typeof step.uses === 'string' && step.uses.startsWith('pnpm/action-setup@')
+    ))
+    expect(pnpmSetups.length).toBe(2)
+    for (const step of pnpmSetups) {
+      expect(step).toMatchObject({ with: { dest: '${{ runner.temp }}/setup-pnpm' } })
+    }
+  })
+})
+
 describe('Issue lifecycle workflow', () => {
   it('runs the lifecycle job on every PR/review event but gates token and board steps', () => {
     const lifecycle = loadWorkflow('.github/workflows/issue-lifecycle.yml')

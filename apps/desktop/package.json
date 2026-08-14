@@ -20,7 +20,8 @@
   "dependencies": {
     "@deepseek-ai/dsh": "workspace:^",
     "@deepseek-ai/dsh-desktop-app": "workspace:^",
-    "@deepseek-ai/dsh-web-frontend": "workspace:^"
+    "@deepseek-ai/dsh-web-frontend": "workspace:^",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",

@@ -8,7 +8,7 @@ English | [中文](2026-08-14-desktop-profile-host.zh.md)
 
 The shipped GUI is `dsh web`: `dsh-base` plus [`dsh-web-app`](../../../../packages/bundle/web-app/README.md), which inserts `dsh-host-webserver`, `frontend-static`, `web-startup` (`--host` / `--port`), and a `web-runtime` that prints a URL. Dual-face client packages mixed HTTP registration into construction: `dsh-client-modules` composed the boot graph only after injecting `webServer`, and `dsh-client-connection` bound `/api` the same way. Those fibers never activated without a webserver.
 
-The [desktop product](../../proposed/architecture/2026-08-14-desktop-installer-product.md) needs the same Host business plugins and the same client roster graph, but must not listen on HTTP. `ClientModuleRegistry` already exposes `graph()` and `clientPath(id)` for a non-HTTP consumer.
+The [desktop product](./2026-08-14-desktop-installer-product.md) needs the same Host business plugins and the same client roster graph, but must not listen on HTTP. `ClientModuleRegistry` already exposes `graph()` and `clientPath(id)` for a non-HTTP consumer.
 
 ## Decision
 
@@ -76,9 +76,10 @@ The native directory picker stays pinned. Operators who overlay `directory-picke
 
 ## Related
 
-- [Desktop product](../../proposed/architecture/2026-08-14-desktop-installer-product.md)
+- [Desktop product](./2026-08-14-desktop-installer-product.md)
 - [P0 IPC carrier](./2026-08-14-desktop-ipc-carrier.md)
 - [P2 Electron shell](./2026-08-14-desktop-electron-shell.md)
 - [P3 native shell capabilities](./2026-08-14-desktop-native-shell-capabilities.md)
 - [P4 installer packaging](../process/2026-08-14-desktop-installer-packaging.md)
+- [P5 release CI](../process/2026-08-14-desktop-installer-release-ci.md)
 - [Profile plugin bundles](./2026-08-05-profile-plugin-bundles.md)
