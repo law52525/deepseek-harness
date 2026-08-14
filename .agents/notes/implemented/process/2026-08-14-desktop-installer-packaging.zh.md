@@ -47,7 +47,7 @@ extraResources 复制整个 `apps/desktop/stage/`。electron-builder 的 `create
 
 在目标操作系统上构建。Intel Mac、Windows arm64 与 Linux AppImage 不是 v1。产物落在 `apps/desktop/dist/`。
 
-macOS 使用 electron-builder identity `-`（ad-hoc）。Windows 设置 `signAndEditExecutable: false`。公证、Developer ID、Authenticode、GitHub Releases 与自动更新仍属于 [P5](../../proposed/process/2026-08-14-desktop-installer-release-ci.md)。
+macOS 使用 electron-builder identity `-`（ad-hoc）。Windows 设置 `signAndEditExecutable: false`。[P5](../../proposed/process/2026-08-14-desktop-installer-release-ci.md) 公证 arm64 `.dmg`（Developer ID，外加嵌套 Host 的 `node` 与 `node-spawn-helper`）并发布到 GitHub Releases；Windows 保持未签名（不做 Authenticode）。暂存树是桌面部署根目录加上复制的 Node，不是仓库根目录；被 gitignore 的 `.env` 不是 extraResource。
 
 ## Alternatives considered
 
@@ -63,7 +63,7 @@ macOS 使用 electron-builder identity `-`（ad-hoc）。Windows 设置 `signAnd
 
 安装包体积会到数百 MB（Electron + Node + 闭包）。v1 接受这一点；裁剪属于后续 simplification 说明。
 
-Windows Defender / SmartScreen 会对未签名 exe 发出警告。Gatekeeper 会拦截 ad-hoc 的 macOS 应用，直到用户从 Finder 打开。若这在内部挡住「能装上」的目标，P5 签名必须立刻跟上。
+Windows Defender / SmartScreen 会对未签名 exe 发出警告。Gatekeeper 会拦截 ad-hoc 的 macOS 应用，直到用户从 Finder 打开。P5 公证是 Mac 路径；Windows 保持未签名，并把该警告写进文档。
 
 捆入的 Node 是构建机的 `process.execPath`，与暂存的原生 addon ABI 匹配。可移植的官方二进制属于 P5 的 CI 问题（`actions/setup-node`）。
 
