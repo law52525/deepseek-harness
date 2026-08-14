@@ -64,11 +64,11 @@ Plugin bytes evaluated in the renderer are a trusted-path equivalent of serving 
 
 Two-process ready handshake uses an explicit `host-ready` document, not stdout scraping.
 
-Native directory picker stays the Node `-native` pair until [P3](../../proposed/architecture/2026-08-14-desktop-native-shell-capabilities.md). Child spawn keeps `windowsHide: false` so a later Windows dialog can still appear.
+Native directory picker stays the Node `-native` pair. [P3](./2026-08-14-desktop-native-shell-capabilities.md) proves `host.pickDirectory` and `host.openPath` through the child's IPC. Child spawn keeps `windowsHide: false` so a Windows dialog can still appear.
 
 ## Related
 
 - [Desktop product](../../proposed/architecture/2026-08-14-desktop-installer-product.md)
 - [P0 IPC carrier](./2026-08-14-desktop-ipc-carrier.md)
 - [P1 desktop profile Host](./2026-08-14-desktop-profile-host.md)
-- [P3 native shell capabilities](../../proposed/architecture/2026-08-14-desktop-native-shell-capabilities.md)
+- [P3 native shell capabilities](./2026-08-14-desktop-native-shell-capabilities.md)

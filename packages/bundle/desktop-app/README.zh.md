@@ -25,5 +25,5 @@ dsh 桌面表层组合包。[`cordis.patch.yml`](cordis.patch.yml) 叠加在 [`d
 ## 已知限制与延期工作
 
 - **没有 HTTP 监听** — 此 Host 不挂载 `dsh-host-webserver`，也不打印 URL；Electron 渲染进程通过进程 IPC（`desktop-app/ipc-host`）消费 `ctx.clientModules.graph()`。
-- **原生目录选择器已钉死** — `directory-picker-auto` 会注入 `webServer`，因此本组合包直接挂载 `-native` 的 Host 与 UI 行。后续 shell 接线可能会改变这一配对。
+- **原生目录选择器已钉死** — `directory-picker-auto` 会注入 `webServer`，因此本组合包直接挂载 `-native` 的 Host 与 UI 行。`host.pickDirectory` 与 `host.openPath` 在 Node 子进程里经 IPC 运行；Electron 对话框后端后置。
 - **客户端名录必须与 web-app 对齐** — 在两者共享一份不含 HTTP 行的片段之前，新增 `dsh.client` 行必须同时出现在两个组合包中。

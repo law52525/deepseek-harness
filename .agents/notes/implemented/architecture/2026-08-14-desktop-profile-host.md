@@ -20,7 +20,7 @@ The desktop-app patch copies the web-app Host business and client roster rows (a
 
 It does **not** insert `dsh-host-webserver`, `dsh-host-frontend-static`, `web-startup` / `--host` / `--port` / `--trusted-host`, `web-runtime` URL printing and LAN trust sampling, or `dsh-client-hmr`.
 
-It does **not** use `directory-picker-auto`, which injects `webServer`. The patch pins `@deepseek-ai/dsh-host-directory-picker-native` on the Host and `@deepseek-ai/dsh-client-ui-directory-picker-native` as a static `dsh.client` row. Later shell wiring owns any change to that pairing.
+It does **not** use `directory-picker-auto`, which injects `webServer`. The patch pins `@deepseek-ai/dsh-host-directory-picker-native` on the Host and `@deepseek-ai/dsh-client-ui-directory-picker-native` as a static `dsh.client` row. [P3](./2026-08-14-desktop-native-shell-capabilities.md) keeps that pin; an Electron dialog backend remains deferred.
 
 A small **desktop-runtime** plugin owned by the desktop-app package (assembly glue, like web-runtime) takes `{surfaceContext}`: when true it registers the harness-source prompt section; it provides `desktopRuntime` as `{ surface: 'desktop' }` with no bind address and does not print a URL.
 
@@ -54,7 +54,7 @@ Adding a `dsh.client` row to web-app requires the same row on desktop-app until 
 
 **Plugin-level inject without a YAML `desktopStartup` / `webStartup` gate.** `--help` would still activate modules and scan client bundles because shutdown is async. The YAML entry inject is what leaves the graph pending.
 
-**Change `directory-picker-auto` so it no longer injects `webServer`.** Out of scope here; later shell wiring owns picker pairing. Pinning the native Host and UI rows avoids pulling HTTP in through auto.
+**Change `directory-picker-auto` so it no longer injects `webServer`.** Out of scope here; [P3](./2026-08-14-desktop-native-shell-capabilities.md) kept the native pin rather than teaching auto to run without HTTP. Pinning the native Host and UI rows avoids pulling HTTP in through auto.
 
 ## Testing
 
@@ -70,7 +70,7 @@ Optional `webServer` on modules/connection is a load-order change: a mis-compose
 
 Desktop-app will drift from web-app's roster until a shared fragment exists. `packages/client/AGENTS.md` requires every new `dsh.client` row on both bundles.
 
-The native directory picker is pinned until later shell wiring. Operators who overlay `directory-picker-auto` onto desktop reintroduce a `webServer` inject this Host does not satisfy.
+The native directory picker stays pinned. Operators who overlay `directory-picker-auto` onto desktop reintroduce a `webServer` inject this Host does not satisfy. [P3](./2026-08-14-desktop-native-shell-capabilities.md) proves the Node chooser and opener through the child's IPC.
 
 `dsh --profile desktop --dump-config` and `--help` start no server and no Electron window. The [Electron shell](./2026-08-14-desktop-electron-shell.md) reads the same graph this Host already composes.
 
@@ -79,4 +79,5 @@ The native directory picker is pinned until later shell wiring. Operators who ov
 - [Desktop product](../../proposed/architecture/2026-08-14-desktop-installer-product.md)
 - [P0 IPC carrier](./2026-08-14-desktop-ipc-carrier.md)
 - [P2 Electron shell](./2026-08-14-desktop-electron-shell.md)
+- [P3 native shell capabilities](./2026-08-14-desktop-native-shell-capabilities.md)
 - [Profile plugin bundles](./2026-08-05-profile-plugin-bundles.md)

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-14-desktop-profile-host.md
-2026-08-14-desktop-profile-host.md: 9b50e67b7020abad0726d1568852f09a37190f6e
-2026-08-14-desktop-profile-host.zh.md: 4a7a40403ea05a4e448b98aa3d91b88c624d8c02
+2026-08-14-desktop-profile-host.md: 198a58896fdc0d043165313960fa57f3dbe6c146
+2026-08-14-desktop-profile-host.zh.md: f669d4a8007ec5cba9f54e2b3913266413e983ea

@@ -705,6 +705,7 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     'packages/code-runtime/code-runtime-worker-thread/tests/built-lib.e2e.ts',
     'packages/lsp/lsp-stdio/tests/built-lib.e2e.ts',
     'packages/bundle/desktop-app/tests/host-graph.e2e.ts',
+    'apps/desktop/tests/native-ops.e2e.ts',
   ], {
     label: 'built-bin smoke',
     needs,

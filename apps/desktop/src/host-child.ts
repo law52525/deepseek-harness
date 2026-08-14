@@ -234,18 +234,37 @@ export function hostChildArgv(node: string): { command: string; args: string[] }
   return { command: node, args: [libBin, '--profile', 'desktop'] }
 }
 
+/** Optional spawn overrides for tests that isolate `$DSH_HOME` or intercept native commands. */
+export interface SpawnDesktopHostOptions {
+  /** Extra environment merged over `process.env`; `ELECTRON_RUN_AS_NODE` is always stripped. */
+  env?: NodeJS.ProcessEnv
+  /** Child working directory; defaults to the parent's cwd. */
+  cwd?: string
+}
+
+/**
+ * Environment for the Host child: inherit the parent, apply overrides, drop Electron-as-Node.
+ * @param overrides - values that win over `process.env`.
+ * @returns the env object passed to `spawn`.
+ */
+export function hostChildEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const env = { ...process.env, ...overrides }
+  delete env.ELECTRON_RUN_AS_NODE
+  return env
+}
+
 /**
  * Spawn the desktop Host child with stdio IPC.
+ * @param options - test isolation (`env`, `cwd`); production callers pass nothing.
  * @returns a live child wrapper.
  */
-export function spawnDesktopHost(): DesktopHostChild {
+export function spawnDesktopHost(options: SpawnDesktopHostOptions = {}): DesktopHostChild {
   const node = resolveNodeExecutable()
   const argv = hostChildArgv(node)
-  const env = { ...process.env }
-  delete env.ELECTRON_RUN_AS_NODE
   const child = spawn(argv.command, argv.args, {
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
-    env,
+    env: hostChildEnv(options.env),
+    cwd: options.cwd,
     windowsHide: false,
   })
   return new DesktopHostChild(child)

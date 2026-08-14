@@ -86,7 +86,7 @@
       name: '@deepseek-ai/dsh-session-stats'
 
     # Pin the native OS chooser: directory-picker-auto injects `webServer`,
-    # which this Host does not mount. P3 owns later picker/shell wiring.
+    # which this Host does not mount. Electron dialogs remain a later backend.
     - id: directory-picker
       name: '@deepseek-ai/dsh-host-directory-picker-native'
 
