@@ -8,9 +8,12 @@ const desktopRoot = resolve(import.meta.dirname, '..')
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 describe('desktop packager icon', () => {
-  it('points electron-builder at a 1024 PNG of the Harness mark', () => {
+  it('points electron-builder at a 1024 PNG and an assisted NSIS installer that still runs rcedit', () => {
     const yml = readFileSync(resolve(desktopRoot, 'electron-builder.yml'), 'utf8')
     expect(yml).toMatch(/^icon: resources\/icon\.png$/m)
+    expect(yml).toMatch(/^ {2}signAndEditExecutable: true$/m)
+    expect(yml).toMatch(/^ {2}oneClick: false$/m)
+    expect(yml).toMatch(/^ {2}allowToChangeInstallationDirectory: true$/m)
 
     const png = readFileSync(resolve(desktopRoot, 'resources', 'icon.png'))
     expect(png.subarray(0, 8)).toEqual(PNG_MAGIC)

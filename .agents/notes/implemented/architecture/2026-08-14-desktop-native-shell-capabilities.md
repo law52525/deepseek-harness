@@ -51,7 +51,7 @@ Not in the first installer. When scheduled, a later note owns a `BrowserView` / 
 
 Connection-client `isLoopback` with an IPC port is already pinned in `packages/client/connection/tests/client-apply.client.spec.ts`. NativeDirectoryFlow maps `null` to `onCancel` in `packages/client/ui-directory-picker-native/tests/client-flow.client.spec.tsx`.
 
-Windows COM `IFileOpenDialog` is not PATH-shimmed here. [`directory-picker-native`](../../../../packages/host/directory-picker-native/README.md) owns those tests; spawn keeps `windowsHide: false` so a user-session dialog can still appear. **Electron e2e in CI remains a named gap** (no Playwright Electron suite; no sidebar screenshot of Choose workspace).
+Windows COM `IFileOpenDialog` is not PATH-shimmed here. [`directory-picker-native`](../../../../packages/host/directory-picker-native/README.md) owns those tests; the dialog worker already uses `windowsHide: true`. Host spawn also uses `windowsHide: true` so packaged Windows does not open a `node.exe` console. **Electron e2e in CI remains a named gap** (no Playwright Electron suite; no sidebar screenshot of Choose workspace).
 
 ## Consequences
 
@@ -59,7 +59,7 @@ The desktop bundle mounts exactly one native picker backend. Overlaying `directo
 
 Slice B must replace the `-native` rows, not stack a second native backend, or Choose workspace would double-prompt.
 
-A Windows child spawned without a desktop session can still fail COM; P2's `windowsHide: false` keeps the child in the user's session. Proof on Windows is a developer-machine window check until a Windows e2e runner exists.
+A Windows child spawned without a desktop session can still fail COM; `windowsHide: true` only sets CREATE_NO_WINDOW and leaves the child in the user's session. Proof on Windows is a developer-machine window check until a Windows e2e runner exists.
 
 WebView preview stays out of this note's code. Open-in-OS is the preview until a later note owns `BrowserView`.
 

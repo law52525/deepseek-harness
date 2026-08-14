@@ -51,7 +51,7 @@ ui-workspace 保持不变。没有 `native` / `browse` 之外的 kind。
 
 带 IPC 端口时 connection 客户端的 `isLoopback` 已由 `packages/client/connection/tests/client-apply.client.spec.ts` 钉住。NativeDirectoryFlow 把 `null` 映射到 `onCancel` 由 `packages/client/ui-directory-picker-native/tests/client-flow.client.spec.tsx` 覆盖。
 
-Windows 的 COM `IFileOpenDialog` 无法在此用 PATH shim。[`directory-picker-native`](../../../../packages/host/directory-picker-native/README.md) 持有那些测试；孵化保持 `windowsHide: false`，以便用户会话中的对话框仍能出现。**CI 中的 Electron e2e 仍是具名缺口**（没有 Playwright Electron 套件；没有「选择工作区」的侧栏截图）。
+Windows 的 COM `IFileOpenDialog` 无法在此用 PATH shim。[`directory-picker-native`](../../../../packages/host/directory-picker-native/README.md) 持有那些测试；对话框 worker 本身已经使用 `windowsHide: true`。Host 孵化也使用 `windowsHide: true`，以免打包后的 Windows 打开 `node.exe` 控制台。**CI 中的 Electron e2e 仍是具名缺口**（没有 Playwright Electron 套件；没有「选择工作区」的侧栏截图）。
 
 ## Consequences
 
@@ -59,7 +59,7 @@ desktop 组合包恰好挂一个 native 选择器后端。若把 `directory-pick
 
 B 片必须替换 `-native` 行，而不是再叠一个 native 后端，否则「选择工作区」会双重提示。
 
-没有桌面会话的 Windows 子进程仍可能让 COM 失败；P2 的 `windowsHide: false` 让子进程留在用户会话中。在出现 Windows e2e runner 之前，Windows 上的证明是开发者机器上的窗口检查。
+没有桌面会话的 Windows 子进程仍可能让 COM 失败；`windowsHide: true` 只设置 CREATE_NO_WINDOW，子进程仍留在用户会话中。在出现 Windows e2e runner 之前，Windows 上的证明是开发者机器上的窗口检查。
 
 WebView 预览不进入本说明的代码。在后续说明拥有 `BrowserView` 之前，在操作系统中打开仍是预览方式。
 

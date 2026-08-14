@@ -16,7 +16,7 @@ P0 提供 IPC 载体。[P1](./2026-08-14-desktop-profile-host.md) 提供带客�
 
 ### 进程模型
 
-Electron main 用系统 Node 孵化子进程（`npm_node_execpath`、`NODE_BINARY` 或 `PATH` 上的 `node`——当 `process.execPath` 是 Electron 时绝不使用它，也绝不使用 `ELECTRON_RUN_AS_NODE`），`stdio: ['ignore', 'inherit', 'inherit', 'ipc']`，且 `windowsHide: false`。argv 为 `dsh --profile desktop`（存在 `apps/cli/src/bin.ts` 时用 source `tsx` 启动器，否则用构建出的 bin）。子进程在 `@deepseek-ai/dsh-desktop-app/ipc-host` 内运行 [`HostIpcGateway`](./2026-08-14-desktop-ipc-carrier.md)。main 是哑转发器：renderer ↔ preload ↔ main ↔ child。RPC payload 在 `rpc` 通道上保持不透明 JSON；main 从不解析 body。
+Electron main 用系统 Node 孵化子进程（`npm_node_execpath`、`NODE_BINARY` 或 `PATH` 上的 `node`——当 `process.execPath` 是 Electron 时绝不使用它，也绝不使用 `ELECTRON_RUN_AS_NODE`），`stdio: ['ignore', 'inherit', 'inherit', 'ipc']`，且 `windowsHide: true`。argv 为 `dsh --profile desktop`（存在 `apps/cli/src/bin.ts` 时用 source `tsx` 启动器，否则用构建出的 bin）。子进程在 `@deepseek-ai/dsh-desktop-app/ipc-host` 内运行 [`HostIpcGateway`](./2026-08-14-desktop-ipc-carrier.md)。main 是哑转发器：renderer ↔ preload ↔ main ↔ child。RPC payload 在 `rpc` 通道上保持不透明 JSON；main 从不解析 body。
 
 子进程在 `loader.await()` 之后（没有 Loader 时立即）发送 `host-ready`。终端里的 `dsh desktop` 没有父进程 IPC 通道，因此 `ipc-host` 为空操作，P1 的 CLI 行为不变。
 
@@ -72,7 +72,7 @@ Host 的 `desktop-ipc` 经 `connection.createSharedFetchHandler('/api', toFetchH
 
 双进程就绪握手使用显式的 `host-ready` 文档，而不是抓 stdout。
 
-原生目录选择器保持 Node 的 `-native` 配对。[P3](./2026-08-14-desktop-native-shell-capabilities.md) 经子进程 IPC 证明 `host.pickDirectory` 与 `host.openPath`。子进程孵化保持 `windowsHide: false`，以便 Windows 对话框仍能出现。
+原生目录选择器保持 Node 的 `-native` 配对。[P3](./2026-08-14-desktop-native-shell-capabilities.md) 经子进程 IPC 证明 `host.pickDirectory` 与 `host.openPath`。子进程孵化使用 `windowsHide: true`，以免 Windows 打开 `node.exe` 控制台；Win32 选择器 worker 本身已经使用 `windowsHide: true`。
 
 ## Related
 

@@ -41,7 +41,7 @@ Staging and unpacked extraResources fail the pack when they contain a `.env` bas
 
 The `macos-14` job imports the Developer ID p12 (`CSC_LINK` as base64 plus `CSC_KEY_PASSWORD`), reads `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD`, runs `dist:mac:signed`, and uploads the `.dmg`, `.zip`, and `latest-mac.yml` to a GitHub Release named `desktop-v<apps/desktop version>`.
 
-The `windows-2025` job (pwsh) runs unsigned `dist:desktop` (`signAndEditExecutable: false`) and uploads the `.exe` and `latest.yml` to the same Release. There is no Authenticode step. Pull-request CI does not pack installers.
+The `windows-2025` job (pwsh) runs unsigned `dist:desktop` and uploads the `.exe` and `latest.yml` to the same Release. There is no Authenticode step. Pull-request CI does not pack installers.
 
 ### Auto-update
 
@@ -49,7 +49,7 @@ Packaged `apps/desktop` main calls `electron-updater` against that GitHub Releas
 
 ### Windows
 
-`signAndEditExecutable: false` stays in `electron-builder.yml`. README states that the Windows package is unsigned and SmartScreen will warn, and that auto-update applies to installed builds.
+Windows packs stay unsigned: `CSC_IDENTITY_AUTO_DISCOVERY=false` and no certificate. `signAndEditExecutable: true` still runs rcedit so the exe and shortcuts get the Harness icon. README states that the Windows package is unsigned and SmartScreen will warn, and that auto-update applies to installed builds.
 
 ### Out of scope
 
