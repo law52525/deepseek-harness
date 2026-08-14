@@ -41,7 +41,7 @@ P5 是 **macOS Developer ID + 公证 + staple**、**Windows 明确不签名**、
 
 `macos-14` job 导入 Developer ID p12（base64 的 `CSC_LINK` 外加 `CSC_KEY_PASSWORD`），读取 `APPLE_ID`、`APPLE_TEAM_ID` 与 `APPLE_APP_SPECIFIC_PASSWORD`，运行 `dist:mac:signed`，并把 `.dmg`、`.zip` 与 `latest-mac.yml` 上传到名为 `desktop-v<apps/desktop 版本>` 的 GitHub Release。
 
-`windows-2025` job（pwsh）运行未签名的 `dist:desktop`（`signAndEditExecutable: false`），并把 `.exe` 与 `latest.yml` 上传到同一 Release。没有 Authenticode 步骤。拉取请求 CI 不打包安装包。
+`windows-2025` job（pwsh）运行未签名的 `dist:desktop`，并把 `.exe` 与 `latest.yml` 上传到同一 Release。没有 Authenticode 步骤。拉取请求 CI 不打包安装包。
 
 ### Auto-update
 
@@ -49,7 +49,7 @@ P5 是 **macOS Developer ID + 公证 + staple**、**Windows 明确不签名**、
 
 ### Windows
 
-`electron-builder.yml` 保持 `signAndEditExecutable: false`。README 写明 Windows 包未签名、SmartScreen 会警告，以及已安装构建启用自动更新。
+Windows 包保持未签名：`CSC_IDENTITY_AUTO_DISCOVERY=false` 且没有证书。`signAndEditExecutable: true` 仍会跑 rcedit，使 exe 和快捷方式带上 Harness 图标。README 写明 Windows 包未签名、SmartScreen 会警告，以及已安装构建启用自动更新。
 
 ### Out of scope
 

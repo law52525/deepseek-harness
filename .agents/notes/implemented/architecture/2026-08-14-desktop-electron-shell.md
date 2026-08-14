@@ -16,7 +16,7 @@ P0 supplies an IPC carrier. [P1](./2026-08-14-desktop-profile-host.md) supplies 
 
 ### Process model
 
-Electron main spawns a system-Node child (`npm_node_execpath`, `NODE_BINARY`, or `PATH` `node` — never `process.execPath` when that is Electron, never `ELECTRON_RUN_AS_NODE`) with `stdio: ['ignore', 'inherit', 'inherit', 'ipc']` and `windowsHide: false`. Argv is `dsh --profile desktop` (source `tsx` launcher when `apps/cli/src/bin.ts` exists, else the built bin). The child runs [`HostIpcGateway`](./2026-08-14-desktop-ipc-carrier.md) inside `@deepseek-ai/dsh-desktop-app/ipc-host`. Main is a dumb forwarder: renderer ↔ preload ↔ main ↔ child. RPC payloads stay opaque JSON on the `rpc` channel; main never parses bodies.
+Electron main spawns a system-Node child (`npm_node_execpath`, `NODE_BINARY`, or `PATH` `node` — never `process.execPath` when that is Electron, never `ELECTRON_RUN_AS_NODE`) with `stdio: ['ignore', 'inherit', 'inherit', 'ipc']` and `windowsHide: true`. Argv is `dsh --profile desktop` (source `tsx` launcher when `apps/cli/src/bin.ts` exists, else the built bin). The child runs [`HostIpcGateway`](./2026-08-14-desktop-ipc-carrier.md) inside `@deepseek-ai/dsh-desktop-app/ipc-host`. Main is a dumb forwarder: renderer ↔ preload ↔ main ↔ child. RPC payloads stay opaque JSON on the `rpc` channel; main never parses bodies.
 
 The child posts `host-ready` after `loader.await()` (or immediately when no Loader is present). A terminal `dsh desktop` has no parent IPC channel, so `ipc-host` is a no-op and P1 CLI behavior is unchanged.
 
@@ -72,7 +72,7 @@ Plugin bytes evaluated in the renderer are a trusted-path equivalent of serving 
 
 Two-process ready handshake uses an explicit `host-ready` document, not stdout scraping.
 
-Native directory picker stays the Node `-native` pair. [P3](./2026-08-14-desktop-native-shell-capabilities.md) proves `host.pickDirectory` and `host.openPath` through the child's IPC. Child spawn keeps `windowsHide: false` so a Windows dialog can still appear.
+Native directory picker stays the Node `-native` pair. [P3](./2026-08-14-desktop-native-shell-capabilities.md) proves `host.pickDirectory` and `host.openPath` through the child's IPC. Child spawn uses `windowsHide: true` so Windows does not open a `node.exe` console; the Win32 picker worker already uses `windowsHide: true`.
 
 ## Related
 

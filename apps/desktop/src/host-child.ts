@@ -290,6 +290,27 @@ export function hostChildEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessE
 }
 
 /**
+ * Spawn options for the Host child. `node.exe` is a console-subsystem binary;
+ * `windowsHide: true` sets CREATE_NO_WINDOW. The Win32 `IFileOpenDialog` worker
+ * already uses `windowsHide: true` and does not need a Host console.
+ * @param options - test isolation (`env`, `cwd`); production callers pass nothing.
+ * @returns options passed to `spawn`.
+ */
+export function hostChildSpawnOptions(options: SpawnDesktopHostOptions = {}): {
+  stdio: ['ignore', 'inherit', 'inherit', 'ipc']
+  env: NodeJS.ProcessEnv
+  cwd: string | undefined
+  windowsHide: true
+} {
+  return {
+    stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+    env: hostChildEnv(options.env),
+    cwd: options.cwd,
+    windowsHide: true,
+  }
+}
+
+/**
  * Spawn the desktop Host child with stdio IPC.
  * @param options - test isolation (`env`, `cwd`); production callers pass nothing.
  * @returns a live child wrapper.
@@ -297,11 +318,6 @@ export function hostChildEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessE
 export function spawnDesktopHost(options: SpawnDesktopHostOptions = {}): DesktopHostChild {
   const node = resolveNodeExecutable()
   const argv = hostChildArgv(node)
-  const child = spawn(argv.command, argv.args, {
-    stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
-    env: hostChildEnv(options.env),
-    cwd: options.cwd,
-    windowsHide: false,
-  })
+  const child = spawn(argv.command, argv.args, hostChildSpawnOptions(options))
   return new DesktopHostChild(child)
 }

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-14-desktop-installer-release-ci.md
-2026-08-14-desktop-installer-release-ci.md: eb7dfc21bc82a5f1c5bf159c6239f370eadd6223
-2026-08-14-desktop-installer-release-ci.zh.md: e848f3dff6c2c1453679cfa1b3dc1279ec122a99
+2026-08-14-desktop-installer-release-ci.md: 5230210ed65818686ed4dd6c40ce9c66bd1477cf
+2026-08-14-desktop-installer-release-ci.zh.md: 4b54542017d85b3e5daebc0f86199f7c7fc673ab

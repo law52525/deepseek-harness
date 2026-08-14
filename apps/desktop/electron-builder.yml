@@ -39,11 +39,14 @@ mac:
       arch:
         - arm64
 win:
-  signAndEditExecutable: false
+  # rcedit writes the Harness icon into the exe and shortcuts. Authenticode
+  # still does not run: unsigned `dist:desktop` sets CSC_IDENTITY_AUTO_DISCOVERY=false.
+  signAndEditExecutable: true
   target:
     - target: nsis
       arch:
         - x64
 nsis:
-  oneClick: true
+  oneClick: false
+  allowToChangeInstallationDirectory: true
   perMachine: false
