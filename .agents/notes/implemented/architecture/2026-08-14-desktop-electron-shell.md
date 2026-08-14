@@ -24,13 +24,15 @@ On quit, main aborts in-flight IPC handlers, SIGTERM the child, waits, then SIGK
 
 ### Control versus RPC
 
-Process IPC uses `DesktopIpcEnvelope` in `@deepseek-ai/dsh-desktop-app/ipc-protocol`: `{ channel: 'rpc', payload }` or `{ channel: 'control', payload }`. Control documents are `host-ready`, `boot-graph-request` / `boot-graph-response` (graph plus `themePreference`), and `plugin-bytes-request` / `plugin-bytes-response` / `plugin-bytes-failure`. Plugin bytes come only from `ctx.clientModules.clientPath(id)` inside the composed table, never from a renderer-supplied path.
+Process IPC uses `DesktopIpcEnvelope` in `@deepseek-ai/dsh-desktop-app/ipc-protocol`: `{ channel: 'rpc', payload }` or `{ channel: 'control', payload }`. Control documents are `host-ready`, `boot-graph-request` / `boot-graph-response` (graph plus `themePreference`), `plugin-bytes-request` / `plugin-bytes-response` / `plugin-bytes-failure`, and `session-export-request` / `session-export-response` / `session-export-failure`. Plugin bytes come only from `ctx.clientModules.clientPath(id)` inside the composed table, never from a renderer-supplied path.
+
+The Session Header `Session log` control still issues `HEAD` then `<a download>` against the page origin. Under `dsh://app` that URL is `/api/session.export`, which is not a frontend dist file. The `dsh:` handler forwards only GET/HEAD on that path to the Host child as a control document (`sessionId` and `includeDescendants` query fields, never an arbitrary URL). The child runs the existing `toFetchHandler` download; GET bodies are written to a temp ZIP whose path comes back on control. Main reads that file into the protocol Response and deletes it. JSON RPC stays UTF-8-only ([P0](./2026-08-14-desktop-ipc-carrier.md)); the ZIP never rides `unary-response`. Other methods on that path answer 405. A missing Host child answers 503.
 
 ### Preload and renderer
 
 `contextIsolation: true`, `nodeIntegration: false`. Preload exposes `window.__DSH_IPC_PORT__` (`IpcPort` post/subscribe only) and `window.__DSH_DESKTOP__` (`bootGraph`, `readPlugin` via `ipcRenderer.invoke`). No general `ipcRenderer.send` of arbitrary channels from the page.
 
-The renderer reuses `dsh-web-frontend` dist. Main registers a privileged `dsh:` scheme (`standard`, `secure`, `supportFetchAPI`) and serves that dist at `dsh://app/` so Vite's `/assets/…` URLs keep working without changing the web `base`. `apps/web/src/main.ts` branches on `__DSH_DESKTOP__`: it sets `window.__DSH_BOOT__` from the Host graph, applies the pre-plugin theme without importing `ui-theme`, and runs `new AppWebEntry(el, { loadBundle })`. `loadBundle` maps `/plugins/<id>/client.js?rev=…` to `readPlugin(id)` and evaluates the factory the same way jsdom assembled boot does.
+The renderer reuses `dsh-web-frontend` dist. Main registers a privileged `dsh:` scheme (`standard`, `secure`, `supportFetchAPI`) and serves that dist at `dsh://app/` so Vite's `/assets/…` URLs keep working without changing the web `base`. The same handler answers `GET`/`HEAD` `/api/session.export` from the Host child as above. `apps/web/src/main.ts` branches on `__DSH_DESKTOP__`: it sets `window.__DSH_BOOT__` from the Host graph, applies the pre-plugin theme without importing `ui-theme`, and runs `new AppWebEntry(el, { loadBundle })`. `loadBundle` maps `/plugins/<id>/client.js?rev=…` to `readPlugin(id)` and evaluates the factory the same way jsdom assembled boot does.
 
 ### Connection client
 
@@ -48,11 +50,15 @@ When `window.__DSH_IPC_PORT__` has `post` and `subscribe`, `dsh-client-connectio
 
 **`loadFile` of `index.html` with `base: './'`.** Would require a Vite `base` change that `dsh web` also consumes. The privileged `dsh://app` origin keeps `/assets` absolute paths.
 
+**Buffer the ZIP in renderer JavaScript via `IpcApiClient.fetch` and a blob URL.** JSON IPC cannot carry binary bodies without an explicit frame. A temp file on the control channel keeps the browser download manager and leaves RPC JSON-only.
+
+**Open a TCP `/api` listener in the desktop Host.** Forbids the product rule that this Host has no HTTP.
+
 ## Testing
 
-Unit tests cover the RPC forwarder (payload identity, no body decode), `loadBundle` factory eval, theme DOM fields, `dsh:` path mapping, Node-vs-Electron resolution, `ipc-host` no-op without `process.send`, host-ready / boot-graph / plugin-bytes / RPC against `HostIpcGateway`, and connection-client selection of `IpcApiClient` plus `file:` / IPC loopback.
+Unit tests cover the RPC forwarder (payload identity, no body decode), `loadBundle` factory eval, theme DOM fields, `dsh:` path mapping, Session-export URL recognition, temp-path confinement for GET bodies, Node-vs-Electron resolution, `ipc-host` no-op without `process.send`, host-ready / boot-graph / plugin-bytes / session-export / RPC against `HostIpcGateway`, and connection-client selection of `IpcApiClient` plus `file:` / IPC loopback.
 
-`apps/desktop/tests/host-child.spec.ts` pairs `DesktopHostChild` with `attachDesktopIpcHost` over an in-memory child: `host.describe` and boot-graph succeed without Electron. `apps/desktop/tests/host-child.e2e.ts` spawns a real `--profile desktop` child (self-skips until client bundles exist) and asserts host-ready, boot-graph, `host.describe`, and both downlink streams.
+`apps/desktop/tests/host-child.spec.ts` pairs `DesktopHostChild` with `attachDesktopIpcHost` over an in-memory child: `host.describe`, boot-graph, and session-export control succeed without Electron. `apps/desktop/tests/host-child.e2e.ts` spawns a real `--profile desktop` child (self-skips until client bundles exist) and asserts host-ready, boot-graph, `host.describe`, and both downlink streams.
 
 **Electron e2e in CI is a named gap.** There is no Playwright Electron suite in this phase. jsdom plus a Node child prove the seams; `pnpm run dev:desktop` is the developer-machine window check.
 
@@ -60,7 +66,7 @@ Unit tests cover the RPC forwarder (payload identity, no body decode), `loadBund
 
 Plugin bytes evaluated in the renderer are a trusted-path equivalent of serving `/plugins`. They must come only from `clientPath` inside the packaged closure.
 
-`location.origin` under `dsh://app` is not `'null'`, but generic RPC still uses `IpcApiClient.fetch` with `http://dsh.internal` so the page origin never becomes an HTTP hop.
+`location.origin` under `dsh://app` is not `'null'`, but generic RPC still uses `IpcApiClient.fetch` with `http://dsh.internal` so the page origin never becomes an HTTP hop. Session-log download stays a browser GET of `/api/session.export` on that origin; the shell answers it from the Host child rather than opening HTTP.
 
 Two-process ready handshake uses an explicit `host-ready` document, not stdout scraping.
 

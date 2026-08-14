@@ -2,7 +2,7 @@
 
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { fileFromDshUrl } from '../src/dsh-protocol.ts'
+import { fileFromDshUrl, isDesktopSessionExportPath, sessionExportFromDshUrl } from '../src/dsh-protocol.ts'
 import { hostErrorPage } from '../src/error-page.ts'
 
 describe('dsh protocol and error page', () => {
@@ -10,10 +10,31 @@ describe('dsh protocol and error page', () => {
     const dist = join('/tmp', 'dsh-frontend-dist')
     expect(fileFromDshUrl('dsh://app/', dist)).toBe(join(dist, 'index.html'))
     expect(fileFromDshUrl('dsh://app/assets/index.js', dist)).toBe(join(dist, 'assets', 'index.js'))
+    expect(fileFromDshUrl('dsh://app/api/session.export', dist)).toBe(join(dist, 'api/session.export'))
     expect(fileFromDshUrl('dsh://app/%2e%2e%2fsecret', dist)).toBeUndefined()
     expect(fileFromDshUrl('dsh://other/index.html', dist)).toBeUndefined()
     expect(fileFromDshUrl('http://app/', dist)).toBeUndefined()
     expect(fileFromDshUrl('not a url', dist)).toBeUndefined()
+  })
+
+  it('recognizes Session-export URLs without treating them as dist files', () => {
+    expect(isDesktopSessionExportPath('dsh://app/api/session.export?sessionId=s')).toBe(true)
+    expect(isDesktopSessionExportPath('dsh://app/api/session.export')).toBe(true)
+    expect(isDesktopSessionExportPath('dsh://app/assets/index.js')).toBe(false)
+    expect(isDesktopSessionExportPath('not a url')).toBe(false)
+    expect(sessionExportFromDshUrl(
+      'dsh://app/api/session.export?sessionId=s1&includeDescendants=true',
+      'HEAD',
+    )).toEqual({ method: 'HEAD', sessionId: 's1', includeDescendants: true })
+    expect(sessionExportFromDshUrl(
+      'dsh://app/api/session.export?sessionId=s1&includeDescendants=false',
+      'GET',
+    )).toEqual({ method: 'GET', sessionId: 's1', includeDescendants: false })
+    expect(sessionExportFromDshUrl('dsh://app/api/session.export', 'GET'))
+      .toEqual({ method: 'GET', sessionId: '', includeDescendants: false })
+    expect(sessionExportFromDshUrl('dsh://app/api/session.export?sessionId=s', 'POST')).toBeUndefined()
+    expect(sessionExportFromDshUrl('dsh://app/assets/index.js', 'GET')).toBeUndefined()
+    expect(sessionExportFromDshUrl('not a url', 'GET')).toBeUndefined()
   })
 
   it('escapes operator-facing crash text', () => {

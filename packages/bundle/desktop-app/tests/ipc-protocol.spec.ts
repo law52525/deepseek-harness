@@ -34,6 +34,53 @@ describe('desktop IPC protocol', () => {
       .toEqual({ type: 'plugin-bytes-response', id: '1', bytes: 'code' })
     expect(parseDesktopControl({ type: 'plugin-bytes-failure', id: '1', message: 'missing' }))
       .toEqual({ type: 'plugin-bytes-failure', id: '1', message: 'missing' })
+    expect(parseDesktopControl({
+      type: 'session-export-request',
+      id: '1',
+      method: 'GET',
+      sessionId: 'session-root',
+      includeDescendants: true,
+    })).toEqual({
+      type: 'session-export-request',
+      id: '1',
+      method: 'GET',
+      sessionId: 'session-root',
+      includeDescendants: true,
+    })
+    expect(parseDesktopControl({
+      type: 'session-export-request',
+      id: '1',
+      method: 'HEAD',
+      sessionId: '',
+      includeDescendants: false,
+    })).toEqual({
+      type: 'session-export-request',
+      id: '1',
+      method: 'HEAD',
+      sessionId: '',
+      includeDescendants: false,
+    })
+    expect(parseDesktopControl({
+      type: 'session-export-response',
+      id: '1',
+      status: 200,
+      headers: null,
+    })).toBeUndefined()
+    expect(parseDesktopControl({
+      type: 'session-export-response',
+      id: '1',
+      status: 200,
+      headers: { 'content-type': 'application/zip' },
+      bodyPath: '/tmp/dsh-session-export-1.zip',
+    })).toMatchObject({ type: 'session-export-response', status: 200, bodyPath: '/tmp/dsh-session-export-1.zip' })
+    expect(parseDesktopControl({
+      type: 'session-export-response',
+      id: '1',
+      status: 404,
+      headers: {},
+    })).toEqual({ type: 'session-export-response', id: '1', status: 404, headers: {} })
+    expect(parseDesktopControl({ type: 'session-export-failure', id: '1', message: 'boom' }))
+      .toEqual({ type: 'session-export-failure', id: '1', message: 'boom' })
 
     expect(parseDesktopEnvelope(null)).toBeUndefined()
     expect(parseDesktopEnvelope('rpc')).toBeUndefined()
@@ -53,6 +100,53 @@ describe('desktop IPC protocol', () => {
     expect(parseDesktopControl({ type: 'plugin-bytes-request', id: '1', pluginId: '' })).toBeUndefined()
     expect(parseDesktopControl({ type: 'plugin-bytes-response', id: '1' })).toBeUndefined()
     expect(parseDesktopControl({ type: 'plugin-bytes-failure', id: '1' })).toBeUndefined()
+    expect(parseDesktopControl({
+      type: 'session-export-request',
+      id: '1',
+      method: 'POST',
+      sessionId: 's',
+      includeDescendants: true,
+    })).toBeUndefined()
+    expect(parseDesktopControl({
+      type: 'session-export-request',
+      id: '',
+      method: 'GET',
+      sessionId: 's',
+      includeDescendants: true,
+    })).toBeUndefined()
+    expect(parseDesktopControl({
+      type: 'session-export-request',
+      id: '1',
+      method: 'GET',
+      sessionId: 1,
+      includeDescendants: true,
+    })).toBeUndefined()
+    expect(parseDesktopControl({
+      type: 'session-export-response',
+      id: '1',
+      status: '200',
+      headers: {},
+    })).toBeUndefined()
+    expect(parseDesktopControl({
+      type: 'session-export-response',
+      id: '1',
+      status: 200,
+      headers: { n: 1 },
+    })).toBeUndefined()
+    expect(parseDesktopControl({
+      type: 'session-export-response',
+      id: '1',
+      status: 200,
+      headers: [],
+    })).toBeUndefined()
+    expect(parseDesktopControl({
+      type: 'session-export-response',
+      id: '1',
+      status: 200,
+      headers: {},
+      bodyPath: 1,
+    })).toBeUndefined()
+    expect(parseDesktopControl({ type: 'session-export-failure', id: '1' })).toBeUndefined()
     expect(parseDesktopControl({ type: 'unknown' })).toBeUndefined()
     expect(parseDesktopControl(undefined)).toBeUndefined()
   })

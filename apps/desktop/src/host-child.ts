@@ -11,6 +11,8 @@ import { controlEnvelope, controlFromChild, rpcEnvelope, rpcPayloadFromChild } f
 import { resolveNodeExecutable } from './node-executable.ts'
 import { resolveBundledDshBin } from './packaged-resources.ts'
 import type {
+  DesktopControlMessage,
+  DesktopControlToHost,
   DesktopControlToShell,
   DesktopThemePreference,
   WebBootGraph,
@@ -155,6 +157,34 @@ export class DesktopHostChild {
   }
 
   /**
+   * Run Host Session-log export for the `dsh:` protocol handler.
+   * @param query - GET or HEAD plus the session.export query.
+   * @returns Host status, download headers, and a temp ZIP path for GET bodies.
+   */
+  async sessionExport(query: {
+    method: 'GET' | 'HEAD'
+    sessionId: string
+    includeDescendants: boolean
+  }): Promise<{ status: number; headers: Record<string, string>; bodyPath?: string }> {
+    const response = await this.requestControl({
+      type: 'session-export-request',
+      id: crypto.randomUUID(),
+      method: query.method,
+      sessionId: query.sessionId,
+      includeDescendants: query.includeDescendants,
+    })
+    if (response.type === 'session-export-response') {
+      return {
+        status: response.status,
+        headers: response.headers,
+        ...response.bodyPath === undefined ? {} : { bodyPath: response.bodyPath },
+      }
+    }
+    if (response.type === 'session-export-failure') throw new Error(response.message)
+    throw new Error(`desktop: unexpected session-export reply ${response.type}`)
+  }
+
+  /**
    * SIGTERM the child, wait, then SIGKILL if it is still alive.
    * @returns after the process has exited.
    */
@@ -176,9 +206,7 @@ export class DesktopHostChild {
     }
   }
 
-  private requestControl(
-    payload: { type: 'boot-graph-request'; id: string } | { type: 'plugin-bytes-request'; id: string; pluginId: string },
-  ): Promise<DesktopControlToShell> {
+  private requestControl(payload: DesktopControlToHost): Promise<DesktopControlToShell> {
     if (this.exitError !== undefined) return Promise.reject(this.exitError)
     return new Promise((resolve, reject) => {
       this.pending.set(payload.id, { resolve, reject })
@@ -199,14 +227,7 @@ export class DesktopHostChild {
       return
     }
     const control = controlFromChild(value)
-    if (
-      control === undefined
-      || (
-        control.type !== 'boot-graph-response'
-        && control.type !== 'plugin-bytes-response'
-        && control.type !== 'plugin-bytes-failure'
-      )
-    ) {
+    if (control === undefined || !isControlReply(control)) {
       return
     }
     const pending = this.pending.get(control.id)
@@ -214,6 +235,16 @@ export class DesktopHostChild {
     this.pending.delete(control.id)
     pending.resolve(control)
   }
+}
+
+function isControlReply(
+  control: DesktopControlMessage,
+): control is Extract<DesktopControlToShell, { id: string }> {
+  return control.type === 'boot-graph-response'
+    || control.type === 'plugin-bytes-response'
+    || control.type === 'plugin-bytes-failure'
+    || control.type === 'session-export-response'
+    || control.type === 'session-export-failure'
 }
 
 /**

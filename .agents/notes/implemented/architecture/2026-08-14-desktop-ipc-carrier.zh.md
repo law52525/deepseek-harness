@@ -91,6 +91,6 @@ stream-abort   { type, id }
 
 四象限 RPC 可以在不含 Electron 的情况下经 IPC 测试，因此 [Electron 壳](./2026-08-14-desktop-electron-shell.md) 把 `ipcMain` / `ipcRenderer`（以及 Node 子进程的 `process` IPC）适配到 `IpcPort` 时不必改消息类型。`dsh-client-connection` 仍持有浏览器 HTTP/WebSocket 载体；本包没有 `electron` 依赖。[desktop profile](./2026-08-14-desktop-profile-host.md) 组合 Host；壳在子进程中实例化网关。
 
-JSON 序列化无法承载二进制正文。当前 RPC 仅有 JSON；若后续方法需要字节，本载体必须增加显式二进制帧，而不是悄悄做 base64。
+JSON 序列化无法承载二进制正文。当前 RPC 仅有 JSON；若后续 RPC 方法需要字节，本载体必须增加显式二进制帧，而不是悄悄做 base64。桌面壳上的 Session 日志 ZIP 字节作为 Host 写入的临时路径走 [control 通道](./2026-08-14-desktop-electron-shell.md)，不走 `unary-response` 正文。
 
 把每个 IPC 对端都当作回环，只有在 Node 子进程只接受孵化它的 Electron main 连接时才正确。壳不得打开 TCP 回退。
