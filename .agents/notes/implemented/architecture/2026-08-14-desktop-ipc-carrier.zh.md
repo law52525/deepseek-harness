@@ -55,7 +55,7 @@ stream-abort   { type, id }
 
 ### Host: `HostIpcGateway`
 
-用 `toFetchHandler(api)` 加上 `api.events` 构造。对每个对端：
+用 Fetch handler 加上 `api.events` 构造。apiproxy 测试传入 `toFetchHandler(api)`；[Electron 壳](./2026-08-14-desktop-electron-shell.md) 在该回退之前组合 Connection interceptor 分发。对每个对端：
 
 - `unary-request` → `handler.fetch` → `unary-response`；抛出的 fetch 错误 → `unary-failure`。
 - 针对 mux/host 的 `stream-open` → 迭代 `api.events.mux` / `api.events.host` 并 post `stream-frame`；完成或抛出时 post `stream-end`。
@@ -65,7 +65,7 @@ stream-abort   { type, id }
 
 ### Connection plugin
 
-`dsh-client-connection` 的 HTTP 路由未改。[Electron 壳](./2026-08-14-desktop-electron-shell.md) 识别 `window.__DSH_IPC_PORT__` 并构造已导出的客户端；测试也直接构造 `IpcApiClient`。
+`dsh-client-connection` 的 HTTP 路由未改。非 HTTP 载体调用 `connection.createSharedFetchHandler('/api', toFetchHandler(api))`。[Electron 壳](./2026-08-14-desktop-electron-shell.md) 识别 `window.__DSH_IPC_PORT__` 并构造已导出的客户端；测试也直接构造 `IpcApiClient`。
 
 ### Out of scope
 

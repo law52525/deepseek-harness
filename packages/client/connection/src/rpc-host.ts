@@ -15,6 +15,7 @@ import { bridge, type FetchHandler } from './http-bridge.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
 import { API_PATH } from './api-path.ts'
 import type {
+  ConnectionFetchHandler,
   ConnectionRpcEndpointMatcher,
   ConnectionRpcHandler,
   ConnectionRpcHandlerOptions,
@@ -70,8 +71,8 @@ export class HostConnectionService extends Service implements HostConnectionHand
    */
   createSharedFetchHandler(
     channel: '/api',
-    fallback: FetchHandler,
-  ): FetchHandler {
+    fallback: ConnectionFetchHandler,
+  ): ConnectionFetchHandler {
     return {
       fetch: (request) => {
         const endpoint = endpointFromPath(channel, new URL(request.url).pathname)
