@@ -65,7 +65,7 @@ WebView 预览不进入本说明的代码。在后续说明拥有 `BrowserView` 
 
 ## Related
 
-- [桌面产品](../../proposed/architecture/2026-08-14-desktop-installer-product.md)
+- [桌面产品](./2026-08-14-desktop-installer-product.md)
 - [P0 IPC 载体](./2026-08-14-desktop-ipc-carrier.md)
 - [P1 desktop profile Host](./2026-08-14-desktop-profile-host.md)
 - [P2 Electron 壳](./2026-08-14-desktop-electron-shell.md)

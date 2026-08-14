@@ -8,7 +8,7 @@ Status: implemented
 
 已交付的 GUI 是 `dsh web`：`dsh-base` 加上 [`dsh-web-app`](../../../../packages/bundle/web-app/README.md)，后者插入 `dsh-host-webserver`、`frontend-static`、`web-startup`（`--host` / `--port`），以及打印 URL 的 `web-runtime`。双面客户端包把 HTTP 注册混进了构造：`dsh-client-modules` 只有在注入 `webServer` 之后才组合启动图，`dsh-client-connection` 也以同样方式绑定 `/api`。没有 webserver 时这些 fiber 永远不会激活。
 
-[桌面产品](../../proposed/architecture/2026-08-14-desktop-installer-product.md) 需要同一套 Host 业务插件和同一份客户端名录图，但不得监听 HTTP。`ClientModuleRegistry` 已经暴露 `graph()` 与 `clientPath(id)` 给非 HTTP 消费者。
+[桌面产品](./2026-08-14-desktop-installer-product.md) 需要同一套 Host 业务插件和同一份客户端名录图，但不得监听 HTTP。`ClientModuleRegistry` 已经暴露 `graph()` 与 `clientPath(id)` 给非 HTTP 消费者。
 
 ## Decision
 
@@ -76,9 +76,10 @@ modules/connection 上可选的 `webServer` 会改变加载顺序：一份忘了
 
 ## Related
 
-- [桌面产品](../../proposed/architecture/2026-08-14-desktop-installer-product.md)
+- [桌面产品](./2026-08-14-desktop-installer-product.md)
 - [P0 IPC 载体](./2026-08-14-desktop-ipc-carrier.md)
 - [P2 Electron 壳](./2026-08-14-desktop-electron-shell.md)
 - [P3 原生壳能力](./2026-08-14-desktop-native-shell-capabilities.md)
 - [P4 安装包打包](../process/2026-08-14-desktop-installer-packaging.md)
+- [P5 发布 CI](../process/2026-08-14-desktop-installer-release-ci.md)
 - [Profile 插件组合包](./2026-08-05-profile-plugin-bundles.md)

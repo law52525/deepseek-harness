@@ -20,7 +20,7 @@ Electron main 用系统 Node 孵化子进程（`npm_node_execpath`、`NODE_BINAR
 
 子进程在 `loader.await()` 之后（没有 Loader 时立即）发送 `host-ready`。终端里的 `dsh desktop` 没有父进程 IPC 通道，因此 `ipc-host` 为空操作，P1 的 CLI 行为不变。
 
-退出时，main 中止进行中的 IPC handler，对子进程 SIGTERM，等待，必要时再 SIGKILL。子进程崩溃则加载错误页；窗口不会继续挂在已死的端口上。
+退出时，main 中止进行中的 IPC handler，对子进程 SIGTERM，等待，必要时再 SIGKILL。子进程崩溃则加载错误页；窗口不会继续挂在已死的端口上。打包后的构建会检查 GitHub Releases 做整应用更新（[P5](../process/2026-08-14-desktop-installer-release-ci.md)）；缺少 feed 不会退出应用。
 
 ### Control 与 RPC
 
@@ -68,8 +68,9 @@ Electron main 用系统 Node 孵化子进程（`npm_node_execpath`、`NODE_BINAR
 
 ## Related
 
-- [桌面产品](../../proposed/architecture/2026-08-14-desktop-installer-product.md)
+- [桌面产品](./2026-08-14-desktop-installer-product.md)
 - [P0 IPC 载体](./2026-08-14-desktop-ipc-carrier.md)
 - [P1 desktop profile Host](./2026-08-14-desktop-profile-host.md)
 - [P3 原生壳能力](./2026-08-14-desktop-native-shell-capabilities.md)
 - [P4 安装包打包](../process/2026-08-14-desktop-installer-packaging.md)
+- [P5 发布 CI](../process/2026-08-14-desktop-installer-release-ci.md)

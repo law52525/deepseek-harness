@@ -36,7 +36,7 @@ The Host child is `host/node node_modules/@deepseek-ai/dsh/lib/bin.js --profile 
 
 ### electron-builder
 
-Owned by `apps/desktop` (`electron-builder.yml`). `pnpm run dist:desktop` is the supported entry (verify, build, stage, smoke, pack). `pnpm --filter @deepseek-ai/dsh-desktop run dist` runs only electron-builder against an already staged tree. `electron` is a `devDependency` of `apps/desktop`: electron-builder 26 refuses it under `dependencies`; unpackaged `electron .` still launches through that devDependency.
+Owned by `apps/desktop` (`electron-builder.yml`). `pnpm run dist:desktop` is the supported entry (verify, build, stage, smoke, pack). `pnpm --filter @deepseek-ai/dsh-desktop run dist` runs only electron-builder against an already staged tree. `electron` is a `devDependency` of `apps/desktop`: electron-builder 26 refuses it under `dependencies`; unpackaged `electron .` still launches through that devDependency. The pack uses `resources/icon.png` (1024×1024 raster of the Harness favicon's light-scheme fill `#000`); electron-builder derives `.icns` / `.ico` from it. The live SVG switches black/white with `prefers-color-scheme`; a packaged icon is one raster. `files` omit `node_modules`, so tsdown `alwaysBundle` inlines `electron-updater` and `@deepseek-ai/dsh-desktop-app/ipc-protocol`; a leftover package import in `lib/main.js` / `lib/preload.js` fails the pack.
 
 extraResources copies `apps/desktop/stage/` as a whole. electron-builder's `createFilter` always drops a copy-root `node_modules`, so `from: stage/host` would omit the Host closure. After pack, the installer script requires `host/node_modules/@deepseek-ai/dsh/lib/bin.js` and `frontend/index.html` in the unpacked extraResources. The script runs `electron-builder` and `tsx` from `node_modules/.bin`.
 
@@ -47,7 +47,7 @@ extraResources copies `apps/desktop/stage/` as a whole. electron-builder's `crea
 
 Build on the target OS. Intel Mac, Windows arm64, and Linux AppImage are not v1. Artifacts land in `apps/desktop/dist/`.
 
-macOS uses electron-builder identity `-` (ad-hoc). Windows sets `signAndEditExecutable: false`. [P5](../../proposed/process/2026-08-14-desktop-installer-release-ci.md) notarizes the arm64 `.dmg` (Developer ID plus nested Host `node` and `node-spawn-helper`) and publishes GitHub Releases; Windows stays unsigned (no Authenticode). The staged tree is the desktop deploy root plus copied Node, not the repository root; a gitignored `.env` is not an extraResource.
+Unsigned `pnpm run dist:desktop` passes electron-builder identity `-` (ad-hoc). Windows sets `signAndEditExecutable: false`. [P5](./2026-08-14-desktop-installer-release-ci.md) notarizes the arm64 `.dmg` (Developer ID plus nested Host `node` and `node-spawn-helper`) and publishes GitHub Releases; Windows stays unsigned (no Authenticode). The staged tree is the desktop deploy root plus copied Node, not the repository root; a gitignored `.env` is not an extraResource.
 
 ## Alternatives considered
 
@@ -55,7 +55,7 @@ macOS uses electron-builder identity `-` (ad-hoc). Windows sets `signAndEditExec
 
 **pkg-SEA the Host and put only the exe next to Electron.** Attractive size-wise, but pkg VFS plus Electron extraResources plus Windows is three packaging systems. v1 prefers a real `node_modules` tree the child can `import`.
 
-**Rebuild native addons for Electron and drop the Node child.** That is the in-process model, deferred by the [product note](../../proposed/architecture/2026-08-14-desktop-installer-product.md).
+**Rebuild native addons for Electron and drop the Node child.** That is the in-process model, deferred by the [product note](../architecture/2026-08-14-desktop-installer-product.md).
 
 **Ship npm + `npx` inside the installer.** Still requires network and is not an offline desktop package.
 
@@ -63,12 +63,12 @@ macOS uses electron-builder identity `-` (ad-hoc). Windows sets `signAndEditExec
 
 Installer size is hundreds of MB (Electron + Node + closure). That is accepted for v1; trimming belongs in a later simplification note.
 
-Windows Defender / SmartScreen warns on the unsigned exe. Gatekeeper blocks the ad-hoc macOS app until the user opens it from Finder. P5 notarization is the Mac path; Windows remains unsigned with that warning documented.
+Windows Defender / SmartScreen warns on the unsigned exe. Gatekeeper blocks the ad-hoc macOS app from `dist:desktop` until the user opens it from Finder. [P5](./2026-08-14-desktop-installer-release-ci.md) notarization is the Mac path on GitHub Releases; Windows remains unsigned with that warning documented.
 
-The bundled Node is the builder's `process.execPath`, ABI-matched to staged native addons. Portable official binaries are a P5 CI concern (`actions/setup-node`).
+The bundled Node is the builder's `process.execPath`, ABI-matched to staged native addons. The Desktop Release workflow uses `actions/setup-node` so CI Node matches staged native addons.
 
 `dsh web` remains the default developer-preview entry in the root README.
 
 ## Testing
 
-`scripts/runtime-closure.spec.ts` and `scripts/stage-runtime-closure.spec.ts` pin missing-peer failure, symlink materialization, and restoring pnpm workspace state after deploy. `apps/desktop/tests/packaged-paths.spec.ts` pins extraResources resolution. `scripts/build-desktop-installer.spec.ts` pins the host OS target, `pnpm run` `--` forwarding, and unpacked extraResources paths. The installer script smokes `--help` and `--dump-config` against the staged tree before electron-builder, then requires the Host bin and frontend `index.html` in the unpacked extraResources. Packaged Electron launch in CI remains [P5](../../proposed/process/2026-08-14-desktop-installer-release-ci.md).
+`scripts/runtime-closure.spec.ts` and `scripts/stage-runtime-closure.spec.ts` pin missing-peer failure, symlink materialization, and restoring pnpm workspace state after deploy. `apps/desktop/tests/packaged-paths.spec.ts` pins extraResources resolution. `apps/desktop/tests/packager-icon.spec.ts` pins `resources/icon.png` as a 1024 PNG and the electron-builder `icon` field. `scripts/desktop-shell-bundle.spec.ts` pins leftover `dsh-desktop-app` / `electron-updater` imports as a pack failure. `scripts/build-desktop-installer.spec.ts` pins the host OS target, `pnpm run` `--` forwarding, and unpacked extraResources paths. The installer script smokes `--help` and `--dump-config` against the staged tree before electron-builder, then requires the Host bin and frontend `index.html` in the unpacked extraResources. [P5](./2026-08-14-desktop-installer-release-ci.md) packs signed macOS and unsigned Windows on the Desktop Release workflow; packaged Electron GUI launch remains a named gap.

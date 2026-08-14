@@ -7,6 +7,8 @@ import { readFile } from 'node:fs/promises'
 import { extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, protocol } from 'electron'
+import { autoUpdater } from 'electron-updater'
+import { startDesktopAutoUpdate } from './auto-update.ts'
 import { fileFromDshUrl } from './dsh-protocol.ts'
 import { hostErrorPage } from './error-page.ts'
 import { resolveFrontendDist } from './frontend-dist.ts'
@@ -15,6 +17,8 @@ import { spawnDesktopHost, type DesktopHostChild } from './host-child.ts'
 protocol.registerSchemesAsPrivileged([
   { scheme: 'dsh', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
 ])
+
+const SHELL_ICON = fileURLToPath(new URL('../resources/icon.png', import.meta.url))
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -84,6 +88,7 @@ async function createWindow(): Promise<void> {
     windowRef = new BrowserWindow({
       width: 1280,
       height: 800,
+      icon: SHELL_ICON,
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: false },
     })
     showHostError(error instanceof Error ? error.message : String(error))
@@ -93,6 +98,7 @@ async function createWindow(): Promise<void> {
   windowRef = new BrowserWindow({
     width: 1280,
     height: 800,
+    icon: SHELL_ICON,
     webPreferences: {
       preload: fileURLToPath(new URL('./preload.js', import.meta.url)),
       contextIsolation: true,
@@ -121,7 +127,13 @@ async function disposeHost(): Promise<void> {
 }
 
 void app.whenReady().then(() => {
+  if (!app.isPackaged && process.platform === 'darwin') app.dock?.setIcon(SHELL_ICON)
   void createWindow()
+  void startDesktopAutoUpdate({
+    isPackaged: app.isPackaged,
+    updater: autoUpdater,
+    appVersion: app.getVersion(),
+  })
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow()
   })

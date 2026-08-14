@@ -1,18 +1,32 @@
 /**
  * Stage the desktop Host Node closure and run electron-builder for the host
- * platform. Layout and unsigned/ad-hoc policy are owned by
+ * platform. Unsigned/ad-hoc packing is owned by
  * .agents/notes/implemented/process/2026-08-14-desktop-installer-packaging.md.
+ * Signed macOS notarization is owned by
+ * .agents/notes/implemented/process/2026-08-14-desktop-installer-release-ci.md.
  */
 
-import { spawn } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { chmod, copyFile, cp, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { createRequire } from 'node:module'
+import {
+  applySigningEnv,
+  assertStagingHasNoSecrets,
+  parseSigningEnvFile,
+} from './desktop-installer-secrets.ts'
+import {
+  MAC_HOST_BINARIES,
+  assertAppleNotaryEnv,
+  macSignedBuilderArgs,
+  resolveMacSigningIdentity,
+} from './desktop-mac-signing.ts'
 import { pnpmBin, runLogged, stageRuntimeClosure } from './stage-runtime-closure.ts'
+import { assertDesktopShellBundleSelfContained } from './desktop-shell-bundle.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -57,6 +71,8 @@ export class DesktopInstallerCli {
     readonly skipPackager: boolean,
     /** Print every command without executing. */
     readonly dryRun: boolean,
+    /** Developer ID + notarize + staple (macOS only). */
+    readonly signed: boolean,
   ) {}
 
   /**
@@ -77,7 +93,12 @@ export class DesktopInstallerCli {
       console.log(DesktopInstallerCli.usage())
       process.exit(0)
     }
-    return new DesktopInstallerCli(values['skip-build'], values['skip-packager'], values['dry-run'])
+    return new DesktopInstallerCli(
+      values['skip-build'],
+      values['skip-packager'],
+      values['dry-run'],
+      values.signed,
+    )
   }
 
   private static parseRaw(argv: string[]) {
@@ -87,6 +108,7 @@ export class DesktopInstallerCli {
         'skip-build': { type: 'boolean', default: false },
         'skip-packager': { type: 'boolean', default: false },
         'dry-run': { type: 'boolean', default: false },
+        'signed': { type: 'boolean', default: false },
         'help': { type: 'boolean', default: false },
       },
     }).values
@@ -98,12 +120,64 @@ export class DesktopInstallerCli {
       '',
       '  --skip-build      skip `pnpm run build` (lib/ and frontend dist must already exist).',
       '  --skip-packager   stage the Host closure and smoke it; do not run electron-builder.',
+      '  --signed          Developer ID, hardened runtime, notarize, staple (macOS arm64).',
       '  --dry-run         print every command without executing.',
       '  --help            print this help.',
       '',
       'Host targets: macOS arm64 (.dmg) and Windows x64 (NSIS). Build on the target OS.',
-      'See .agents/notes/implemented/process/2026-08-14-desktop-installer-packaging.md.',
+      'Unsigned/ad-hoc: pnpm run dist:desktop. Signed Mac: pnpm run dist:mac:signed.',
     ].join('\n')
+  }
+}
+
+/**
+ * electron-builder argv for one host target.
+ * @param target - mac arm64 or win x64.
+ * @param signed - Developer ID path; ignored on Windows.
+ * @param identity - Developer ID Application name when `signed`.
+ * @param github - owner/repo for `app-update.yml` when packing in Actions.
+ * @returns argv after the electron-builder executable.
+ */
+export function packagerArgs(
+  target: PackagerTarget,
+  signed: boolean,
+  identity?: string,
+  github?: { owner: string; repo: string },
+): string[] {
+  const args = ['--publish', 'never', `--${target.os}`, `--${target.arch}`]
+  if (github !== undefined) {
+    args.push(
+      `--config.publish.owner=${github.owner}`,
+      `--config.publish.repo=${github.repo}`,
+    )
+  }
+  if (signed) {
+    if (identity === undefined) {
+      throw new Error(`${LOG}: signed packager args require a Developer ID identity`)
+    }
+    args.push(...macSignedBuilderArgs(identity))
+    return args
+  }
+  if (target.os === 'mac') args.push('--config.mac.identity=-')
+  return args
+}
+
+/**
+ * GitHub Releases owner/repo for electron-updater's generated `app-update.yml`.
+ * Actions sets `GITHUB_REPOSITORY`; local packs use `package.json` repository.
+ * @param githubRepository - `owner/repo` or undefined.
+ * @returns owner and repo, or undefined when the value is not `owner/repo`.
+ */
+export function githubPublishRepo(
+  githubRepository: string | undefined,
+): { owner: string; repo: string } | undefined {
+  if (githubRepository === undefined || githubRepository === '') return undefined
+  const slash = githubRepository.indexOf('/')
+  if (slash <= 0 || slash === githubRepository.length - 1) return undefined
+  if (githubRepository.includes('/', slash + 1)) return undefined
+  return {
+    owner: githubRepository.slice(0, slash),
+    repo: githubRepository.slice(slash + 1),
   }
 }
 
@@ -178,9 +252,29 @@ class DesktopInstallerBuild {
   async build(): Promise<void> {
     if (this.cli.skipBuild) {
       console.log(`${LOG}: skipping pnpm run build (--skip-build)`)
+    } else {
+      await this.run('build', pnpmBin(), ['run', 'build'])
+    }
+    this.assertShellBundle()
+  }
+
+  /**
+   * Fail when `lib/main.js` / `lib/preload.js` still import packages omitted
+   * from the asar (`files` excludes `node_modules`).
+   */
+  assertShellBundle(): void {
+    if (this.cli.dryRun) {
+      console.log(`${LOG}: [dry-run] assert Electron shell bundle is self-contained`)
       return
     }
-    await this.run('build', pnpmBin(), ['run', 'build'])
+    for (const name of ['main.js', 'preload.js']) {
+      const path = join(root, DESKTOP_DIR, 'lib', name)
+      if (!existsSync(path)) {
+        throw new Error(`${LOG}: missing ${path}; run pnpm run build first`)
+      }
+      assertDesktopShellBundleSelfContained(readFileSync(path, 'utf8'), path)
+    }
+    console.log(`${LOG}: Electron shell bundle is self-contained`)
   }
 
   async deployHost(): Promise<void> {
@@ -279,15 +373,45 @@ class DesktopInstallerBuild {
     }
   }
 
+  async rejectSecrets(): Promise<void> {
+    const staging = resolve(root, STAGE_DIR)
+    if (this.cli.dryRun) {
+      console.log(`${LOG}: [dry-run] assert extraResources contain no developer secrets`)
+      return
+    }
+    await assertStagingHasNoSecrets(staging)
+    console.log(`${LOG}: staged extraResources contain no developer secrets`)
+  }
+
   async pack(): Promise<void> {
     if (this.cli.skipPackager) {
       console.log(`${LOG}: skipping electron-builder (--skip-packager)`)
       return
     }
-    process.env.CSC_IDENTITY_AUTO_DISCOVERY = 'false'
     const target = packagerTarget(process.platform, process.arch)
+    let identity: string | undefined
+    if (this.cli.signed) {
+      if (target.os !== 'mac') {
+        throw new Error(`${LOG}: --signed is macOS arm64 only; Windows stays unsigned`)
+      }
+      loadLocalSigningEnv()
+      assertAppleNotaryEnv(process.env)
+      identity = resolveMacSigningIdentity(process.env, findCodesigningIdentities())
+      process.env.DSH_MAC_SIGNED = '1'
+      process.env.DSH_MAC_SIGN_IDENTITY = identity
+      delete process.env.CSC_IDENTITY_AUTO_DISCOVERY
+    } else {
+      process.env.CSC_IDENTITY_AUTO_DISCOVERY = 'false'
+      delete process.env.DSH_MAC_SIGNED
+      delete process.env.DSH_MAC_SIGN_IDENTITY
+    }
     const builder = workspaceBin('electron-builder', DESKTOP_DIR)
-    const args = ['--publish', 'never', `--${target.os}`, `--${target.arch}`]
+    const args = packagerArgs(
+      target,
+      this.cli.signed,
+      identity,
+      githubPublishRepo(process.env.GITHUB_REPOSITORY),
+    )
     await runLogged(
       {
         root,
@@ -304,18 +428,19 @@ class DesktopInstallerBuild {
     if (!existsSync(dist)) {
       throw new Error(`${LOG}: electron-builder produced no ${dist}`)
     }
-    assertPackedClosure(dist, target)
+    await assertPackedClosure(dist, target)
     console.log(`${LOG}: artifacts:`)
     await printArtifacts(dist)
   }
 }
 
 /**
- * Fail if extraResources omitted the Host closure or frontend dist.
+ * Fail if extraResources omitted the Host closure or frontend dist, or if they
+ * contain developer secrets.
  * @param dist - `apps/desktop/dist`.
  * @param target - host packager target.
  */
-function assertPackedClosure(dist: string, target: PackagerTarget): void {
+async function assertPackedClosure(dist: string, target: PackagerTarget): Promise<void> {
   const candidates = packedResourcesCandidates(dist, target, PRODUCT_NAME)
   const resources = candidates.find(candidate => existsSync(candidate))
   if (resources === undefined) {
@@ -330,13 +455,38 @@ function assertPackedClosure(dist: string, target: PackagerTarget): void {
     join(HOST_RESOURCE, ENTRY_BIN),
     join(FRONTEND_RESOURCE, 'index.html'),
   ]
+  if (target.os === 'mac') required.push(...MAC_HOST_BINARIES)
   for (const relative of required) {
     const absolute = join(resources, relative)
     if (!existsSync(absolute)) {
       throw new Error(`${LOG}: packed extraResources missing ${relative} at ${absolute}`)
     }
   }
+  await assertStagingHasNoSecrets(resources)
   console.log(`${LOG}: packed extraResources include Host closure and frontend dist`)
+}
+
+/**
+ * Load `APPLE_*` / `CSC_*` from gitignored root dotenv files when unset.
+ * Does not load `DEEPSEEK_API_KEY`.
+ */
+function loadLocalSigningEnv(): void {
+  for (const name of ['.env', '.env.signing']) {
+    const path = join(root, name)
+    if (!existsSync(path)) continue
+    applySigningEnv(process.env, parseSigningEnvFile(readFileSync(path, 'utf8')))
+  }
+}
+
+/**
+ * `security find-identity` stdout, or empty when the tool is missing.
+ * @returns identity listing.
+ */
+function findCodesigningIdentities(): string {
+  const result = spawnSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
+    encoding: 'utf8',
+  })
+  return result.stdout
 }
 
 async function printArtifacts(directory: string): Promise<void> {
@@ -366,8 +516,8 @@ function runCaptured(
       child.kill('SIGKILL')
       reject(new Error(`${LOG}: smoke timed out after 60s`))
     }, 60_000)
-    child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
-    child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
     child.once('error', (error) => {
       clearTimeout(timer)
       reject(new Error(`${LOG}: smoke failed to spawn: ${error.message}`))
@@ -388,6 +538,7 @@ async function main(): Promise<void> {
   await pipeline.deployHost()
   await pipeline.bundleNode()
   await pipeline.stageFrontend()
+  await pipeline.rejectSecrets()
   await pipeline.smokeHost()
   await pipeline.pack()
 }

@@ -4,25 +4,38 @@ copyright: Copyright © DeepSeek AI
 asar: true
 npmRebuild: false
 nodeGypRebuild: false
+afterPack: ./after-pack.cjs
+icon: resources/icon.png
 directories:
   output: dist
 files:
   - lib/main.js
   - lib/preload.js
   - package.json
+  - resources/icon.png
   - '!**/node_modules/**'
 # Copy `stage/` as a whole. electron-builder's createFilter always drops a
 # from-root `node_modules`, so `from: stage/host` would omit the Host closure.
 extraResources:
   - from: stage
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+publish:
+  provider: github
+  releaseType: release
 mac:
-  identity: '-'
+  # Unsigned `dist:desktop` passes `--config.mac.identity=-`. Signed
+  # `dist:mac:signed` passes the Developer ID Application identity, hardened
+  # runtime, notarize, and entitlements instead.
   gatekeeperAssess: false
   hardenedRuntime: false
   category: public.app-category.developer-tools
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.inherit.plist
   target:
     - target: dmg
+      arch:
+        - arm64
+    - target: zip
       arch:
         - arm64
 win:
