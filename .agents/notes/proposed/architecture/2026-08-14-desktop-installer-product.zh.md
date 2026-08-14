@@ -8,7 +8,7 @@ Status: proposed
 
 当前交付的 GUI 是 `dsh web`：一个 Node Host，外加浏览器里打开的回环 HTTP URL。想在 Windows 或 macOS 上当应用来用的操作者必须先安装 Node、跑一条 CLI（命令行界面），并让浏览器标签页一直连着该进程。Web UI 不是静态站点；没有 Host 就无法打开会话、读取工作区或运行工具。因此只包装 Vite dist 不能做出桌面产品。
 
-[GUI 分层说明](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md) 已经预留了一个 Electron 客户端：复用 `packages/client/*`，且不复用 `dsh-host-webserver`。这样的应用、profile、IPC 载体和安装包流水线目前都不存在。Python SDK 的 [single-exe 流水线](../../implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) 会为 linux-x64、linux-arm64 和 macos-arm64 物化一份 Node 运行时闭包；它是无头 JSON-RPC 对端，不是 GUI 壳，且 Windows 不在其目标之列。
+[GUI 分层说明](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md) 已经预留了一个 Electron 客户端：复用 `packages/client/*`，且不复用 `dsh-host-webserver`。这样的应用、profile 和安装包流水线目前都不存在。JSON IPC 载体在 `dsh-host-apiproxy`（[P0](../../implemented/architecture/2026-08-14-desktop-ipc-carrier.md)）。Python SDK 的 [single-exe 流水线](../../implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) 会为 linux-x64、linux-arm64 和 macos-arm64 物化一份 Node 运行时闭包；它是无头 JSON-RPC 对端，不是 GUI 壳，且 Windows 不在其目标之列。
 
 ## Proposal
 
@@ -46,7 +46,7 @@ Host 进 Electron main 的同进程方案允许作为后续简化，前提是 ad
 
 | Phase | Note | Delivers |
 |---|---|---|
-| P0 | [IPC 载体](./2026-08-14-desktop-ipc-carrier.md) | 消息协议、`IpcApiClient`、宿主网关、不含 Electron 的测试 |
+| P0 | [IPC 载体](../../implemented/architecture/2026-08-14-desktop-ipc-carrier.md) | 消息协议、`IpcApiClient`、宿主网关、不含 Electron 的测试 |
 | P1 | [Desktop profile](./2026-08-14-desktop-profile-host.md) | `desktop` profile、无 HTTP 的 Host、双面插件上可选的 `webServer` |
 | P2 | [Electron 壳](./2026-08-14-desktop-electron-shell.md) | `apps/desktop`、preload、`BootSeams.loadBundle`、启动清单注入 |
 | P3 | [原生壳能力](./2026-08-14-desktop-native-shell-capabilities.md) | 把选择器与打开路径接到壳上；WebView 预览保持后置 |

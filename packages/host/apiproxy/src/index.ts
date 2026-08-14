@@ -2,7 +2,8 @@
  * @deepseek-ai/dsh-host-apiproxy — the API gateway every client shape shares:
  * the ApiProxy contract (api/: types + zod schemas, browser-safe), the fetch
  * carrier pair (fetch/: toFetchHandler on the host side, AbstractApiClient +
- * platform subclasses on the client side), and the host-side implementation
+ * InProcessApiClient / IpcApiClient on the client side, HostIpcGateway for
+ * JSON IPC), and the host-side implementation
  * (api-proxy.ts: createApiProxy + the ApiProxyService gateway plugin providing
  * `ctx.apiProxy`). Transport-agnostic by design: this package registers no
  * routes — physical carriers wrap `ctx.apiProxy` themselves.
@@ -25,8 +26,9 @@ import {
 export type * from './api/index.ts'
 export { RpcId } from './api/rpc.ts'
 export { toFetchHandler } from './fetch/handler.ts'
-export { AbstractApiClient, InProcessApiClient } from './fetch/client.ts'
-export type { IApiClient } from './fetch/client.ts'
+export { AbstractApiClient, InProcessApiClient, IpcApiClient, IpcId } from './fetch/client.ts'
+export type { IApiClient, IpcMessage, IpcPort } from './fetch/client.ts'
+export { HostIpcGateway } from './fetch/ipc-gateway.ts'
 export { createApiProxy } from './api-proxy.ts'
 export type { ApiProxyDefaults } from './api-proxy.ts'
 

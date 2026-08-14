@@ -2,7 +2,8 @@
  * Client side of the fetch carrier. AbstractApiClient holds every protocol invariant: rpcId minting,
  * four-quadrant envelope wrap/unwrap, zod parsing, in-process SSE frame decoding, and the payload-direct
  * IApiClient domain methods (business code never mints). Platform differences ride two aspects:
- * abstract doFetch (transport) + overridable onEnvelope (tap). ApiProxy (the impl face) is untouched.
+ * abstract doFetch (transport) + overridable onEnvelope (tap). IpcApiClient also overrides openMux /
+ * openHost because JSON IPC downlinks are not SSE. ApiProxy (the impl face) is untouched.
  */
 
 import type { z } from 'zod'
@@ -67,6 +68,17 @@ import {
   subagentListValueSchema,
   subagentPromptValueSchema,
 } from '../api/subagents.schema.ts'
+import {
+  IPC_HOST_PATH,
+  IPC_MUX_PATH,
+  IpcId,
+  type IpcMessage,
+  type IpcPort,
+  parseIpcMessage,
+} from './ipc.ts'
+
+export { IpcId } from './ipc.ts'
+export type { IpcMessage, IpcPort } from './ipc.ts'
 
 /**
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
@@ -546,4 +558,222 @@ function abortError(signal: AbortSignal): Error {
   if (reason instanceof Error) return reason
   if (typeof reason === 'string') return new Error(reason)
   return new Error('This operation was aborted')
+}
+
+function headersToRecord(headers: HeadersInit | undefined): Record<string, string> {
+  const record: Record<string, string> = {}
+  new Headers(headers).forEach((value, key) => {
+    record[key] = value
+  })
+  return record
+}
+
+type UnaryPending = {
+  resolve: (response: Response) => void
+  reject: (error: Error) => void
+}
+
+type StreamItem<F> =
+  | { kind: 'frame'; envelope: RpcRequest<F> }
+  | { kind: 'end' }
+  | { kind: 'error'; message: string }
+
+type StreamSink = {
+  acceptFrame: (envelope: unknown) => void
+  end: (error?: string) => void
+}
+
+/**
+ * JSON IPC transport subclass. Unary calls travel as `unary-request` documents
+ * and settle on `unary-response` / `unary-failure`; user-paced cancellation
+ * posts `unary-abort` so the gateway can abort the in-flight handler.
+ * `openMux` / `openHost` each open an independent downlink. Protocol invariants
+ * stay in AbstractApiClient.
+ */
+export class IpcApiClient extends AbstractApiClient {
+  private readonly pendingUnary = new Map<IpcId, UnaryPending>()
+  private readonly streams = new Map<IpcId, StreamSink>()
+  private readonly unsubscribe: () => void
+
+  /**
+   * @param port - bidirectional JSON document port (tests use MessageChannel; a later Electron shell adapts ipcMain/ipcRenderer).
+   * @param timeoutMs - timeout for bounded unary calls; user-paced calls and streams do not use it.
+   */
+  constructor(private readonly port: IpcPort, timeoutMs?: number) {
+    super(timeoutMs)
+    this.unsubscribe = port.subscribe((raw) => {
+      try {
+        this.dispatch(raw)
+      } catch (error) {
+        /* v8 ignore next -- subscribe must not throw into the port; dispatch is exhaustive after parse */
+        console.error('[apiproxy] ipc client dispatch threw:', error)
+      }
+    })
+  }
+
+  /**
+   * Unsubscribe from the port, reject in-flight unaries, and end live streams.
+   */
+  dispose(): void {
+    this.unsubscribe()
+    for (const pending of this.pendingUnary.values()) {
+      pending.reject(new Error('This operation was aborted'))
+    }
+    this.pendingUnary.clear()
+    for (const sink of this.streams.values()) sink.end()
+    this.streams.clear()
+  }
+
+  protected doFetch(input: URL, init?: RequestInit): Promise<Response> {
+    const id = IpcId(crypto.randomUUID())
+    const signal = init?.signal ?? undefined
+    if (signal?.aborted) return Promise.reject(abortError(signal))
+    return new Promise((resolve, reject) => {
+      const onAbort = (): void => {
+        const pending = this.pendingUnary.delete(id)
+        /* v8 ignore next 3 -- settle removes this listener in the same turn as the map delete */
+        if (!pending) {
+          return
+        }
+        this.port.post({ type: 'unary-abort', id })
+        reject(abortError(signal as AbortSignal))
+      }
+      if (signal !== undefined) signal.addEventListener('abort', onAbort, { once: true })
+      this.pendingUnary.set(id, {
+        resolve: (response) => {
+          signal?.removeEventListener('abort', onAbort)
+          resolve(response)
+        },
+        reject: (error) => {
+          signal?.removeEventListener('abort', onAbort)
+          reject(error)
+        },
+      })
+      const body = typeof init?.body === 'string' ? init.body : undefined
+      this.port.post({
+        type: 'unary-request',
+        id,
+        url: input.href,
+        method: init?.method ?? 'GET',
+        headers: headersToRecord(init?.headers),
+        ...body === undefined ? {} : { body },
+      })
+    })
+  }
+
+  protected override openMux(
+    _payload: Parameters<ApiProxy['events']['mux']>[0]['payload'],
+    signal: AbortSignal,
+    onOpen?: () => void,
+  ): AsyncIterable<RpcRequest<MuxFrame>> {
+    return this.readIpcStream(IPC_MUX_PATH, signal, muxFrameSchema, onOpen)
+  }
+
+  protected override openHost(
+    _payload: Parameters<ApiProxy['events']['host']>[0]['payload'],
+    signal: AbortSignal,
+    onOpen?: () => void,
+  ): AsyncIterable<RpcRequest<HostFrame>> {
+    return this.readIpcStream(IPC_HOST_PATH, signal, hostFrameSchema, onOpen)
+  }
+
+  private async *readIpcStream<F extends MuxFrame | HostFrame>(
+    path: string,
+    signal: AbortSignal,
+    frameSchema: z.ZodType<F>,
+    onOpen?: () => void,
+  ): AsyncGenerator<RpcRequest<F>> {
+    const id = IpcId(crypto.randomUUID())
+    const inbox: StreamItem<F>[] = []
+    let wake: (() => void) | undefined
+    const enqueue = (item: StreamItem<F>): void => {
+      inbox.push(item)
+      wake?.()
+      wake = undefined
+    }
+    this.streams.set(id, {
+      acceptFrame: (envelope) => {
+        let full: ServerRequest
+        let frame: F
+        try {
+          full = serverRequestSchema.parse(envelope)
+          frame = frameSchema.parse(full.payload)
+        } catch (error) {
+          console.error(`[apiproxy] dropping malformed IPC frame on ${path}:`, error)
+          return
+        }
+        this.onEnvelope(full)
+        enqueue({ kind: 'frame', envelope: { rpcId: full.rpcId, payload: frame } })
+      },
+      end: (error) => {
+        enqueue(error === undefined ? { kind: 'end' } : { kind: 'error', message: error })
+      },
+    })
+    const handleAbort = (): void => {
+      if (!this.streams.delete(id)) return
+      this.port.post({ type: 'stream-abort', id })
+      enqueue({ kind: 'end' })
+    }
+    signal.addEventListener('abort', handleAbort, { once: true })
+    if (signal.aborted) {
+      handleAbort()
+    } else {
+      this.port.post({ type: 'stream-open', id, path })
+      onOpen?.()
+    }
+    try {
+      while (true) {
+        while (inbox.length > 0) {
+          const item = inbox.shift() as StreamItem<F>
+          if (item.kind === 'end') return
+          if (item.kind === 'error') throw new Error(item.message)
+          yield item.envelope
+        }
+        await new Promise<void>((resolve) => { wake = resolve })
+      }
+    } finally {
+      signal.removeEventListener('abort', handleAbort)
+      if (this.streams.delete(id)) this.port.post({ type: 'stream-abort', id })
+    }
+  }
+
+  private dispatch(raw: IpcMessage): void {
+    const message = parseIpcMessage(raw)
+    if (message === undefined) {
+      console.error('[apiproxy] dropping malformed IPC message')
+      return
+    }
+    switch (message.type) {
+      case 'unary-response': {
+        const pending = this.pendingUnary.get(message.id)
+        if (pending === undefined) return
+        this.pendingUnary.delete(message.id)
+        pending.resolve(new Response(message.body, { status: message.status, headers: message.headers }))
+        return
+      }
+      case 'unary-failure': {
+        const pending = this.pendingUnary.get(message.id)
+        if (pending === undefined) return
+        this.pendingUnary.delete(message.id)
+        pending.reject(new Error(message.message))
+        return
+      }
+      case 'stream-frame': {
+        this.streams.get(message.id)?.acceptFrame(message.envelope)
+        return
+      }
+      case 'stream-end': {
+        const sink = this.streams.get(message.id)
+        if (sink === undefined) return
+        this.streams.delete(message.id)
+        sink.end(message.error)
+        return
+      }
+      case 'unary-request':
+      case 'unary-abort':
+      case 'stream-open':
+      case 'stream-abort':
+        return
+    }
+  }
 }
