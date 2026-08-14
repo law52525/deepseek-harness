@@ -83,7 +83,7 @@ Desktop-app will drift from web-app's roster. Document that adding a `dsh.client
 
 Paste into a new Cursor agent:
 
-1. Implement only P1 from `.agents/notes/proposed/architecture/2026-08-14-desktop-profile-host.md`. Read the [product note](./2026-08-14-desktop-installer-product.md), [P0](./2026-08-14-desktop-ipc-carrier.md), `packages/bundle/web-app/cordis.patch.yml`, `packages/bundle/web-app/README.md`, `packages/client/modules/src/index.ts`, `packages/client/connection/src/index.ts`, `apps/cli/src/args.ts`, `docs/cookbook/adding-a-package.md`, `AGENTS.md`, and `packages/AGENTS.md`.
+1. Implement only P1 from `.agents/notes/proposed/architecture/2026-08-14-desktop-profile-host.md`. Read the [product note](./2026-08-14-desktop-installer-product.md), [P0](../../implemented/architecture/2026-08-14-desktop-ipc-carrier.md), `packages/bundle/web-app/cordis.patch.yml`, `packages/bundle/web-app/README.md`, `packages/client/modules/src/index.ts`, `packages/client/connection/src/index.ts`, `apps/cli/src/args.ts`, `docs/cookbook/adding-a-package.md`, `AGENTS.md`, and `packages/AGENTS.md`.
 2. Do not add Electron or installer packaging. Do not remove HTTP from the web profile. Do not implement `apps/desktop`.
 3. Add `@deepseek-ai/dsh-desktop-app` under `packages/bundle/desktop-app/` following the web-app bundle pattern. Register it in tsconfig, constraints, and the CLI profile templates.
 4. Change modules and connection node halves so `webServer` is optional as specified. Prove web HTTP registration with existing tests; prove desktop dump-config and help with new tests.
