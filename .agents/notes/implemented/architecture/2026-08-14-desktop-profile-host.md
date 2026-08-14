@@ -40,7 +40,7 @@ Plugin-level `loader`-only inject is not enough to keep `--help` from scanning c
 
 ### Composition only
 
-The HTTP-free composition does not bind a listener. The [Electron shell](./2026-08-14-desktop-electron-shell.md) instantiates `HostIpcGateway` in the Node child through `desktop-app/ipc-host` when a parent IPC channel exists. Installers remain a later phase. The web profile still mounts HTTP.
+The HTTP-free composition does not bind a listener. The [Electron shell](./2026-08-14-desktop-electron-shell.md) instantiates `HostIpcGateway` in the Node child through `desktop-app/ipc-host` when a parent IPC channel exists. Installers are [P4](../process/2026-08-14-desktop-installer-packaging.md). The web profile still mounts HTTP.
 
 Adding a `dsh.client` row to web-app requires the same row on desktop-app until a shared roster fragment exists that both bundles can consume without HTTP rows. That fragment is not invented here.
 
@@ -80,4 +80,5 @@ The native directory picker stays pinned. Operators who overlay `directory-picke
 - [P0 IPC carrier](./2026-08-14-desktop-ipc-carrier.md)
 - [P2 Electron shell](./2026-08-14-desktop-electron-shell.md)
 - [P3 native shell capabilities](./2026-08-14-desktop-native-shell-capabilities.md)
+- [P4 installer packaging](../process/2026-08-14-desktop-installer-packaging.md)
 - [Profile plugin bundles](./2026-08-05-profile-plugin-bundles.md)

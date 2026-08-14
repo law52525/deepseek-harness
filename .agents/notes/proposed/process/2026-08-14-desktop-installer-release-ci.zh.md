@@ -77,7 +77,7 @@ GitHub Environments 里的 notary 与 Authenticode 密钥是新的泄漏面。�
 
 粘贴到新的 Cursor agent：
 
-1. 实施 `.agents/notes/proposed/process/2026-08-14-desktop-installer-release-ci.md` 中的 P5。P4 必须已经能在本地产出产物。阅读该说明、[产品说明](../architecture/2026-08-14-desktop-installer-product.md)、[P4](./2026-08-14-desktop-installer-packaging.md)、`.github/AGENTS.md`、若会碰到 Windows runner 则阅读 `.agents/notes/implemented/process/2026-07-26-ci-failover-runbook.md`，以及 `.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md`（CI 模式）。
+1. 实施 `.agents/notes/proposed/process/2026-08-14-desktop-installer-release-ci.md` 中的 P5。P4 必须已经能在本地产出产物。阅读该说明、[产品说明](../architecture/2026-08-14-desktop-installer-product.md)、[P4](../../implemented/process/2026-08-14-desktop-installer-packaging.md)、`.github/AGENTS.md`、若会碰到 Windows runner 则阅读 `.agents/notes/implemented/process/2026-07-26-ci-failover-runbook.md`，以及 `.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md`（CI 模式）。
 2. 不要改变双进程模型。不要增加 Linux/商店目标。不要把签名密钥放进仓库。
 3. 为未签名的 macOS arm64 与 Windows x64 desktop dist 增加 CI job（用标签或 workflow_dispatch 门控，除非有便宜的必需冒烟）。**仅当**用户确认密钥可用时才加入发布工作流的签名/公证；否则实施未签名 CI 路径，并文档化由密钥门控的轨道。
 4. 仅当用户在同一会话中要求时才实现自动更新；否则在 implemented 说明里把 Track 3 留为后置。

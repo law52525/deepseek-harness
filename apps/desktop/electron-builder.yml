@@ -1,0 +1,36 @@
+appId: ai.deepseek.harness.desktop
+productName: DeepSeek Harness
+copyright: Copyright © DeepSeek AI
+asar: true
+npmRebuild: false
+nodeGypRebuild: false
+directories:
+  output: dist
+files:
+  - lib/main.js
+  - lib/preload.js
+  - package.json
+  - '!**/node_modules/**'
+# Copy `stage/` as a whole. electron-builder's createFilter always drops a
+# from-root `node_modules`, so `from: stage/host` would omit the Host closure.
+extraResources:
+  - from: stage
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+mac:
+  identity: '-'
+  gatekeeperAssess: false
+  hardenedRuntime: false
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - arm64
+win:
+  signAndEditExecutable: false
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: true
+  perMachine: false

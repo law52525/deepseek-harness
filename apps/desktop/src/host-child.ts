@@ -9,6 +9,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { controlEnvelope, controlFromChild, rpcEnvelope, rpcPayloadFromChild } from './forwarder.ts'
 import { resolveNodeExecutable } from './node-executable.ts'
+import { resolveBundledDshBin } from './packaged-resources.ts'
 import type {
   DesktopControlToShell,
   DesktopThemePreference,
@@ -221,6 +222,10 @@ export class DesktopHostChild {
  * @returns argv for `spawn`.
  */
 export function hostChildArgv(node: string): { command: string; args: string[] } {
+  const bundledBin = resolveBundledDshBin()
+  if (bundledBin !== undefined) {
+    return { command: node, args: [bundledBin, '--profile', 'desktop'] }
+  }
   const require = createRequire(import.meta.url)
   const cliRoot = dirname(require.resolve('@deepseek-ai/dsh/package.json'))
   const srcBin = join(cliRoot, 'src/bin.ts')

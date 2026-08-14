@@ -12,7 +12,7 @@ P0 提供 IPC 载体。[P1](./2026-08-14-desktop-profile-host.md) 提供带客�
 
 ## Decision
 
-**`apps/desktop`**（`@deepseek-ai/dsh-desktop`）是 Electron 应用组装，不是能力包。`pnpm run dev:desktop` 先跑 `pnpm run build` 再运行 `electron .`。生产打包属于 [P4](../../proposed/architecture/2026-08-14-desktop-installer-product.md)。
+**`apps/desktop`**（`@deepseek-ai/dsh-desktop`）是 Electron 应用组装，不是能力包。`pnpm run dev:desktop` 先跑 `pnpm run build` 再运行 `electron .`。生产打包属于 [P4](../process/2026-08-14-desktop-installer-packaging.md)。
 
 ### 进程模型
 
@@ -72,3 +72,4 @@ Electron main 用系统 Node 孵化子进程（`npm_node_execpath`、`NODE_BINAR
 - [P0 IPC 载体](./2026-08-14-desktop-ipc-carrier.md)
 - [P1 desktop profile Host](./2026-08-14-desktop-profile-host.md)
 - [P3 原生壳能力](./2026-08-14-desktop-native-shell-capabilities.md)
+- [P4 安装包打包](../process/2026-08-14-desktop-installer-packaging.md)

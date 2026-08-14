@@ -77,7 +77,7 @@ A required Windows packaging job on every PR will fail the "Windows under Wine" 
 
 Paste into a new Cursor agent:
 
-1. Implement P5 from `.agents/notes/proposed/process/2026-08-14-desktop-installer-release-ci.md`. P4 must already produce local artifacts. Read that note, the [product note](../architecture/2026-08-14-desktop-installer-product.md), [P4](./2026-08-14-desktop-installer-packaging.md), `.github/AGENTS.md`, `.agents/notes/implemented/process/2026-07-26-ci-failover-runbook.md` if touching Windows runners, and `.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md` (CI pattern).
+1. Implement P5 from `.agents/notes/proposed/process/2026-08-14-desktop-installer-release-ci.md`. P4 must already produce local artifacts. Read that note, the [product note](../architecture/2026-08-14-desktop-installer-product.md), [P4](../../implemented/process/2026-08-14-desktop-installer-packaging.md), `.github/AGENTS.md`, `.agents/notes/implemented/process/2026-07-26-ci-failover-runbook.md` if touching Windows runners, and `.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md` (CI pattern).
 2. Do not change the two-process model. Do not add Linux/Store targets. Do not put signing secrets in the repo.
 3. Add CI jobs for unsigned macOS arm64 and Windows x64 desktop dist (label- or workflow_dispatch-gated unless a cheap smoke is required). Add release-workflow signing/notarization **only** if the user confirms secrets are available; otherwise implement the unsigned CI path and document the secret-gated track.
 4. Implement auto-update only if the user asks in the same session; otherwise leave Track 3 deferred in the implemented note.

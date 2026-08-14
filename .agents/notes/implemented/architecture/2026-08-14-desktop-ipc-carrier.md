@@ -69,7 +69,7 @@ The gateway treats the IPC peer as a **loopback, same-origin, already-authentica
 
 ### Out of scope
 
-Installers remain a later phase. The [Electron shell](./2026-08-14-desktop-electron-shell.md) adapts this carrier; apiproxy has no `electron` dependency.
+Installers are [P4](../process/2026-08-14-desktop-installer-packaging.md). The [Electron shell](./2026-08-14-desktop-electron-shell.md) adapts this carrier; apiproxy has no `electron` dependency.
 
 ## Alternatives considered
 

@@ -22,6 +22,16 @@ npx @deepseek-ai/dsh web
 
 The command starts the Web UI, served at `http://127.0.0.1:3080` by default. See [Web UI guide](docs/user/guide/index.md).
 
+### Desktop (preview)
+
+`dsh web` remains the default. To build a local installer that does not need a system Node:
+
+```sh
+pnpm run dist:desktop
+```
+
+On macOS arm64 this writes a `.dmg` under `apps/desktop/dist/`; on Windows x64 it writes an NSIS `.exe`. The macOS app is ad-hoc signed: Gatekeeper will block it until you open it from Finder with right-click → Open. The Windows exe is unsigned: SmartScreen will warn. These builds do not auto-update. Official signed artifacts are a later phase.
+
 ### Run from source
 
 To run from a repository checkout:
