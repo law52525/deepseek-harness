@@ -1,11 +1,13 @@
 /**
  * Desktop Host IPC adapter: when this process has a parent IPC channel it
- * constructs HostIpcGateway over process IPC, answers boot-graph and plugin-byte
- * control documents, and posts `host-ready` after Loader settle.
+ * constructs HostIpcGateway over process IPC, answers boot-graph, plugin-byte,
+ * and Session-export control documents, and posts `host-ready` after Loader settle.
  * @module @deepseek-ai/dsh-desktop-app/ipc-host
  */
 
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { HostIpcGateway, toFetchHandler, type IpcMessage, type IpcPort } from '@deepseek-ai/dsh-host-apiproxy'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -18,6 +20,7 @@ import {
 import {
   isDesktopThemePreference,
   parseDesktopEnvelope,
+  type DesktopControlToHost,
   type DesktopControlToShell,
   type DesktopIpcEnvelope,
   type DesktopThemePreference,
@@ -156,12 +159,89 @@ function dispatchEnvelope(
       )
       return
     }
+    case 'session-export-request':
+      void answerSessionExport(ctx, ipc, message)
+      return
     case 'host-ready':
     case 'boot-graph-response':
     case 'plugin-bytes-response':
     case 'plugin-bytes-failure':
+    case 'session-export-response':
+    case 'session-export-failure':
       return
   }
+}
+
+const DOWNLOAD_HEADER_NAMES = ['content-type', 'content-disposition'] as const
+
+/**
+ * Run ApiProxy `session.export` and reply with status, download headers, and
+ * a temp ZIP path for GET bodies. JSON RPC cannot carry those bytes.
+ * @param ctx - Host context with apiProxy.
+ * @param ipc - parent process send/subscribe.
+ * @param message - GET or HEAD export request from the shell.
+ */
+async function answerSessionExport(
+  ctx: Context,
+  ipc: DesktopIpcTransport,
+  message: Extract<DesktopControlToHost, { type: 'session-export-request' }>,
+): Promise<void> {
+  try {
+    const url = new URL('http://dsh.internal/api/session.export')
+    url.searchParams.set('sessionId', message.sessionId)
+    url.searchParams.set('includeDescendants', message.includeDescendants ? 'true' : 'false')
+    const response = await toFetchHandler(ctx.apiProxy).fetch(new Request(url, { method: message.method }))
+    const headers = downloadHeaders(response.headers)
+    if (message.method === 'HEAD' || response.body === null) {
+      sendControl(ipc, {
+        type: 'session-export-response',
+        id: message.id,
+        status: response.status,
+        headers,
+      })
+      return
+    }
+    const bytes = Buffer.from(await response.arrayBuffer())
+    if (bytes.length === 0) {
+      sendControl(ipc, {
+        type: 'session-export-response',
+        id: message.id,
+        status: response.status,
+        headers,
+      })
+      return
+    }
+    // Mint the filename here so a correlation id cannot escape os.tmpdir().
+    const bodyPath = join(tmpdir(), `dsh-session-export-${crypto.randomUUID()}.zip`)
+    await writeFile(bodyPath, bytes)
+    sendControl(ipc, {
+      type: 'session-export-response',
+      id: message.id,
+      status: response.status,
+      headers,
+      bodyPath,
+    })
+  } catch (error: unknown) {
+    sendControl(ipc, {
+      type: 'session-export-failure',
+      id: message.id,
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+/**
+ * Keep only headers Chromium needs for the attachment download.
+ * @param headers - Host download response headers.
+ * @returns content-type and content-disposition when present.
+ */
+function downloadHeaders(headers: Headers): Record<string, string> {
+  const record: Record<string, string> = {}
+  for (const name of DOWNLOAD_HEADER_NAMES) {
+    const value = headers.get(name)
+    if (value !== null) record[name] = value
+  }
+  return record
 }
 
 function sendControl(ipc: DesktopIpcTransport, payload: DesktopControlToShell): void {

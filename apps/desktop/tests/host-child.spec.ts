@@ -61,6 +61,94 @@ describe('desktop host child', () => {
 
     await expect(host.readPlugin('@p/missing')).rejects.toThrow('unknown plugin')
 
+    const exportPending = host.sessionExport({
+      method: 'GET',
+      sessionId: 'session-root',
+      includeDescendants: true,
+    })
+    const exportEnvelope = parseDesktopEnvelope(child.sent.at(-1))
+    if (exportEnvelope?.channel !== 'control' || exportEnvelope.payload.type !== 'session-export-request') {
+      throw new Error('expected session-export-request')
+    }
+    expect(exportEnvelope.payload).toMatchObject({
+      method: 'GET',
+      sessionId: 'session-root',
+      includeDescendants: true,
+    })
+    child.emit('message', {
+      channel: 'control',
+      payload: {
+        type: 'session-export-response',
+        id: exportEnvelope.payload.id,
+        status: 200,
+        headers: { 'content-type': 'application/zip' },
+        bodyPath: '/tmp/dsh-session-export-x.zip',
+      },
+    })
+    await expect(exportPending).resolves.toEqual({
+      status: 200,
+      headers: { 'content-type': 'application/zip' },
+      bodyPath: '/tmp/dsh-session-export-x.zip',
+    })
+
+    const headPending = host.sessionExport({
+      method: 'HEAD',
+      sessionId: 'session-root',
+      includeDescendants: true,
+    })
+    const headEnvelope = parseDesktopEnvelope(child.sent.at(-1))
+    if (headEnvelope?.channel !== 'control' || headEnvelope.payload.type !== 'session-export-request') {
+      throw new Error('expected session-export-request')
+    }
+    child.emit('message', {
+      channel: 'control',
+      payload: {
+        type: 'session-export-response',
+        id: headEnvelope.payload.id,
+        status: 404,
+        headers: {},
+      },
+    })
+    await expect(headPending).resolves.toEqual({ status: 404, headers: {} })
+
+    const failPending = host.sessionExport({
+      method: 'HEAD',
+      sessionId: 'missing',
+      includeDescendants: false,
+    })
+    const failEnvelope = parseDesktopEnvelope(child.sent.at(-1))
+    if (failEnvelope?.channel !== 'control' || failEnvelope.payload.type !== 'session-export-request') {
+      throw new Error('expected session-export-request')
+    }
+    child.emit('message', {
+      channel: 'control',
+      payload: { type: 'session-export-failure', id: failEnvelope.payload.id, message: 'export boom' },
+    })
+    await expect(failPending).rejects.toThrow('export boom')
+
+    const unexpected = host.sessionExport({
+      method: 'GET',
+      sessionId: 'session-root',
+      includeDescendants: true,
+    })
+    const unexpectedEnvelope = parseDesktopEnvelope(child.sent.at(-1))
+    if (
+      unexpectedEnvelope?.channel !== 'control'
+      || unexpectedEnvelope.payload.type !== 'session-export-request'
+    ) {
+      throw new Error('expected session-export-request')
+    }
+    child.emit('message', {
+      channel: 'control',
+      payload: {
+        type: 'boot-graph-response',
+        id: unexpectedEnvelope.payload.id,
+        graph: { rev: 'r', entries: [] },
+        themePreference: 'system',
+      },
+    })
+    await expect(unexpected).rejects.toThrow('unexpected session-export reply')
+
     const client = new IpcApiClient({
       post(message) { host.postRpc(message) },
       subscribe(handler) { return host.subscribeRpc((payload) => { handler(payload as never) }) },

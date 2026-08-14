@@ -45,5 +45,5 @@ Web bundle 将本包与 `dsh-host-apiproxy`、`dsh-commands`、`dsh-client-ui-co
 ## 已知限制与暂缓事项
 
 - 下载端点要求持久化后端具有逐 Session 原始工件。随附 JSONL 后端支持明文和 zstd 工件；本次改动不包含 SQLite 导出。
-- 这是浏览器下载，不是 Host 路径写入。目标位置由浏览器选择，不会返回 Host 路径或原生文件夹操作。
+- 这是浏览器下载，不是 Host 路径写入。目标位置由浏览器选择，不会返回 Host 路径或原生文件夹操作。桌面壳对同一页面 origin 上的 `GET`/`HEAD` `/api/session.export` 经 `dsh:` 从 Host 子进程应答；控制器不变。
 - 预检只报告 ZIP 开始流式传输前发现的失败。浏览器接受 GET 后发生的子 Session 或附件读取失败由浏览器下载管理器报告，不通过弹窗报告。

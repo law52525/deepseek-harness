@@ -1,6 +1,7 @@
 /**
  * Electron main: spawn the desktop Host child, serve dsh-web-frontend dist
- * over `dsh://app`, and forward opaque RPC. HostIpcGateway stays in the child.
+ * over `dsh://app`, answer Session-log export from that child, and forward
+ * opaque RPC. HostIpcGateway stays in the child.
  */
 
 import { readFile } from 'node:fs/promises'
@@ -9,10 +10,11 @@ import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, protocol } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { startDesktopAutoUpdate } from './auto-update.ts'
-import { fileFromDshUrl } from './dsh-protocol.ts'
+import { fileFromDshUrl, isDesktopSessionExportPath, sessionExportFromDshUrl } from './dsh-protocol.ts'
 import { hostErrorPage } from './error-page.ts'
 import { resolveFrontendDist } from './frontend-dist.ts'
 import { spawnDesktopHost, type DesktopHostChild } from './host-child.ts'
+import { responseFromSessionExport } from './session-export.ts'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'dsh', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
@@ -52,6 +54,9 @@ function registerProtocol(distRoot: string): void {
   if (protocolRegistered) return
   protocolRegistered = true
   protocol.handle('dsh', async (request) => {
+    if (isDesktopSessionExportPath(request.url)) {
+      return sessionExportProtocolResponse(request)
+    }
     const file = fileFromDshUrl(request.url, distRoot)
     if (file === undefined) return new Response('not found', { status: 404 })
     try {
@@ -75,6 +80,22 @@ function wireIpc(child: DesktopHostChild): void {
     if (typeof id !== 'string' || id === '') throw new Error('desktop: plugin id required')
     return child.readPlugin(id)
   })
+}
+
+/**
+ * Answer GET/HEAD `/api/session.export` from the Host child, not the frontend dist.
+ * @param request - privileged `dsh:` request from the renderer.
+ * @returns the Host download Response, or 405/503 when the method or child is wrong.
+ */
+async function sessionExportProtocolResponse(request: Request): Promise<Response> {
+  const query = sessionExportFromDshUrl(request.url, request.method)
+  if (query === undefined) return new Response('method not allowed', { status: 405 })
+  if (host === undefined) return new Response('host unavailable', { status: 503 })
+  try {
+    return await responseFromSessionExport(await host.sessionExport(query))
+  } catch (error: unknown) {
+    return new Response(error instanceof Error ? error.message : String(error), { status: 500 })
+  }
 }
 
 async function createWindow(): Promise<void> {
@@ -114,6 +135,10 @@ async function createWindow(): Promise<void> {
     if (!disposing) showHostError(child.crash?.message ?? 'Host child exited')
   })
   wireIpc(child)
+  win.webContents.session.on('will-download', (_event, item) => {
+    const filename = item.getFilename()
+    if (filename !== '') item.setSaveDialogOptions({ defaultPath: filename })
+  })
   await win.loadURL('dsh://app/')
 }
 

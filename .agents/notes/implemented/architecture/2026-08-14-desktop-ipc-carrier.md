@@ -91,6 +91,6 @@ Installers are [P4](../process/2026-08-14-desktop-installer-packaging.md). The [
 
 The four-quadrant RPC is testable over IPC without Electron, so the [Electron shell](./2026-08-14-desktop-electron-shell.md) adapts `ipcMain` / `ipcRenderer` (and Node child `process` IPC) to `IpcPort` without changing message types. `dsh-client-connection` still owns the browser HTTP/WebSocket carrier; this package has no `electron` dependency. The [desktop profile](./2026-08-14-desktop-profile-host.md) composes the Host; the shell instantiates the gateway in the child.
 
-JSON serialization cannot carry binary bodies. The current RPC is JSON-only; a later method that needs bytes must add an explicit binary frame rather than silently base64-ing.
+JSON serialization cannot carry binary bodies. The current RPC is JSON-only; if a later RPC method needs bytes, this carrier must add an explicit binary frame rather than silently base64-ing. Session-log ZIP bytes on the desktop shell travel as a Host-written temp path on the [control channel](./2026-08-14-desktop-electron-shell.md), not as `unary-response` bodies.
 
 Treating every IPC peer as loopback is correct only while the Node child accepts connections solely from the Electron main process that spawned it. The shell must not open a TCP fallback.

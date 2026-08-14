@@ -24,13 +24,15 @@ Electron main 用系统 Node 孵化子进程（`npm_node_execpath`、`NODE_BINAR
 
 ### Control 与 RPC
 
-进程 IPC 使用 `@deepseek-ai/dsh-desktop-app/ipc-protocol` 中的 `DesktopIpcEnvelope`：`{ channel: 'rpc', payload }` 或 `{ channel: 'control', payload }`。control 文档为 `host-ready`、`boot-graph-request` / `boot-graph-response`（图加上 `themePreference`），以及 `plugin-bytes-request` / `plugin-bytes-response` / `plugin-bytes-failure`。插件字节只来自组合表内的 `ctx.clientModules.clientPath(id)`，从不来自渲染进程提供的路径。
+进程 IPC 使用 `@deepseek-ai/dsh-desktop-app/ipc-protocol` 中的 `DesktopIpcEnvelope`：`{ channel: 'rpc', payload }` 或 `{ channel: 'control', payload }`。control 文档为 `host-ready`、`boot-graph-request` / `boot-graph-response`（图加上 `themePreference`）、`plugin-bytes-request` / `plugin-bytes-response` / `plugin-bytes-failure`，以及 `session-export-request` / `session-export-response` / `session-export-failure`。插件字节只来自组合表内的 `ctx.clientModules.clientPath(id)`，从不来自渲染进程提供的路径。
+
+Session Header 的 `Session log` 控件仍对页面 origin 发 `HEAD` 再跟 `<a download>`。在 `dsh://app` 下该 URL 是 `/api/session.export`，不是前端 dist 文件。`dsh:` handler 只把该路径上的 GET/HEAD 转给 Host 子进程，作为 control 文档（`sessionId` 与 `includeDescendants` 查询字段，从不是任意 URL）。子进程跑现有的 `toFetchHandler` 下载；GET 正文写入临时 ZIP，路径经 control 返回。main 读入该文件作为 protocol Response 并删除它。JSON RPC 保持仅 UTF-8（[P0](./2026-08-14-desktop-ipc-carrier.md)）；ZIP 不走 `unary-response`。该路径上的其他方法应答 405。缺少 Host 子进程应答 503。
 
 ### Preload 与渲染进程
 
 `contextIsolation: true`，`nodeIntegration: false`。preload 暴露 `window.__DSH_IPC_PORT__`（仅 `IpcPort` 的 post/subscribe）和 `window.__DSH_DESKTOP__`（经 `ipcRenderer.invoke` 的 `bootGraph`、`readPlugin`）。页面不能对任意通道做通用的 `ipcRenderer.send`。
 
-渲染进程复用 `dsh-web-frontend` dist。main 注册特权 `dsh:` scheme（`standard`、`secure`、`supportFetchAPI`），并在 `dsh://app/` 提供该 dist，这样 Vite 的 `/assets/…` URL 无需改 web 的 `base`。`apps/web/src/main.ts` 根据 `__DSH_DESKTOP__` 分支：从 Host 图设置 `window.__DSH_BOOT__`，在不导入 `ui-theme` 的情况下应用插件前主题，并运行 `new AppWebEntry(el, { loadBundle })`。`loadBundle` 把 `/plugins/<id>/client.js?rev=…` 映射到 `readPlugin(id)`，并以与 jsdom assembled boot 相同的方式求值 factory。
+渲染进程复用 `dsh-web-frontend` dist。main 注册特权 `dsh:` scheme（`standard`、`secure`、`supportFetchAPI`），并在 `dsh://app/` 提供该 dist，这样 Vite 的 `/assets/…` URL 无需改 web 的 `base`。同一 handler 按上文从 Host 子进程应答 `GET`/`HEAD` `/api/session.export`。`apps/web/src/main.ts` 根据 `__DSH_DESKTOP__` 分支：从 Host 图设置 `window.__DSH_BOOT__`，在不导入 `ui-theme` 的情况下应用插件前主题，并运行 `new AppWebEntry(el, { loadBundle })`。`loadBundle` 把 `/plugins/<id>/client.js?rev=…` 映射到 `readPlugin(id)`，并以与 jsdom assembled boot 相同的方式求值 factory。
 
 ### Connection 客户端
 
@@ -48,11 +50,15 @@ Electron main 用系统 Node 孵化子进程（`npm_node_execpath`、`NODE_BINAR
 
 **对 `index.html` 使用 `loadFile` 并把 Vite `base` 改成 `'./'`。** 会迫使 `dsh web` 也消费该 `base`。特权 `dsh://app` origin 可以保留 `/assets` 绝对路径。
 
+**在渲染进程里用 `IpcApiClient.fetch` 缓冲 ZIP 再走 blob URL。** JSON IPC 没有显式帧就不能承载二进制正文。control 通道上的临时文件可以继续使用浏览器下载管理器，并让 RPC 保持仅 JSON。
+
+**在 desktop Host 上打开 TCP `/api` 监听。** 违反此 Host 没有 HTTP 的产品规则。
+
 ## Testing
 
-单元测试覆盖 RPC 转发器（payload 同一性、不解码 body）、`loadBundle` factory 求值、主题 DOM 字段、`dsh:` 路径映射、Node 与 Electron 的解析、`ipc-host` 在没有 `process.send` 时为空操作、针对 `HostIpcGateway` 的 host-ready / boot-graph / plugin-bytes / RPC，以及 connection 客户端选择 `IpcApiClient` 加上 `file:` / IPC loopback。
+单元测试覆盖 RPC 转发器（payload 同一性、不解码 body）、`loadBundle` factory 求值、主题 DOM 字段、`dsh:` 路径映射、Session 导出 URL 识别、GET 正文的临时路径约束、Node 与 Electron 的解析、`ipc-host` 在没有 `process.send` 时为空操作、针对 `HostIpcGateway` 的 host-ready / boot-graph / plugin-bytes / session-export / RPC，以及 connection 客户端选择 `IpcApiClient` 加上 `file:` / IPC loopback。
 
-`apps/desktop/tests/host-child.spec.ts` 用内存中的 child 把 `DesktopHostChild` 与 `attachDesktopIpcHost` 配对：`host.describe` 与 boot-graph 在没有 Electron 的情况下成功。`apps/desktop/tests/host-child.e2e.ts` 孵化真实的 `--profile desktop` 子进程（在客户端 bundle 存在之前自跳过），并断言 host-ready、boot-graph、`host.describe` 以及两条下行流。
+`apps/desktop/tests/host-child.spec.ts` 用内存中的 child 把 `DesktopHostChild` 与 `attachDesktopIpcHost` 配对：`host.describe`、boot-graph 与 session-export control 在没有 Electron 的情况下成功。`apps/desktop/tests/host-child.e2e.ts` 孵化真实的 `--profile desktop` 子进程（在客户端 bundle 存在之前自跳过），并断言 host-ready、boot-graph、`host.describe` 以及两条下行流。
 
 **CI 中的 Electron e2e 是具名缺口。** 本阶段没有 Playwright Electron 套件。jsdom 加上 Node 子进程证明这些接线；`pnpm run dev:desktop` 是开发者机器上的窗口检查。
 
@@ -60,7 +66,7 @@ Electron main 用系统 Node 孵化子进程（`npm_node_execpath`、`NODE_BINAR
 
 在渲染进程中求值的插件字节，等价于受信路径上的 `/plugins` 提供。它们必须只来自打包闭包内的 `clientPath`。
 
-`dsh://app` 下的 `location.origin` 不是 `'null'`，但通用 RPC 仍通过 `IpcApiClient.fetch` 使用 `http://dsh.internal`，因此页面 origin 不会变成一次 HTTP 跳转。
+`dsh://app` 下的 `location.origin` 不是 `'null'`，但通用 RPC 仍通过 `IpcApiClient.fetch` 使用 `http://dsh.internal`，因此页面 origin 不会变成一次 HTTP 跳转。Session 日志下载仍是对该 origin 上 `/api/session.export` 的浏览器 GET；壳从 Host 子进程应答它，而不是打开 HTTP。
 
 双进程就绪握手使用显式的 `host-ready` 文档，而不是抓 stdout。
 
