@@ -49,7 +49,7 @@ Host 进 Electron main 的同进程方案允许作为后续简化，前提是 ad
 | P0 | [IPC 载体](../../implemented/architecture/2026-08-14-desktop-ipc-carrier.md) | 消息协议、`IpcApiClient`、宿主网关、不含 Electron 的测试 |
 | P1 | [Desktop profile](../../implemented/architecture/2026-08-14-desktop-profile-host.md) | `desktop` profile、无 HTTP 的 Host、双面插件上可选的 `webServer` |
 | P2 | [Electron 壳](../../implemented/architecture/2026-08-14-desktop-electron-shell.md) | `apps/desktop`、preload、`BootSeams.loadBundle`、启动清单注入 |
-| P3 | [原生壳能力](./2026-08-14-desktop-native-shell-capabilities.md) | 把选择器与打开路径接到壳上；WebView 预览保持后置 |
+| P3 | [原生壳能力](../../implemented/architecture/2026-08-14-desktop-native-shell-capabilities.md) | 把选择器与打开路径接到壳上；WebView 预览保持后置 |
 | P4 | [安装包打包](../process/2026-08-14-desktop-installer-packaging.md) | electron-builder、含 Windows 的 Node 闭包、`.dmg` / `.exe` |
 | P5 | [发布 CI](../process/2026-08-14-desktop-installer-release-ci.md) | 签名、公证、更新、CI 矩阵 |
 

@@ -9,7 +9,7 @@ import { IpcApiClient } from '@deepseek-ai/dsh-host-apiproxy'
 import { fakeApi } from '../../../packages/host/apiproxy/tests/fake-api.ts'
 import { attachDesktopIpcHost } from '@deepseek-ai/dsh-desktop-app/ipc-host'
 import { parseDesktopEnvelope } from '@deepseek-ai/dsh-desktop-app/ipc-protocol'
-import { DesktopHostChild, hostChildArgv } from '../src/host-child.ts'
+import { DesktopHostChild, hostChildArgv, hostChildEnv } from '../src/host-child.ts'
 import { rpcEnvelope } from '../src/forwarder.ts'
 import { existsSync } from 'node:fs'
 
@@ -102,6 +102,12 @@ describe('desktop host child', () => {
     expect(argv.args).toContain('desktop')
     expect(argv.args.some(arg => arg.endsWith('bin.ts') || arg.endsWith('bin.js'))).toBe(true)
     expect(existsSync(argv.args.find(arg => arg.endsWith('bin.ts') || arg.endsWith('bin.js')) ?? '')).toBe(true)
+  })
+
+  it('merges child env overrides and always drops ELECTRON_RUN_AS_NODE', () => {
+    const env = hostChildEnv({ ELECTRON_RUN_AS_NODE: '1', DSH_HOME: '/tmp/dsh-desktop-host' })
+    expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined()
+    expect(env.DSH_HOME).toBe('/tmp/dsh-desktop-host')
   })
 
   it('does not treat host-bound control documents as replies', async () => {

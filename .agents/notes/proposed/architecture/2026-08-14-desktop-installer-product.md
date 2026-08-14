@@ -49,7 +49,7 @@ Implement in this order. Each phase has its own Agent Note. One Cursor session i
 | P0 | [IPC carrier](../../implemented/architecture/2026-08-14-desktop-ipc-carrier.md) | Message protocol, `IpcApiClient`, host gateway, tests with no Electron |
 | P1 | [Desktop profile](../../implemented/architecture/2026-08-14-desktop-profile-host.md) | `desktop` profile, Host without HTTP, optional `webServer` on dual-face plugins |
 | P2 | [Electron shell](../../implemented/architecture/2026-08-14-desktop-electron-shell.md) | `apps/desktop`, preload, `BootSeams.loadBundle`, boot-manifest injection |
-| P3 | [Native shell capabilities](./2026-08-14-desktop-native-shell-capabilities.md) | Wire picker and path-open through the shell; WebView preview stays deferred |
+| P3 | [Native shell capabilities](../../implemented/architecture/2026-08-14-desktop-native-shell-capabilities.md) | Wire picker and path-open through the shell; WebView preview stays deferred |
 | P4 | [Installer packaging](../process/2026-08-14-desktop-installer-packaging.md) | electron-builder, Node closure including Windows, `.dmg` / `.exe` |
 | P5 | [Release CI](../process/2026-08-14-desktop-installer-release-ci.md) | Signing, notarization, updates, CI matrix |
 
