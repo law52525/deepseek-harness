@@ -83,8 +83,10 @@ describe('stage-runtime-closure', () => {
     writeFileSync(join(dir, 'node_modules', 'tool', 'cli.mjs'), '')
     const invocation = packageBinInvocation(join(dir, 'package.json'), 'tool', 'tool', ['--help'])
     expect(invocation.command).toBe(process.execPath)
-    expect(invocation.args[0].replaceAll('\\', '/')).toMatch(/node_modules\/tool\/cli\.mjs$/)
-    expect(invocation.args[0]).not.toMatch(/\.cmd$/i)
+    const entry = invocation.args[0]
+    if (entry === undefined) throw new Error('expected a JS bin path')
+    expect(entry.replaceAll('\\', '/')).toMatch(/node_modules\/tool\/cli\.mjs$/)
+    expect(entry).not.toMatch(/\.cmd$/i)
     expect(invocation.args.slice(1)).toEqual(['--help'])
   })
 })
