@@ -118,7 +118,9 @@
         surfaceContext: true
 
     # Process-IPC adapter: HostIpcGateway plus boot-graph / plugin-byte control.
-    # A terminal `dsh desktop` has no parent IPC channel, so the plugin is a no-op.
+    # Unary RPC uses Connection's shared `/api` fetch (Typert remotes before
+    # API Proxy). A terminal `dsh desktop` has no parent IPC channel, so the
+    # plugin is a no-op.
     - id: desktop-ipc
       name: '@deepseek-ai/dsh-desktop-app/ipc-host'
       inject: [desktopStartup]

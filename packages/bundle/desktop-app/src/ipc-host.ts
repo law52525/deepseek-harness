@@ -2,6 +2,8 @@
  * Desktop Host IPC adapter: when this process has a parent IPC channel it
  * constructs HostIpcGateway over process IPC, answers boot-graph, plugin-byte,
  * and Session-export control documents, and posts `host-ready` after Loader settle.
+ * Unary RPC uses Connection's shared `/api` fetch so Typert remotes
+ * (`commands/list`) reach the interceptor before the API Proxy fallback.
  * @module @deepseek-ai/dsh-desktop-app/ipc-host
  */
 
@@ -11,6 +13,7 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { HostIpcGateway, toFetchHandler, type IpcMessage, type IpcPort } from '@deepseek-ai/dsh-host-apiproxy'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-client-modules'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-settings'
@@ -29,8 +32,8 @@ import {
 /** Stable Cordis plugin name. */
 export const name = 'desktop-ipc'
 
-/** Wait for startup acceptance, the API gateway, and the client graph. */
-export const inject = ['desktopStartup', 'apiProxy', 'clientModules']
+/** Wait for startup acceptance, the API gateway, the client graph, and Host Connection. */
+export const inject = ['desktopStartup', 'apiProxy', 'clientModules', 'connection']
 
 const THEME_NAMESPACE = settingsNamespace(THEME_SETTINGS_NAMESPACE)
 
@@ -51,10 +54,12 @@ export interface DesktopIpcTransport {
 
 /**
  * Wire HostIpcGateway and control handlers onto an IPC transport.
- * @param ctx - settled-enough Host context with apiProxy and clientModules.
+ * @param ctx - settled-enough Host context with apiProxy, clientModules, and connection.
  * @param ipc - parent process send/subscribe.
  */
 export function attachDesktopIpcHost(ctx: Context, ipc: DesktopIpcTransport): void {
+  const connection = ctx.get('connection')
+  if (connection === undefined) throw new Error('desktop-ipc: connection unavailable')
   const rpcHandlers = new Set<(message: IpcMessage) => void>()
   const port: IpcPort = {
     post(message) {
@@ -65,7 +70,11 @@ export function attachDesktopIpcHost(ctx: Context, ipc: DesktopIpcTransport): vo
       return () => { rpcHandlers.delete(handler) }
     },
   }
-  const gateway = new HostIpcGateway(port, toFetchHandler(ctx.apiProxy), ctx.apiProxy.events)
+  const gateway = new HostIpcGateway(
+    port,
+    connection.createSharedFetchHandler('/api', toFetchHandler(ctx.apiProxy)),
+    ctx.apiProxy.events,
+  )
   const off = ipc.onMessage((raw) => {
     try {
       dispatchEnvelope(ctx, ipc, rpcHandlers, raw)

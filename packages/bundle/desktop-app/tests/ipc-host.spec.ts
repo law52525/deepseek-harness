@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 import { IpcApiClient, type IpcMessage, type IpcPort } from '@deepseek-ai/dsh-host-apiproxy'
 import { fakeApi } from '../../../host/apiproxy/tests/fake-api.ts'
 import { apply, attachDesktopIpcHost, type DesktopIpcTransport } from '../src/ipc-host.ts'
@@ -37,6 +38,24 @@ function memoryIpc(): {
       },
     },
   }
+}
+
+function provideIpcHostServices(
+  ctx: Context,
+  extras?: {
+    api?: ReturnType<typeof fakeApi>
+    clientModules?: {
+      graph: () => { rev: string; entries: readonly { id: string; url: string; rev: string }[] }
+      clientPath: (id: string) => string | undefined
+    }
+  },
+): void {
+  ctx.provide('apiProxy', extras?.api ?? fakeApi())
+  ctx.provide('clientModules', extras?.clientModules ?? {
+    graph: () => ({ rev: 'r', entries: [] }),
+    clientPath: () => undefined,
+  })
+  new HostConnectionService(ctx, [])
 }
 
 function hostPort(ipc: ReturnType<typeof memoryIpc>): IpcPort {
@@ -74,10 +93,11 @@ describe('desktop IPC host', () => {
     const fixture = join(mkdtempSync(join(tmpdir(), 'dsh-desktop-ipc-')), 'client.js')
     writeFileSync(fixture, 'window.__ModuleLoader__.load({ id: "fx", factory: () => ({}) })\n')
     const ctx = new Context()
-    ctx.provide('apiProxy', fakeApi())
-    ctx.provide('clientModules', {
-      graph: () => ({ rev: 'r1', entries: [{ id: '@p/connection', url: '/plugins/@p/connection/client.js?rev=r1', rev: 'r1' }] }),
-      clientPath: (id: string) => id === '@p/connection' ? fixture : undefined,
+    provideIpcHostServices(ctx, {
+      clientModules: {
+        graph: () => ({ rev: 'r1', entries: [{ id: '@p/connection', url: '/plugins/@p/connection/client.js?rev=r1', rev: 'r1' }] }),
+        clientPath: (id: string) => id === '@p/connection' ? fixture : undefined,
+      },
     })
     const ipc = memoryIpc()
     attachDesktopIpcHost(ctx, ipc.transport)
@@ -120,10 +140,11 @@ describe('desktop IPC host', () => {
   it('reads a settings-backed theme, fails plugin reads, drops malformed envelopes, and stays quiet on loader failure', async () => {
     const missing = join(mkdtempSync(join(tmpdir(), 'dsh-desktop-ipc-miss-')), 'gone.js')
     const ctx = new Context()
-    ctx.provide('apiProxy', fakeApi())
-    ctx.provide('clientModules', {
-      graph: () => ({ rev: 'r', entries: [] }),
-      clientPath: () => missing,
+    provideIpcHostServices(ctx, {
+      clientModules: {
+        graph: () => ({ rev: 'r', entries: [] }),
+        clientPath: () => missing,
+      },
     })
     ctx.provide('settings', {
       get: () => ({ preference: 'dark' }),
@@ -163,10 +184,11 @@ describe('desktop IPC host', () => {
 
     const throwing = memoryIpc()
     const throwCtx = new Context()
-    throwCtx.provide('apiProxy', fakeApi())
-    throwCtx.provide('clientModules', {
-      graph: () => { throw new Error('graph boom') },
-      clientPath: () => undefined,
+    provideIpcHostServices(throwCtx, {
+      clientModules: {
+        graph: () => { throw new Error('graph boom') },
+        clientPath: () => undefined,
+      },
     })
     attachDesktopIpcHost(throwCtx, throwing.transport)
     throwing.deliver({ channel: 'control', payload: { type: 'boot-graph-request', id: 'g' } })
@@ -178,11 +200,7 @@ describe('desktop IPC host', () => {
 
   it('uses the schema default when settings is absent or not a built-in preference', async () => {
     const ctx = new Context()
-    ctx.provide('apiProxy', fakeApi())
-    ctx.provide('clientModules', {
-      graph: () => ({ rev: 'r', entries: [] }),
-      clientPath: () => undefined,
-    })
+    provideIpcHostServices(ctx)
     ctx.provide('settings', { get: () => undefined })
     const ipc = memoryIpc()
     attachDesktopIpcHost(ctx, ipc.transport)
@@ -190,11 +208,7 @@ describe('desktop IPC host', () => {
     expect(ipc.posted.at(-1)).toMatchObject({ payload: { themePreference: 'system' } })
 
     const other = new Context()
-    other.provide('apiProxy', fakeApi())
-    other.provide('clientModules', {
-      graph: () => ({ rev: 'r', entries: [] }),
-      clientPath: () => undefined,
-    })
+    provideIpcHostServices(other)
     other.provide('settings', { get: () => ({ preference: 'sepia' }) })
     other.provide('loader', { await: () => Promise.resolve() })
     const delayed = memoryIpc()
@@ -223,11 +237,7 @@ describe('desktop IPC host', () => {
         },
       })
     }
-    ctx.provide('apiProxy', api)
-    ctx.provide('clientModules', {
-      graph: () => ({ rev: 'r', entries: [] }),
-      clientPath: () => undefined,
-    })
+    provideIpcHostServices(ctx, { api })
     const ipc = memoryIpc()
     attachDesktopIpcHost(ctx, ipc.transport)
 
@@ -299,11 +309,7 @@ describe('desktop IPC host', () => {
       if (calls === 3) throw new Error('export boom')
       throw 'export boom'
     }
-    ctx.provide('apiProxy', api)
-    ctx.provide('clientModules', {
-      graph: () => ({ rev: 'r', entries: [] }),
-      clientPath: () => undefined,
-    })
+    provideIpcHostServices(ctx, { api })
     const ipc = memoryIpc()
     attachDesktopIpcHost(ctx, ipc.transport)
 
@@ -390,11 +396,7 @@ describe('desktop IPC host', () => {
 
   it('applies onto process IPC when process.send exists', async () => {
     const ctx = new Context()
-    ctx.provide('apiProxy', fakeApi())
-    ctx.provide('clientModules', {
-      graph: () => ({ rev: 'r', entries: [] }),
-      clientPath: () => undefined,
-    })
+    provideIpcHostServices(ctx)
     const posted: unknown[] = []
     const originalSend = process.send
     Object.defineProperty(process, 'send', {
@@ -409,5 +411,57 @@ describe('desktop IPC host', () => {
       if (originalSend === undefined) delete (process as { send?: unknown }).send
       else Object.defineProperty(process, 'send', { value: originalSend, configurable: true })
     }
+  })
+
+  it('fails loud when connection is missing', () => {
+    const ctx = new Context()
+    ctx.provide('apiProxy', fakeApi())
+    ctx.provide('clientModules', {
+      graph: () => ({ rev: 'r', entries: [] }),
+      clientPath: () => undefined,
+    })
+    expect(() => attachDesktopIpcHost(ctx, memoryIpc().transport)).toThrow('desktop-ipc: connection unavailable')
+  })
+
+  it('dispatches claimed /api remotes through Connection interceptors', async () => {
+    const ctx = new Context()
+    provideIpcHostServices(ctx)
+    const ipc = memoryIpc()
+    attachDesktopIpcHost(ctx, ipc.transport)
+    const client = new IpcApiClient(hostPort(ipc))
+    const listBody = JSON.stringify({
+      type: 'client-request',
+      rpcId: 'cmd-1',
+      method: 'commands/list',
+      payload: { args: { sessionId: 's1' } },
+    })
+    const missing = await client.fetch(new URL('http://dsh.internal/api/commands/list'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: listBody,
+    })
+    expect(missing.status).toBe(404)
+
+    ctx.connection.rpc.intercept(
+      '/api',
+      endpoint => endpoint === 'commands/list',
+      async () => ({ ok: true, value: [{ name: 'compact' }] }),
+      { authority: 'trusted-host' },
+    )
+    const claimed = await client.fetch(new URL('http://dsh.internal/api/commands/list'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: listBody,
+    })
+    expect(claimed.status).toBe(200)
+    expect(await claimed.json()).toEqual({
+      type: 'server-response',
+      rpcId: 'cmd-1',
+      result: { ok: true, value: [{ name: 'compact' }] },
+    })
+    const described = await client.host.describe({})
+    expect(described.result.ok).toBe(true)
+    client.dispose()
+    await ctx.fiber.dispose()
   })
 })

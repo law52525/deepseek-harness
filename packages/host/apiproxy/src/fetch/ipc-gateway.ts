@@ -1,5 +1,5 @@
 /**
- * Host end of the JSON IPC carrier: unary documents feed `toFetchHandler`,
+ * Host end of the JSON IPC carrier: unary documents feed a Fetch handler,
  * and each downlink iterates `api.events` without SSE encoding. The peer is
  * a loopback, same-origin, already-authenticated product shell — this gateway
  * never listens on a TCP port and does not apply the browser Host/Origin fence.
@@ -32,12 +32,12 @@ export class HostIpcGateway {
 
   /**
    * @param port - the peer's IPC port.
-   * @param handler - `toFetchHandler(api)` fetch function for unary POST.
+   * @param handler - Fetch handler for unary POST (tests pass `toFetchHandler(api)`).
    * @param events - `api.events` mux and host iterables.
    */
   constructor(
     private readonly port: IpcPort,
-    private readonly handler: { fetch: typeof fetch },
+    private readonly handler: { fetch(request: Request): Promise<Response> },
     private readonly events: ApiProxy['events'],
   ) {
     this.unsubscribe = port.subscribe((message) => {

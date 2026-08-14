@@ -38,6 +38,8 @@ The renderer reuses `dsh-web-frontend` dist. Main registers a privileged `dsh:` 
 
 When `window.__DSH_IPC_PORT__` has `post` and `subscribe`, `dsh-client-connection` client `apply` constructs `IpcApiClient` and passes `IpcApiClient.fetch` into generic Connection RPC so `file:` / `dsh:` pages do not hit `globalThis.fetch`. `?fixture` still wins. Absence of the port keeps `WebApiClient` for `dsh web`. `isLoopback` is true when the port is present, when `location.protocol` is `file:`, or when the hostname is loopback.
 
+Host `desktop-ipc` feeds `HostIpcGateway` through `connection.createSharedFetchHandler('/api', toFetchHandler(api))`. Claimed Typert remotes such as `commands/list` (the composer + command menu) dispatch before the API Proxy fallback. The HTTP Host/Origin fence and privileged-method loopback pin stay off this carrier: the IPC peer is already the product shell.
+
 ## Alternatives considered
 
 **Renderer `loadURL('http://127.0.0.1:<port>')`.** Forbids the product rule and skips BootSeams work that a non-HTTP origin requires anyway.
@@ -56,7 +58,7 @@ When `window.__DSH_IPC_PORT__` has `post` and `subscribe`, `dsh-client-connectio
 
 ## Testing
 
-Unit tests cover the RPC forwarder (payload identity, no body decode), `loadBundle` factory eval, theme DOM fields, `dsh:` path mapping, Session-export URL recognition, temp-path confinement for GET bodies, Node-vs-Electron resolution, `ipc-host` no-op without `process.send`, host-ready / boot-graph / plugin-bytes / session-export / RPC against `HostIpcGateway`, and connection-client selection of `IpcApiClient` plus `file:` / IPC loopback.
+Unit tests cover the RPC forwarder (payload identity, no body decode), `loadBundle` factory eval, theme DOM fields, `dsh:` path mapping, Session-export URL recognition, temp-path confinement for GET bodies, Node-vs-Electron resolution, `ipc-host` no-op without `process.send`, host-ready / boot-graph / plugin-bytes / session-export / RPC against `HostIpcGateway`, Connection interceptor dispatch for claimed remotes such as `commands/list`, and connection-client selection of `IpcApiClient` plus `file:` / IPC loopback.
 
 `apps/desktop/tests/host-child.spec.ts` pairs `DesktopHostChild` with `attachDesktopIpcHost` over an in-memory child: `host.describe`, boot-graph, and session-export control succeed without Electron. `apps/desktop/tests/host-child.e2e.ts` spawns a real `--profile desktop` child (self-skips until client bundles exist) and asserts host-ready, boot-graph, `host.describe`, and both downlink streams.
 

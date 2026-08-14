@@ -52,10 +52,36 @@ export interface HostConnectionRpc {
   ): () => Promise<void>
 }
 
+/** Fetch-shaped unary handler shared by HTTP and non-HTTP carriers. */
+export interface ConnectionFetchHandler {
+  /**
+   * Handle one Fetch request.
+   * @param request - request produced by the active carrier.
+   * @returns complete Fetch response.
+   */
+  fetch(request: Request): Promise<Response>
+}
+
 /** Host `ctx.connection` shape consumed by transport-independent adapters. */
 export interface HostConnectionHandle {
   /** Generic RPC channel registry. */
   readonly rpc: HostConnectionRpc
+
+  /**
+   * Compose interceptor dispatch with a fallback for the shared `/api` channel.
+   * Non-HTTP carriers pass `toFetchHandler(api)` as fallback and omit the
+   * browser Host/Origin fence and privileged-method loopback pin; HTTP `apply`
+   * wraps the same fallback with those checks before calling this method.
+   * Interceptors registered after the returned handler is built still apply:
+   * each request looks up the live interceptor table.
+   * @param channel - reserved shared channel; currently `/api`.
+   * @param fallback - handler for endpoints the interceptor does not claim.
+   * @returns Fetch handler that selects exactly one target for each request.
+   */
+  createSharedFetchHandler(
+    channel: '/api',
+    fallback: ConnectionFetchHandler,
+  ): ConnectionFetchHandler
 }
 
 /** Client caller for logical RPC channels carried by the current transport. */

@@ -55,7 +55,7 @@ Malformed frames are dropped and logged, matching `WebApiClient`. A `stream-end`
 
 ### Host: `HostIpcGateway`
 
-Constructed with `toFetchHandler(api)` plus `api.events`. For each peer:
+Constructed with a Fetch handler plus `api.events`. Apiproxy tests pass `toFetchHandler(api)`; the [Electron shell](./2026-08-14-desktop-electron-shell.md) composes Connection interceptor dispatch in front of that fallback. For each peer:
 
 - `unary-request` → `handler.fetch` → `unary-response`; thrown fetch errors → `unary-failure`.
 - `stream-open` for mux/host → iterate `api.events.mux` / `api.events.host` and post `stream-frame`; on completion or throw, post `stream-end`.
@@ -65,7 +65,7 @@ The gateway treats the IPC peer as a **loopback, same-origin, already-authentica
 
 ### Connection plugin
 
-`dsh-client-connection` HTTP routes are unchanged. The [Electron shell](./2026-08-14-desktop-electron-shell.md) recognizes `window.__DSH_IPC_PORT__` and constructs the exported client; tests also construct `IpcApiClient` directly.
+`dsh-client-connection` HTTP routes are unchanged. Non-HTTP carriers call `connection.createSharedFetchHandler('/api', toFetchHandler(api))`. The [Electron shell](./2026-08-14-desktop-electron-shell.md) recognizes `window.__DSH_IPC_PORT__` and constructs the exported client; tests also construct `IpcApiClient` directly.
 
 ### Out of scope
 
