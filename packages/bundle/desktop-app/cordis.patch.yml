@@ -117,10 +117,16 @@
       config:
         surfaceContext: true
 
+    # Process-IPC adapter: HostIpcGateway plus boot-graph / plugin-byte control.
+    # A terminal `dsh desktop` has no parent IPC channel, so the plugin is a no-op.
+    - id: desktop-ipc
+      name: '@deepseek-ai/dsh-desktop-app/ipc-host'
+      inject: [desktopStartup]
+
     # ── client plugin roster (dsh.client rows; node halves are layer-2 hosts) ──
 
     # Dual-face: the node half scans this tree and composes the boot graph the
-    # Electron renderer will consume in P2. Waits for desktopStartup so
+    # Electron renderer consumes through desktop-ipc. Waits for desktopStartup so
     # `dsh --profile desktop --help` leaves the graph pending (no client-bundle
     # scan) while still composing it once the invocation is accepted.
     - id: modules

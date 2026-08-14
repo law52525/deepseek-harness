@@ -120,7 +120,7 @@ Source: [`packages/client/modules/src/index.ts:185`](../../packages/client/modul
 
 ### `ctx.desktopRuntime` — `DesktopRuntimeValues`
 
-Desktop Host marker shared by later shell wiring; carries no bind address.
+Desktop Host marker consumed by the Electron shell; carries no bind address.
 
 Source: [`packages/bundle/desktop-app/src/index.ts:41`](../../packages/bundle/desktop-app/src/index.ts)
 

@@ -596,7 +596,7 @@ export class IpcApiClient extends AbstractApiClient {
   private readonly unsubscribe: () => void
 
   /**
-   * @param port - bidirectional JSON document port (tests use MessageChannel; a later Electron shell adapts ipcMain/ipcRenderer).
+   * @param port - bidirectional JSON document port (tests use MessageChannel; the Electron shell adapts ipcMain/ipcRenderer).
    * @param timeoutMs - timeout for bounded unary calls; user-paced calls and streams do not use it.
    */
   constructor(private readonly port: IpcPort, timeoutMs?: number) {
@@ -622,6 +622,24 @@ export class IpcApiClient extends AbstractApiClient {
     this.pendingUnary.clear()
     for (const sink of this.streams.values()) sink.end()
     this.streams.clear()
+  }
+
+  /**
+   * Fetch-compatible unary wrapper so generic Connection RPC can share this port.
+   * @param input - request URL or Request.
+   * @param init - optional fetch init.
+   * @returns the unary Response from this port.
+   */
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    if (input instanceof Request) {
+      return this.doFetch(new URL(input.url), {
+        method: init?.method ?? input.method,
+        headers: init?.headers ?? input.headers,
+        ...init?.body === undefined ? {} : { body: init.body },
+        signal: init?.signal ?? input.signal,
+      })
+    }
+    return this.doFetch(input instanceof URL ? input : new URL(input), init)
   }
 
   protected doFetch(input: URL, init?: RequestInit): Promise<Response> {

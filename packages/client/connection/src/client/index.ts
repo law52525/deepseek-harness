@@ -4,6 +4,7 @@
  * controller with its sinks.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { IpcApiClient, type IpcPort } from '@deepseek-ai/dsh-host-apiproxy/client'
 import type { HostDescription, IApiClient } from './api.ts'
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
@@ -58,7 +59,7 @@ export const inject: string[] = []
  * is ready — connection stays consumer-agnostic).
  */
 export interface ConnectionHandle {
-  /** Shared api client (fixture or real, decided at boot from the page URL). */
+  /** Shared api client (fixture, IPC, or HTTP, decided at boot from the page URL and preload seam). */
   readonly api: IApiClient
   /** Whether the current page authority is loopback; non-browser contexts default to true. */
   readonly isLoopback: boolean
@@ -84,9 +85,13 @@ export interface ConnectionHandle {
 export function apply(ctx: Context): void {
   const pageLocation = typeof location === 'undefined' ? undefined : location
   const fixture = pageLocation !== undefined && new URLSearchParams(pageLocation.search).has('fixture')
+  const ipcPort = fixture ? undefined : readIpcPort()
   const fixtureClient = fixture ? new FixtureApiClient() : undefined
-  const api: IApiClient = fixtureClient ?? new WebApiClient()
-  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc()
+  const ipcClient = ipcPort === undefined ? undefined : new IpcApiClient(ipcPort)
+  const api: IApiClient = fixtureClient ?? ipcClient ?? new WebApiClient()
+  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc(
+    ipcClient === undefined ? undefined : (input, init) => ipcClient.fetch(input, init),
+  )
   let started = false
   let description: HostDescription | undefined
   const descriptionListeners = new Set<() => void>()
@@ -103,7 +108,7 @@ export function apply(ctx: Context): void {
   }
   const handle: ConnectionHandle = {
     api,
-    isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    isLoopback: pageIsLoopback(pageLocation, readIpcPort() !== undefined),
     hostDescription: {
       getSnapshot: () => description,
       subscribe: (listener) => {
@@ -141,4 +146,22 @@ export function apply(ctx: Context): void {
     },
   }
   ctx.provide('connection', handle)
+}
+
+function readIpcPort(): IpcPort | undefined {
+  const candidate = (globalThis as { __DSH_IPC_PORT__?: unknown }).__DSH_IPC_PORT__
+  if (typeof candidate !== 'object' || candidate === null) return undefined
+  const port = candidate as { post?: unknown; subscribe?: unknown }
+  return typeof port.post === 'function' && typeof port.subscribe === 'function'
+    ? candidate as IpcPort
+    : undefined
+}
+
+function pageIsLoopback(
+  pageLocation: { hostname: string; protocol?: string } | undefined,
+  hasIpcPort: boolean,
+): boolean {
+  if (pageLocation === undefined || hasIpcPort) return true
+  if (pageLocation.protocol === 'file:') return true
+  return isLoopbackHostname(pageLocation.hostname)
 }

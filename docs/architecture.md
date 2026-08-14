@@ -22,7 +22,7 @@ A **bundle** is a distribution format for Cordis config rows and the code they m
 
 Each declares itself in its own `package.json` under a `dsh` field: `dsh.profile` lists a profile's bundles, and `dsh.bundle` points at a bundle's patch file.
 
-[`dsh-base`](../packages/bundle/base/README.md) is the first layer of every profile: model adapters, tools, persistence, sandbox and approval policy, settings, credentials, telemetry. [`dsh-web-app`](../packages/bundle/web-app/README.md) adds the browser application; [`dsh-desktop-app`](../packages/bundle/desktop-app/README.md) adds the same Host business plugins and client roster without an HTTP listener; [`dsh-headless`](../packages/bundle/headless/README.md) adds a one-shot runner with no server at all.
+[`dsh-base`](../packages/bundle/base/README.md) is the first layer of every profile: model adapters, tools, persistence, sandbox and approval policy, settings, credentials, telemetry. [`dsh-web-app`](../packages/bundle/web-app/README.md) adds the browser application; [`dsh-desktop-app`](../packages/bundle/desktop-app/README.md) adds the same Host business plugins and client roster without an HTTP listener; [`apps/desktop`](../apps/desktop/README.md) is the Electron assembly that loads `dsh-web-frontend` dist against that Host child; [`dsh-headless`](../packages/bundle/headless/README.md) adds a one-shot runner with no server at all.
 
 Layers apply to an empty entry list in this order: each bundle in the profile's listed order, then the profile's `cordis.patch.yml`, then the home-level one, then any `--patch` overlay. A patch targets a row by id and replaces its whole config, or inserts new rows.
 
