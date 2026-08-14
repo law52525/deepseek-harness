@@ -83,7 +83,7 @@ desktop-app 会与 web-app 的名录漂移。写明：在存在可被两个组�
 
 粘贴到新的 Cursor agent：
 
-1. 只实施 `.agents/notes/proposed/architecture/2026-08-14-desktop-profile-host.md` 中的 P1。阅读[产品说明](./2026-08-14-desktop-installer-product.md)、[P0](./2026-08-14-desktop-ipc-carrier.md)、`packages/bundle/web-app/cordis.patch.yml`、`packages/bundle/web-app/README.md`、`packages/client/modules/src/index.ts`、`packages/client/connection/src/index.ts`、`apps/cli/src/args.ts`、`docs/cookbook/adding-a-package.md`、`AGENTS.md` 与 `packages/AGENTS.md`。
+1. 只实施 `.agents/notes/proposed/architecture/2026-08-14-desktop-profile-host.md` 中的 P1。阅读[产品说明](./2026-08-14-desktop-installer-product.md)、[P0](../../implemented/architecture/2026-08-14-desktop-ipc-carrier.md)、`packages/bundle/web-app/cordis.patch.yml`、`packages/bundle/web-app/README.md`、`packages/client/modules/src/index.ts`、`packages/client/connection/src/index.ts`、`apps/cli/src/args.ts`、`docs/cookbook/adding-a-package.md`、`AGENTS.md` 与 `packages/AGENTS.md`。
 2. 不要添加 Electron 或安装包打包。不要从 web profile 移除 HTTP。不要实现 `apps/desktop`。
 3. 在 `packages/bundle/desktop-app/` 按 web-app 组合包模式添加 `@deepseek-ai/dsh-desktop-app`。把它登记进 tsconfig、constraints 与 CLI profile 模板。
 4. 按说明把 modules 与 connection 的 node 半边改成 `webServer` 可选。用现有测试证明 web 的 HTTP 注册；用新测试证明 desktop 的 dump-config 与 help。

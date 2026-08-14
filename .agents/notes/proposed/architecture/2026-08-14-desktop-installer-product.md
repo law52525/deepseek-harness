@@ -8,7 +8,7 @@ English | [中文](2026-08-14-desktop-installer-product.zh.md)
 
 The shipped GUI is `dsh web`: a Node Host plus a browser page at a loopback HTTP URL. Operators who want a Windows or macOS application must install Node, run a CLI, and keep a browser tab attached to that process. The Web UI is not a static site; without the Host it cannot open sessions, read the workspace, or run tools. Wrapping only the Vite dist therefore cannot produce a desktop product.
 
-The [GUI layering note](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md) already reserves an Electron client that reuses `packages/client/*` and does not reuse `dsh-host-webserver`. No such application, profile, IPC carrier, or installer pipeline exists. The Python SDK [single-exe pipeline](../../implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) packages a Node runtime closure for linux-x64, linux-arm64, and macos-arm64; it is a headless JSON-RPC peer, not a GUI shell, and Windows is a non-goal there.
+The [GUI layering note](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md) already reserves an Electron client that reuses `packages/client/*` and does not reuse `dsh-host-webserver`. No such application, profile, or installer pipeline exists. The JSON IPC carrier lives in `dsh-host-apiproxy` ([P0](../../implemented/architecture/2026-08-14-desktop-ipc-carrier.md)). The Python SDK [single-exe pipeline](../../implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) packages a Node runtime closure for linux-x64, linux-arm64, and macos-arm64; it is a headless JSON-RPC peer, not a GUI shell, and Windows is a non-goal there.
 
 ## Proposal
 
@@ -46,7 +46,7 @@ Implement in this order. Each phase has its own Agent Note. One Cursor session i
 
 | Phase | Note | Delivers |
 |---|---|---|
-| P0 | [IPC carrier](./2026-08-14-desktop-ipc-carrier.md) | Message protocol, `IpcApiClient`, host gateway, tests with no Electron |
+| P0 | [IPC carrier](../../implemented/architecture/2026-08-14-desktop-ipc-carrier.md) | Message protocol, `IpcApiClient`, host gateway, tests with no Electron |
 | P1 | [Desktop profile](./2026-08-14-desktop-profile-host.md) | `desktop` profile, Host without HTTP, optional `webServer` on dual-face plugins |
 | P2 | [Electron shell](./2026-08-14-desktop-electron-shell.md) | `apps/desktop`, preload, `BootSeams.loadBundle`, boot-manifest injection |
 | P3 | [Native shell capabilities](./2026-08-14-desktop-native-shell-capabilities.md) | Wire picker and path-open through the shell; WebView preview stays deferred |
