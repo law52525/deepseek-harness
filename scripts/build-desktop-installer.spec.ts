@@ -10,6 +10,13 @@ import { packageBinInvocation } from './stage-runtime-closure.ts'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 
+function posixJsBin(args: readonly string[]): string {
+  const entry = args[0]
+  if (entry === undefined) throw new Error('expected a JS bin path')
+  expect(entry).not.toMatch(/\.cmd$/i)
+  return entry.replaceAll('\\', '/')
+}
+
 describe('desktop installer packager target', () => {
   it('selects macOS arm64 and Windows x64 and rejects other hosts', () => {
     expect(packagerTarget('darwin', 'arm64')).toEqual({ os: 'mac', arch: 'arm64' })
@@ -45,8 +52,7 @@ describe('desktop installer tool spawn', () => {
       'scripts/verify-runtime-closure.ts',
     ])
     expect(tsx.command).toBe(process.execPath)
-    expect(tsx.args[0].replaceAll('\\', '/')).toMatch(/tsx\/dist\/cli\.mjs$/)
-    expect(tsx.args[0]).not.toMatch(/\.cmd$/i)
+    expect(posixJsBin(tsx.args)).toMatch(/tsx\/dist\/cli\.mjs$/)
 
     const builder = packageBinInvocation(
       join(root, 'apps/desktop/package.json'),
@@ -55,7 +61,6 @@ describe('desktop installer tool spawn', () => {
       ['--publish', 'never'],
     )
     expect(builder.command).toBe(process.execPath)
-    expect(builder.args[0].replaceAll('\\', '/')).toMatch(/electron-builder\/cli\.js$/)
-    expect(builder.args[0]).not.toMatch(/\.cmd$/i)
+    expect(posixJsBin(builder.args)).toMatch(/electron-builder\/cli\.js$/)
   })
 })
