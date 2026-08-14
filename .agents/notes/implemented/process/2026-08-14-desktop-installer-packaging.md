@@ -47,7 +47,7 @@ extraResources copies `apps/desktop/stage/` as a whole. electron-builder's `crea
 
 Build on the target OS. Intel Mac, Windows arm64, and Linux AppImage are not v1. Artifacts land in `apps/desktop/dist/`.
 
-macOS uses electron-builder identity `-` (ad-hoc). Windows sets `signAndEditExecutable: false`. Notarization, Developer ID, Authenticode, GitHub Releases, and auto-update remain [P5](../../proposed/process/2026-08-14-desktop-installer-release-ci.md).
+macOS uses electron-builder identity `-` (ad-hoc). Windows sets `signAndEditExecutable: false`. [P5](../../proposed/process/2026-08-14-desktop-installer-release-ci.md) notarizes the arm64 `.dmg` (Developer ID plus nested Host `node` and `node-spawn-helper`) and publishes GitHub Releases; Windows stays unsigned (no Authenticode). The staged tree is the desktop deploy root plus copied Node, not the repository root; a gitignored `.env` is not an extraResource.
 
 ## Alternatives considered
 
@@ -63,7 +63,7 @@ macOS uses electron-builder identity `-` (ad-hoc). Windows sets `signAndEditExec
 
 Installer size is hundreds of MB (Electron + Node + closure). That is accepted for v1; trimming belongs in a later simplification note.
 
-Windows Defender / SmartScreen warns on the unsigned exe. Gatekeeper blocks the ad-hoc macOS app until the user opens it from Finder. If that blocks an internal "can install" goal, P5 signing must follow immediately.
+Windows Defender / SmartScreen warns on the unsigned exe. Gatekeeper blocks the ad-hoc macOS app until the user opens it from Finder. P5 notarization is the Mac path; Windows remains unsigned with that warning documented.
 
 The bundled Node is the builder's `process.execPath`, ABI-matched to staged native addons. Portable official binaries are a P5 CI concern (`actions/setup-node`).
 

@@ -18,7 +18,7 @@ Ship DeepSeek Harness as a desktop application whose window renders the existing
 
 The first ship uses **two processes**:
 
-1. **Electron shell** — `BrowserWindow`, preload, IPC to the renderer, auto-update later.
+1. **Electron shell** — `BrowserWindow`, preload, IPC to the renderer, auto-update from GitHub Releases (P5).
 2. **Node Host child** — boots a new `desktop` profile over `dsh-base`, with no HTTP listener.
 
 Native addons (`node-pty`, Windows directory-picker `koffi`) stay on Node's ABI. Rebuilding them for Electron's Node is a later convergence, not a ship gate. The renderer never talks HTTP to a user-visible port; every RPC and downlink frame crosses IPC.
@@ -39,6 +39,7 @@ In-process Host-in-Electron-main remains allowed as a later simplification once 
 - Introduce a parallel `packages/electron-*` UI family.
 - Use Tauri or a non-Node Host.
 - Replace or weaken `dsh web`.
+- Pack a developer-machine root `.env` or `DEEPSEEK_API_KEY` into the installer; the model key is saved in Settings after first launch.
 
 ### Phase map
 
@@ -51,7 +52,7 @@ Implement in this order. Each phase has its own Agent Note. One Cursor session i
 | P2 | [Electron shell](../../implemented/architecture/2026-08-14-desktop-electron-shell.md) | `apps/desktop`, preload, `BootSeams.loadBundle`, boot-manifest injection |
 | P3 | [Native shell capabilities](../../implemented/architecture/2026-08-14-desktop-native-shell-capabilities.md) | Wire picker and path-open through the shell; WebView preview stays deferred |
 | P4 | [Installer packaging](../../implemented/process/2026-08-14-desktop-installer-packaging.md) | electron-builder, Node closure including Windows, `.dmg` / `.exe` |
-| P5 | [Release CI](../process/2026-08-14-desktop-installer-release-ci.md) | Signing, notarization, updates, CI matrix |
+| P5 | [Release CI](../process/2026-08-14-desktop-installer-release-ci.md) | macOS notarization, unsigned Windows, GitHub Releases, auto-update |
 
 P3 may overlap P4 after P2. P4 may start after P2; the first installer may keep the existing Node native picker. P5 starts after P4 produces unsigned artifacts.
 
@@ -62,6 +63,8 @@ On a clean Windows x64 machine and a clean macOS arm64 machine, with no system N
 1. The user installs the shipped package (`.exe` / `.dmg`).
 2. The application window opens the existing GUI.
 3. The user can add a workspace, save a model key, and start a session.
+
+The installer must not contain a developer `DEEPSEEK_API_KEY`. Step 3 is the first time a model key is stored.
 
 `dsh web` remains the default developer-preview entry in the root README until a later product decision promotes the installer.
 
@@ -81,7 +84,7 @@ On a clean Windows x64 machine and a clean macOS arm64 machine, with no system N
 
 - Six phase notes exist and this note remains the product decision until the installer ships, at which point this file moves to `implemented/` with the process model that actually shipped.
 - No phase adds a user-visible HTTP URL as the desktop carrier.
-- After P5, signed or explicitly preview-unsigned installers exist for macOS arm64 and Windows x64 and satisfy the Done section.
+- After P5, a notarized macOS arm64 `.dmg` and an explicitly unsigned Windows x64 `.exe` exist on GitHub Releases and satisfy the Done section.
 
 ## Risks
 
@@ -89,7 +92,7 @@ Two-process lifetime (crash of the child, orphan windows, shutdown ordering) is 
 
 The packaged plugin closure will drift from `dsh-web-app` if the desktop deploy manifest is edited by hand. P4 must generate or verify that closure the same way `verify-runtime-closure` gates the Python exe.
 
-Developer preview still breaks compatibility. Shipping installers without auto-update (P5) leaves operators on stale bits; P4 README must say so.
+Developer preview still breaks compatibility. Until P5 ships auto-update from GitHub Releases, operators stay on stale bits; P4 README must say so. Auto-update must replace the whole app so extraResources is never half-written.
 
 ## Cursor prompt
 
