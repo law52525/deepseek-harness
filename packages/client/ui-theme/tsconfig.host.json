@@ -1,0 +1,33 @@
+{
+  // Host apply and settings constants. desktop-app references this leaf so
+  // Host tsc does not compile src/client (needs generated /remote modules).
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo"
+  },
+  "files": [
+    "src/boot-theme.ts",
+    "src/index.ts",
+    "src/invariant.ts",
+    "src/theme-settings.ts"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../host/webserver"
+    },
+    {
+      "path": "../../settings/settings"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
+    }
+  ]
+}

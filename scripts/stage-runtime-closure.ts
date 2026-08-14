@@ -5,8 +5,9 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { cp, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { dirname, join, resolve, sep } from 'node:path'
 
 /**
@@ -50,12 +51,52 @@ function formatCommand(command: string, args: readonly string[]): string {
   return [command, ...args].map(part => (part.includes(' ') ? JSON.stringify(part) : part)).join(' ')
 }
 
+/** `node <js-entry> …` argv. Windows cannot spawn `.cmd` shims (CVE-2024-27980). */
+export interface ShellFreeCli {
+  /** Always `process.execPath`. */
+  command: string
+  /** JavaScript entry followed by the tool's argv. */
+  args: string[]
+}
+
 /**
- * pnpm executable for the host platform.
- * @returns `pnpm.cmd` on Windows, `pnpm` elsewhere.
+ * pnpm as `node <npm_execpath> …`. The `.cmd` shim is not spawnable; `shell:
+ * true` space-joins args unescaped (DEP0190).
+ * @param args - argv after the pnpm program name.
+ * @returns node plus the JS entry plus `args`.
  */
-export function pnpmBin(): string {
-  return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+export function pnpmInvocation(args: readonly string[]): ShellFreeCli {
+  const entrypoint = process.env.npm_execpath
+  if (entrypoint === undefined || entrypoint === '') {
+    throw new Error('npm_execpath is unavailable; invoke through a pnpm package script.')
+  }
+  return { command: process.execPath, args: [entrypoint, ...args] }
+}
+
+/**
+ * A workspace package's published bin as `node <js-entry> …`, not a `.bin` shim.
+ * @param fromPackageJson - package.json used as the resolve origin.
+ * @param packageName - the dependency that owns the bin.
+ * @param binName - `package.json#bin` key, ignored when `bin` is a string.
+ * @param args - argv after the bin.
+ * @returns node plus the JS entry plus `args`.
+ */
+export function packageBinInvocation(
+  fromPackageJson: string,
+  packageName: string,
+  binName: string,
+  args: readonly string[],
+): ShellFreeCli {
+  const require = createRequire(fromPackageJson)
+  const manifestPath = require.resolve(`${packageName}/package.json`)
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    bin?: string | Record<string, string>
+  }
+  const relativeBin = typeof manifest.bin === 'string' ? manifest.bin : manifest.bin?.[binName]
+  if (relativeBin === undefined || relativeBin === '') {
+    throw new Error(`${packageName} has no bin ${JSON.stringify(binName)}`)
+  }
+  return { command: process.execPath, args: [join(dirname(manifestPath), relativeBin), ...args] }
 }
 
 /** Relative path of pnpm's workspace install-settings cache. */
@@ -260,18 +301,19 @@ export async function stageRuntimeClosure(options: StageRuntimeClosureOptions): 
   if (dryRun) console.log(`${prefix}: [dry-run] rm -rf ${staging}`)
   else await rm(staging, { recursive: true, force: true })
   await preservePnpmWorkspaceState(root, dryRun, prefix, async () => {
+    const deploy = pnpmInvocation([
+      '--filter',
+      options.filter,
+      'deploy',
+      ...MEASURED_PNPM_DEPLOY_FLAGS,
+      '--config.confirmModulesPurge=false',
+      staging,
+    ])
     await runLogged(
       { root, dryRun, logPrefix: prefix },
       'deploy',
-      pnpmBin(),
-      [
-        '--filter',
-        options.filter,
-        'deploy',
-        ...MEASURED_PNPM_DEPLOY_FLAGS,
-        '--config.confirmModulesPurge=false',
-        staging,
-      ],
+      deploy.command,
+      deploy.args,
     )
   })
   await restoreLegacyHoists(staging, resolve(options.sourceNodeModules), dryRun, prefix)

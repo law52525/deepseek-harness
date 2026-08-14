@@ -25,7 +25,7 @@ import {
   macSignedBuilderArgs,
   resolveMacSigningIdentity,
 } from './desktop-mac-signing.ts'
-import { pnpmBin, runLogged, stageRuntimeClosure } from './stage-runtime-closure.ts'
+import { packageBinInvocation, pnpmInvocation, runLogged, stageRuntimeClosure } from './stage-runtime-closure.ts'
 import { assertDesktopShellBundleSelfContained } from './desktop-shell-bundle.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -35,6 +35,10 @@ const DEPLOY_ROOT_PACKAGE = 'dsh-desktop-runtime'
 /** Host child entry inside the staged closure. */
 const ENTRY_BIN = 'node_modules/@deepseek-ai/dsh/lib/bin.js'
 const DESKTOP_DIR = 'apps/desktop'
+/** Root `package.json` used to resolve the workspace `tsx` bin. */
+const ROOT_PACKAGE_JSON = join(root, 'package.json')
+/** `apps/desktop/package.json` used to resolve `electron-builder`. */
+const DESKTOP_PACKAGE_JSON = join(root, DESKTOP_DIR, 'package.json')
 /** Must match `DESKTOP_HOST_RESOURCE` in apps/desktop/src/packaged-resources.ts and electron-builder extraResources. */
 const HOST_RESOURCE = 'host'
 /** Must match `DESKTOP_FRONTEND_RESOURCE` in apps/desktop/src/packaged-resources.ts and electron-builder extraResources. */
@@ -217,15 +221,6 @@ export function packedResourcesCandidates(
   ]
 }
 
-/**
- * Workspace `.bin` shim. Prefer this over `pnpm exec` after `pnpm deploy --prod`:
- * `pnpm exec` with `CI=true` can reinstall the workspace as production-only.
- */
-function workspaceBin(name: string, fromDir = '.'): string {
-  const bin = process.platform === 'win32' ? `${name}.cmd` : name
-  return join(root, fromDir, 'node_modules', '.bin', bin)
-}
-
 class DesktopInstallerBuild {
   readonly hostStaging = resolve(root, HOST_STAGE)
   readonly frontendStaging = resolve(root, FRONTEND_STAGE)
@@ -242,18 +237,22 @@ class DesktopInstallerBuild {
   }
 
   async verifyClosure(): Promise<void> {
-    await this.run('runtime dependency closure', workspaceBin('tsx'), [
+    // Direct tsx JS bin, not `pnpm exec`: after `pnpm deploy --prod`, `pnpm
+    // exec` with `CI=true` can reinstall the workspace as production-only.
+    const tsx = packageBinInvocation(ROOT_PACKAGE_JSON, 'tsx', 'tsx', [
       'scripts/verify-runtime-closure.ts',
       '--manifest',
       'desktop-runtime/package.json',
     ])
+    await this.run('runtime dependency closure', tsx.command, tsx.args)
   }
 
   async build(): Promise<void> {
     if (this.cli.skipBuild) {
       console.log(`${LOG}: skipping pnpm run build (--skip-build)`)
     } else {
-      await this.run('build', pnpmBin(), ['run', 'build'])
+      const build = pnpmInvocation(['run', 'build'])
+      await this.run('build', build.command, build.args)
     }
     this.assertShellBundle()
   }
@@ -405,12 +404,17 @@ class DesktopInstallerBuild {
       delete process.env.DSH_MAC_SIGNED
       delete process.env.DSH_MAC_SIGN_IDENTITY
     }
-    const builder = workspaceBin('electron-builder', DESKTOP_DIR)
-    const args = packagerArgs(
+    const packager = packagerArgs(
       target,
       this.cli.signed,
       identity,
       githubPublishRepo(process.env.GITHUB_REPOSITORY),
+    )
+    const builder = packageBinInvocation(
+      DESKTOP_PACKAGE_JSON,
+      'electron-builder',
+      'electron-builder',
+      packager,
     )
     await runLogged(
       {
@@ -420,8 +424,8 @@ class DesktopInstallerBuild {
         logPrefix: LOG,
       },
       'electron-builder',
-      builder,
-      args,
+      builder.command,
+      builder.args,
     )
     if (this.cli.dryRun) return
     const dist = resolve(root, DESKTOP_DIR, 'dist')

@@ -11,7 +11,7 @@ import { chmod, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promise
 import { basename, dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { resolveLinuxNodePtyAddon } from './build-exe-for-python-sdk-native-pty.ts'
-import { pnpmBin, runLogged, stageRuntimeClosure } from './stage-runtime-closure.ts'
+import { pnpmInvocation, runLogged, stageRuntimeClosure } from './stage-runtime-closure.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -215,13 +215,14 @@ class SingleExeBuild {
 
   /** Verify the closure before compiling or packaging. */
   async verifyClosure(): Promise<void> {
-    await this.run('runtime dependency closure', pnpmBin(), [
+    const closure = pnpmInvocation([
       'exec',
       'tsx',
       'scripts/verify-runtime-closure.ts',
       '--manifest',
       'python/sdk-runtime/package.json',
     ])
+    await this.run('runtime dependency closure', closure.command, closure.args)
   }
 
   /** Build all package artifacts unless `--skip-build` was passed. */
@@ -230,7 +231,8 @@ class SingleExeBuild {
       console.log('build-exe-for-python-sdk: skipping pnpm run build (--skip-build)')
       return
     }
-    await this.run('build', pnpmBin(), ['run', 'build'])
+    const build = pnpmInvocation(['run', 'build'])
+    await this.run('build', build.command, build.args)
   }
 
   /** Clear and deploy the runtime closure into the node carrier. */
@@ -274,7 +276,7 @@ class SingleExeBuild {
     const product = join(this.outDir, `${OUTPUT_BASENAME}-${target.platform}-${target.arch}`)
     await this.prepareNativePty(target)
     if (!this.cli.dryRun) await mkdir(this.outDir, { recursive: true })
-    await this.run(`pkg ${target.spec}`, pnpmBin(), [
+    const pkg = pnpmInvocation([
       'dlx',
       PKG_SPEC,
       this.staging,
@@ -284,6 +286,7 @@ class SingleExeBuild {
       '--output',
       product,
     ])
+    await this.run(`pkg ${target.spec}`, pkg.command, pkg.args)
     if (!this.cli.dryRun && !existsSync(product)) {
       throw new Error(`build-exe-for-python-sdk: product ${product} is missing after the pkg run; inspect ${this.outDir}.`)
     }

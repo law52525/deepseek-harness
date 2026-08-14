@@ -1,10 +1,14 @@
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   installerCliArgv,
   packedResourcesCandidates,
   packagerTarget,
 } from './build-desktop-installer.ts'
+import { packageBinInvocation } from './stage-runtime-closure.ts'
+
+const root = fileURLToPath(new URL('..', import.meta.url))
 
 describe('desktop installer packager target', () => {
   it('selects macOS arm64 and Windows x64 and rejects other hosts', () => {
@@ -32,5 +36,26 @@ describe('packed extraResources locations', () => {
       join(dist, 'win-unpacked', 'resources'),
       join(dist, 'win-x64-unpacked', 'resources'),
     ])
+  })
+})
+
+describe('desktop installer tool spawn', () => {
+  it('runs tsx and electron-builder through node and their JS bins', () => {
+    const tsx = packageBinInvocation(join(root, 'package.json'), 'tsx', 'tsx', [
+      'scripts/verify-runtime-closure.ts',
+    ])
+    expect(tsx.command).toBe(process.execPath)
+    expect(tsx.args[0].replaceAll('\\', '/')).toMatch(/tsx\/dist\/cli\.mjs$/)
+    expect(tsx.args[0]).not.toMatch(/\.cmd$/i)
+
+    const builder = packageBinInvocation(
+      join(root, 'apps/desktop/package.json'),
+      'electron-builder',
+      'electron-builder',
+      ['--publish', 'never'],
+    )
+    expect(builder.command).toBe(process.execPath)
+    expect(builder.args[0].replaceAll('\\', '/')).toMatch(/electron-builder\/cli\.js$/)
+    expect(builder.args[0]).not.toMatch(/\.cmd$/i)
   })
 })
