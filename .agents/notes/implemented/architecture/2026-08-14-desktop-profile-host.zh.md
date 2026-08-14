@@ -40,7 +40,7 @@ desktop-app 的 patch 复制 web-app 中属于 Host 业务与客户端名录的�
 
 ### Composition only
 
-本阶段不实例化 `IpcApiClient` 或 `HostIpcGateway`。[IPC 载体](./2026-08-14-desktop-ipc-carrier.md) 已经存在；后续 Electron 壳消费 `ctx.clientModules.graph()` 并接线该载体。Electron、安装包和 `apps/desktop` 仍属后续阶段。web profile 仍然挂载 HTTP。
+无 HTTP 的组装不绑定监听器。[Electron 壳](./2026-08-14-desktop-electron-shell.md) 在存在父进程 IPC 通道时，通过 `desktop-app/ipc-host` 在 Node 子进程中实例化 `HostIpcGateway`。安装包仍属后续阶段。web profile 仍然挂载 HTTP。
 
 在存在可被两个组合包消费、且不含 HTTP 行的共享名录片段之前，往 web-app 增加 `dsh.client` 行必须同时加到 desktop-app。本阶段不发明该片段。
 
@@ -72,11 +72,11 @@ modules/connection 上可选的 `webServer` 会改变加载顺序：一份忘了
 
 原生目录选择器会一直钉死，直到后续 shell 接线。若操作者把 `directory-picker-auto` overlay 到 desktop，会重新引入本 Host 无法满足的 `webServer` 注入。
 
-`dsh --profile desktop --dump-config` 与 `--help` 不启动服务器，也不打开 Electron 窗口。后续壳读取的就是此 Host 已经组合好的同一份图。
+`dsh --profile desktop --dump-config` 与 `--help` 不启动服务器，也不打开 Electron 窗口。[Electron 壳](./2026-08-14-desktop-electron-shell.md) 读取的就是此 Host 已经组合好的同一份图。
 
 ## Related
 
 - [桌面产品](../../proposed/architecture/2026-08-14-desktop-installer-product.md)
 - [P0 IPC 载体](./2026-08-14-desktop-ipc-carrier.md)
-- [P2 Electron 壳](../../proposed/architecture/2026-08-14-desktop-electron-shell.md)
+- [P2 Electron 壳](./2026-08-14-desktop-electron-shell.md)
 - [Profile 插件组合包](./2026-08-05-profile-plugin-bundles.md)

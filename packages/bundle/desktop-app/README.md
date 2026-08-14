@@ -24,6 +24,6 @@ The prompt section sits near the system prompt's head and is stable for the life
 
 ## Known Limitations and Deferred Work
 
-- **No HTTP listener** — this Host does not mount `dsh-host-webserver` or print a URL; the Electron renderer consumes `ctx.clientModules.graph()` through IPC in a later phase.
+- **No HTTP listener** — this Host does not mount `dsh-host-webserver` or print a URL; the Electron renderer consumes `ctx.clientModules.graph()` through process IPC (`desktop-app/ipc-host`).
 - **Native directory picker is pinned** — `directory-picker-auto` injects `webServer`, so this bundle mounts `-native` Host and UI rows directly. Later shell wiring may change that pairing.
 - **Client roster must stay aligned with web-app** — a new `dsh.client` row belongs in both bundles until they share a fragment that omits HTTP rows.

@@ -40,7 +40,7 @@ Plugin-level `loader`-only inject is not enough to keep `--help` from scanning c
 
 ### Composition only
 
-This phase does not instantiate `IpcApiClient` or `HostIpcGateway`. The [IPC carrier](./2026-08-14-desktop-ipc-carrier.md) already exists; a later Electron shell consumes `ctx.clientModules.graph()` and wires that carrier. Electron, installers, and `apps/desktop` remain later phases. The web profile still mounts HTTP.
+The HTTP-free composition does not bind a listener. The [Electron shell](./2026-08-14-desktop-electron-shell.md) instantiates `HostIpcGateway` in the Node child through `desktop-app/ipc-host` when a parent IPC channel exists. Installers remain a later phase. The web profile still mounts HTTP.
 
 Adding a `dsh.client` row to web-app requires the same row on desktop-app until a shared roster fragment exists that both bundles can consume without HTTP rows. That fragment is not invented here.
 
@@ -72,11 +72,11 @@ Desktop-app will drift from web-app's roster until a shared fragment exists. `pa
 
 The native directory picker is pinned until later shell wiring. Operators who overlay `directory-picker-auto` onto desktop reintroduce a `webServer` inject this Host does not satisfy.
 
-`dsh --profile desktop --dump-config` and `--help` start no server and no Electron window. A later shell reads the same graph this Host already composes.
+`dsh --profile desktop --dump-config` and `--help` start no server and no Electron window. The [Electron shell](./2026-08-14-desktop-electron-shell.md) reads the same graph this Host already composes.
 
 ## Related
 
 - [Desktop product](../../proposed/architecture/2026-08-14-desktop-installer-product.md)
 - [P0 IPC carrier](./2026-08-14-desktop-ipc-carrier.md)
-- [P2 Electron shell](../../proposed/architecture/2026-08-14-desktop-electron-shell.md)
+- [P2 Electron shell](./2026-08-14-desktop-electron-shell.md)
 - [Profile plugin bundles](./2026-08-05-profile-plugin-bundles.md)

@@ -100,7 +100,7 @@ export type IpcMessage = z.infer<typeof ipcMessageSchema>
 
 /**
  * Bidirectional JSON document port. Tests implement this with `MessageChannel`
- * or a pair of EventEmitters. A later Electron shell adapts `ipcMain` /
+ * or a pair of EventEmitters. The Electron shell adapts `ipcMain` /
  * `ipcRenderer` (and Node child `process` IPC) without changing message types.
  */
 export interface IpcPort {

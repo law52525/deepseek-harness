@@ -37,7 +37,7 @@ export const Config: z<Config> = z.object({
   surfaceContext: z.boolean().default(true),
 })
 
-/** Desktop Host marker shared by later shell wiring; carries no bind address. */
+/** Desktop Host marker consumed by the Electron shell; carries no bind address. */
 export interface DesktopRuntimeValues {
   /** Discriminator for this Host surface. */
   surface: 'desktop'

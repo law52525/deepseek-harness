@@ -17,11 +17,12 @@ export type RpcFetch = (input: URL, init: RequestInit) => Promise<Response>
 
 /**
  * Create the browser-backed generic RPC caller.
- * @param doFetch - transport override; defaults to the page's global fetch.
+ * @param fetchImpl - optional unary fetch; IPC clients pass `IpcApiClient.fetch` so
+ *   `file:` / custom-protocol pages do not hit `globalThis.fetch`.
  * @returns caller that owns request correlation and response-envelope validation.
  */
-export function createWebConnectionRpc(doFetch?: RpcFetch): ClientConnectionRpc {
-  const send: RpcFetch = doFetch ?? ((input, init) => globalThis.fetch(input, init))
+export function createWebConnectionRpc(fetchImpl?: RpcFetch): ClientConnectionRpc {
+  const send: RpcFetch = fetchImpl ?? ((input, init) => globalThis.fetch(input, init))
   return {
     async call(channel, endpoint, payload, signal) {
       assertTarget(channel, endpoint)
@@ -33,7 +34,7 @@ export function createWebConnectionRpc(doFetch?: RpcFetch): ClientConnectionRpc 
         payload,
       }
       const response = await send(
-        new URL(`${channel}/${endpoint}`, resolveBase()),
+        new URL(`${channel}/${endpoint}`, fetchImpl === undefined ? resolveBase() : INTERNAL_BASE),
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },

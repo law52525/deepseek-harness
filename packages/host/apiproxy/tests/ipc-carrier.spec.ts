@@ -431,6 +431,46 @@ describe('IpcApiClient edge cases', () => {
       const response = await pending
       expect(response.status).toBe(200)
 
+      const viaString = client.fetch('http://dsh.internal/api/session.list')
+      const stringRequest = posted.at(-1)
+      if (stringRequest?.type !== 'unary-request') throw new Error('expected string unary-request')
+      send({
+        type: 'unary-response',
+        id: stringRequest.id,
+        status: 200,
+        headers: {},
+        body: '{}',
+      })
+      expect((await viaString).status).toBe(200)
+
+      const viaRequest = client.fetch(new Request('http://dsh.internal/api/session.list', { method: 'GET' }))
+      const requestUnary = posted.at(-1)
+      if (requestUnary?.type !== 'unary-request') throw new Error('expected Request unary-request')
+      send({
+        type: 'unary-response',
+        id: requestUnary.id,
+        status: 200,
+        headers: {},
+        body: '{}',
+      })
+      expect((await viaRequest).status).toBe(200)
+
+      const viaRequestBody = client.fetch(new Request('http://dsh.internal/api/session.list'), {
+        method: 'POST',
+        body: '{}',
+      })
+      const requestBodyUnary = posted.at(-1)
+      if (requestBodyUnary?.type !== 'unary-request') throw new Error('expected Request+body unary-request')
+      expect(requestBodyUnary.body).toBe('{}')
+      send({
+        type: 'unary-response',
+        id: requestBodyUnary.id,
+        status: 200,
+        headers: {},
+        body: '{}',
+      })
+      expect((await viaRequestBody).status).toBe(200)
+
       const ac = new AbortController()
       ac.abort()
       const frames = await collect(client.events.mux({}, ac.signal, () => {

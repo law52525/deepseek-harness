@@ -679,8 +679,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'desktopRuntime',
-    summary: 'Desktop Host marker shared by later shell wiring; carries no bind address.',
-    description: 'Desktop Host marker shared by later shell wiring; carries no bind address.',
+    summary: 'Desktop Host marker consumed by the Electron shell; carries no bind address.',
+    description: 'Desktop Host marker consumed by the Electron shell; carries no bind address.',
     methods: [
       {
         signature: 'surface: \'desktop\'',

@@ -30,6 +30,7 @@ describe('desktop-app patch composition', () => {
     expect(composed).toContain('@deepseek-ai/dsh-api-remotes')
     expect(composed).toContain('@deepseek-ai/dsh-desktop-app')
     expect(composed).toContain('@deepseek-ai/dsh-desktop-app/startup')
+    expect(composed).toContain('@deepseek-ai/dsh-desktop-app/ipc-host')
     expect(composed).toContain('@deepseek-ai/dsh-host-directory-picker-native')
     expect(composed).toContain('@deepseek-ai/dsh-client-ui-directory-picker-native')
     expect(composed).not.toContain('@deepseek-ai/dsh-host-webserver')
