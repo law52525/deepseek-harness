@@ -38,6 +38,8 @@ Session Header 的 `Session log` 控件仍对页面 origin 发 `HEAD` 再跟 `<a
 
 当 `window.__DSH_IPC_PORT__` 具有 `post` 与 `subscribe` 时，`dsh-client-connection` 客户端 `apply` 构造 `IpcApiClient`，并把 `IpcApiClient.fetch` 传入通用 Connection RPC，使 `file:` / `dsh:` 页面不会打到 `globalThis.fetch`。`?fixture` 仍然优先。没有该端口时，`dsh web` 继续使用 `WebApiClient`。存在该端口、`location.protocol` 为 `file:`、或 hostname 为回环时，`isLoopback` 为 true。
 
+Host 的 `desktop-ipc` 经 `connection.createSharedFetchHandler('/api', toFetchHandler(api))` 喂给 `HostIpcGateway`。已认领的 Typert Remote（例如 composer「+」命令菜单的 `commands/list`）在 API Proxy 回退之前分发。此载体不加 HTTP Host/Origin 栅栏，也不钉特权方法回环：IPC 对端已经是产品壳。
+
 ## Alternatives considered
 
 **渲染进程 `loadURL('http://127.0.0.1:<port>')`。** 违反产品规则，并且跳过了非 HTTP origin 本来就需要的 BootSeams 工作。
@@ -56,7 +58,7 @@ Session Header 的 `Session log` 控件仍对页面 origin 发 `HEAD` 再跟 `<a
 
 ## Testing
 
-单元测试覆盖 RPC 转发器（payload 同一性、不解码 body）、`loadBundle` factory 求值、主题 DOM 字段、`dsh:` 路径映射、Session 导出 URL 识别、GET 正文的临时路径约束、Node 与 Electron 的解析、`ipc-host` 在没有 `process.send` 时为空操作、针对 `HostIpcGateway` 的 host-ready / boot-graph / plugin-bytes / session-export / RPC，以及 connection 客户端选择 `IpcApiClient` 加上 `file:` / IPC loopback。
+单元测试覆盖 RPC 转发器（payload 同一性、不解码 body）、`loadBundle` factory 求值、主题 DOM 字段、`dsh:` 路径映射、Session 导出 URL 识别、GET 正文的临时路径约束、Node 与 Electron 的解析、`ipc-host` 在没有 `process.send` 时为空操作、针对 `HostIpcGateway` 的 host-ready / boot-graph / plugin-bytes / session-export / RPC、Connection interceptor 对 `commands/list` 这类已认领 Remote 的分发，以及 connection 客户端选择 `IpcApiClient` 加上 `file:` / IPC loopback。
 
 `apps/desktop/tests/host-child.spec.ts` 用内存中的 child 把 `DesktopHostChild` 与 `attachDesktopIpcHost` 配对：`host.describe`、boot-graph 与 session-export control 在没有 Electron 的情况下成功。`apps/desktop/tests/host-child.e2e.ts` 孵化真实的 `--profile desktop` 子进程（在客户端 bundle 存在之前自跳过），并断言 host-ready、boot-graph、`host.describe` 以及两条下行流。
 

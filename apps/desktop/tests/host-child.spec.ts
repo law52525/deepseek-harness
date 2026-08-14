@@ -45,6 +45,13 @@ describe('desktop host child', () => {
       }),
       clientPath: () => undefined,
     })
+    ctx.provide('connection', {
+      createSharedFetchHandler: (_channel: '/api', fallback: { fetch(request: Request): Promise<Response> }) => fallback,
+      rpc: {
+        handle: () => () => Promise.resolve(),
+        intercept: () => () => Promise.resolve(),
+      },
+    })
     const child = new FakeChild()
     const host = new DesktopHostChild(child as never)
     attachDesktopIpcHost(ctx, {
