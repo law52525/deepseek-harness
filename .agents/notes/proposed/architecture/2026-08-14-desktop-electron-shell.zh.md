@@ -6,7 +6,7 @@ Status: proposed
 
 ## Problem
 
-P0 提供 IPC 载体。P1 提供带客户端图、无 HTTP 的 Host profile。尚未有任何东西创建窗口、加载 `dsh-web-frontend` dist、注入 `window.__DSH_BOOT__` 或拉取插件 bundle。Web 壳内核 [`AppWebEntry`](../../../../packages/client/web/README.md) 期望该清单在 `window` 上，并经由 `<script src="/plugins/…">` 装载插件。`file://` 的 origin 是 `'null'`，经典 script 标签无法使用 Host 的 `/plugins` 路由（根本没有这些路由），而 `WebApiClient` 会对着该 null origin 调用 `globalThis.fetch`。
+P0 提供 IPC 载体。[P1](../../implemented/architecture/2026-08-14-desktop-profile-host.md) 提供带客户端图、无 HTTP 的 Host profile。尚未有任何东西创建窗口、加载 `dsh-web-frontend` dist、注入 `window.__DSH_BOOT__` 或拉取插件 bundle。Web 壳内核 [`AppWebEntry`](../../../../packages/client/web/README.md) 期望该清单在 `window` 上，并经由 `<script src="/plugins/…">` 装载插件。`file://` 的 origin 是 `'null'`，经典 script 标签无法使用 Host 的 `/plugins` 路由（根本没有这些路由），而 `WebApiClient` 会对着该 null origin 调用 `globalThis.fetch`。
 
 `BootSeams.loadBundle` 已经在 jsdom 测试里替换脚本到达。connection 客户端的 `apply` 除非设置了 `?fixture`，否则总是构造 `WebApiClient`。
 

@@ -2,7 +2,7 @@
 
 [English](client-modules.md) | 中文
 
-Web 插件表：[dsh-client-modules](../../packages/client/modules) 中 client 模块系统的 Node 半，以 `ctx.clientModules`（`ClientModuleRegistry`）形式提供。它扫描宿主 Loader 的 entry，找出声明了 `dsh.client` 的包，组合出 `window.__DSH_BOOT__` entry 图，在 `/plugins/<id>/client.js` 提供各个 bundle，并经 index 转换（index tap）注入启动 manifest（元数据清单）——这是同一个服务的四个面。它是 Web GUI 栈的一项可选能力，不属于 agent loop（智能体循环）主干，并且是 [dsh-host-webserver](../../packages/host/webserver) 的消费方：[web-server.md](web-server.md) 所述的载体提供本服务注册的前缀路由与 index 转换。同一个包的浏览器半（`ctx.modules`，即拉取并物化这些 bundle 的 lazy CJS 模块表）属于内核机件，记录在[包 README](../../packages/client/modules/README.md)中，不在本页。
+Web 插件表：[dsh-client-modules](../../packages/client/modules) 中 client 模块系统的 Node 半，以 `ctx.clientModules`（`ClientModuleRegistry`）形式提供。它扫描宿主 Loader 的 entry，找出声明了 `dsh.client` 的包，组合出 `window.__DSH_BOOT__` entry 图，在 `/plugins/<id>/client.js` 提供各个 bundle，并经 index 转换（index tap）注入启动 manifest（元数据清单）——这是同一个服务的四个面。它是 Web GUI 栈的一项可选能力，不属于 agent loop（智能体循环）主干，并且是 [dsh-host-webserver](../../packages/host/webserver) 的消费方：[web-server.md](web-server.md) 所述的载体提供本服务注册的前缀路由与 index 转换。[desktop Host](../../packages/bundle/desktop-app/README.md) 组合同一份图且不挂载 HTTP；`ctx.desktopStartup` 与 `ctx.desktopRuntime` 是该 profile 的装配标记。同一个包的浏览器半（`ctx.modules`，即拉取并物化这些 bundle 的 lazy CJS 模块表）属于内核机件，记录在[包 README](../../packages/client/modules/README.md)中，不在本页。
 
 源码：[`packages/client/modules/src/client/manifest.ts`](../../packages/client/modules/src/client/manifest.ts)
 
@@ -16,9 +16,7 @@ Web 插件表：[dsh-client-modules](../../packages/client/modules) 中 client �
  * single source: the host node half (package root) produces this same shape.
  * `immediately` marks stage-one prefetch; `inject` is informational graph
  * metadata (the authoritative edges live in each package's `dsh.client`
- * declaration and reach fibers through entry creation). `external` carries
- * module-graph edges: unlike `inject`, they constrain code arrival because
- * `require` is synchronous (see {@link WebBootGraph.entries}).
+ * declaration and reach fibers through entry creation).
  */
 interface WebBootEntry {
   /** Entry name == package name. */
@@ -31,8 +29,6 @@ interface WebBootEntry {
   inject?: string[]
   /** Stage-one prefetch mark: load the script for factory registration during module-face boot. */
   immediately?: boolean
-  /** Non-baseline module specifiers this row requests; omitted when it requests none. */
-  external?: string[]
 }
 ```
 
@@ -41,11 +37,7 @@ interface WebBootEntry {
 interface WebBootGraph {
   /** Consistency anchor over the whole graph (content + bundle hashes). */
   rev: string
-  /**
-   * Composed entries in module-graph order — a dynamic package row precedes
-   * rows whose `external` requests that package. Cordis activation order is
-   * unrelated and remains owned by fiber service waiting.
-   */
+  /** Composed entries; order carries no semantics (activation order is fiber inject waiting). */
   entries: WebBootEntry[]
 }
 ```
@@ -82,7 +74,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.clientModules` — `ClientModuleRegistry`
 
-The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).
+The web plugin table service: incremental `dsh.client` scan + wire composition, with optional bundle route + index tap when HTTP is composed. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).
 
 ```ts cordis-catalog
 /**
@@ -122,5 +114,21 @@ onRebuilt(listener: (id: string, rev: string) => void): () => void
 onGraphChanged(listener: () => void): () => void
 ```
 
-Source: [`packages/client/modules/src/index.ts:295`](../../packages/client/modules/src/index.ts)
+Source: [`packages/client/modules/src/index.ts:185`](../../packages/client/modules/src/index.ts)
+
+<a id="ctxdesktopruntime--desktopruntimevalues"></a>
+
+### `ctx.desktopRuntime` — `DesktopRuntimeValues`
+
+Desktop Host marker shared by later shell wiring; carries no bind address.
+
+Source: [`packages/bundle/desktop-app/src/index.ts:41`](../../packages/bundle/desktop-app/src/index.ts)
+
+<a id="ctxdesktopstartup--desktopstartupvalues"></a>
+
+### `ctx.desktopStartup` — `DesktopStartupValues`
+
+What the desktop rows read from DESKTOP_STARTUP_SERVICE: an accepted invocation with no bind flags.
+
+Source: [`packages/bundle/desktop-app/src/startup.ts:22`](../../packages/bundle/desktop-app/src/startup.ts)
 <!-- END GENERATED cordis-surface -->

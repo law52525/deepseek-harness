@@ -10,8 +10,9 @@
  * `dsh --profile tui --resume abc` boots the tui profile with `--resume abc`,
  * and `dsh --profile web -h` prints the web app's help, not this one's.
  *
- * `web` is a hardcoded alias for `--profile web`; `plugin` manages a profile's
- * plugin dependencies by forwarding to pnpm.
+ * `web` and `desktop` are hardcoded aliases for `--profile web` and
+ * `--profile desktop`; `plugin` manages a profile's plugin dependencies by
+ * forwarding to pnpm.
  * @module @deepseek-ai/dsh/args
  */
 
@@ -47,7 +48,7 @@ interface PluginInvocation {
 /** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
 export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation
 
-/** Launcher flags shared by the default command and the `web` alias. */
+/** Launcher flags shared by the default command and the profile aliases. */
 interface BootOptions {
   patch?: string[]
   dumpConfig?: boolean
@@ -64,17 +65,19 @@ const collect = (value: string, previous: string[] = []): string[] => [...previo
 const HELP_EXAMPLES = `
 Examples:
   dsh --profile web                          boot the web profile (same as: dsh web)
+  dsh --profile desktop                      boot the desktop Host without HTTP (same as: dsh desktop)
   dsh --profile headless "run the tests"     answer one task, print the result, and exit
   dsh --profile tui --patch ./extra.yml      boot a custom profile with one extra overlay
   dsh --profile tui --resume <session>       arguments after the launcher flags reach the app
   dsh --profile web --help                   the web app's own flags and help
+  dsh --profile desktop --help               the desktop app's own help (no server)
   dsh plugin --profile tui add <package>     install a plugin into the tui profile
 `
 
 /**
  * Resolve a boot or dump invocation from the launcher flags and the leftover
  * inner arguments.
- * @param program - the command whose options were parsed (the root, or the `web` alias).
+ * @param program - the command whose options were parsed (the root, or a profile alias).
  * @param profile - the profile these flags boot.
  * @param options - the launcher flags commander collected.
  * @param args - the leftover arguments, in argv order.
@@ -153,20 +156,26 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     }
   }
 
-  const web = program.command('web').description('boot the web profile (alias of --profile web); the web app\'s own flags follow')
-  web
-    .helpOption(false)
-    .allowUnknownOption()
-    .passThroughOptions()
-    .enablePositionalOptions()
-    .argument('[args...]', 'arguments for the web app (see: dsh web --help)')
-    .option('--patch <path>', 'extra patch-list overlay applied after the profile layer (repeatable)', collect)
-    .option('--dump-config', 'print the composed web-profile tree (with the user layer and any --patch) and exit')
-    .option('--dump-default-config', 'print the web profile\'s bundle layers (no user layer) and exit')
-    .action((args: string[], options: BootOptions) => {
-      rejectParentOptions('web')
-      resolved = resolveBoot(web, 'web', options, args)
-    })
+  /** Attach one hardcoded `--profile` alias that still accepts launcher dump/patch flags. */
+  const addProfileAlias = (profile: string, description: string): void => {
+    const alias = program.command(profile).description(description)
+    alias
+      .helpOption(false)
+      .allowUnknownOption()
+      .passThroughOptions()
+      .enablePositionalOptions()
+      .argument('[args...]', `arguments for the ${profile} app (see: dsh ${profile} --help)`)
+      .option('--patch <path>', 'extra patch-list overlay applied after the profile layer (repeatable)', collect)
+      .option('--dump-config', `print the composed ${profile}-profile tree (with the user layer and any --patch) and exit`)
+      .option('--dump-default-config', `print the ${profile} profile's bundle layers (no user layer) and exit`)
+      .action((args: string[], options: BootOptions) => {
+        rejectParentOptions(profile)
+        resolved = resolveBoot(alias, profile, options, args)
+      })
+  }
+
+  addProfileAlias('web', 'boot the web profile (alias of --profile web); the web app\'s own flags follow')
+  addProfileAlias('desktop', 'boot the desktop profile (alias of --profile desktop); the desktop app\'s own flags follow')
 
   const plugin = program.command('plugin').description('manage a profile\'s plugins by forwarding the remaining arguments to pnpm in the profile directory')
   plugin
