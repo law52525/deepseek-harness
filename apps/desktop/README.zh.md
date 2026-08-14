@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-desktop profile 的 Electron 壳。main 用系统 Node 孵化带 stdio IPC 的 `dsh --profile desktop` 子进程，在 `dsh://app/` 提供 [`dsh-web-frontend`](../web/package.json) dist，并转发不透明 RPC。[`HostIpcGateway`](../../packages/host/apiproxy/README.md) 跑在子进程里；本包不解码 RPC body。渲染进程通过 `BootSeams.loadBundle` 复用 Web 壳内核。
+desktop profile 的 Electron 壳。main 用系统 Node 孵化带 stdio IPC 的 `dsh --profile desktop` 子进程，在 `dsh://app/` 提供 [`dsh-web-frontend`](../web/package.json) dist，从该 Host 子进程应答 `GET`/`HEAD` `/api/session.export`，并转发不透明 RPC。[`HostIpcGateway`](../../packages/host/apiproxy/README.md) 跑在子进程里；本包不解码 RPC body。渲染进程通过 `BootSeams.loadBundle` 复用 Web 壳内核。
 
 `contextIsolation` 为 true，`nodeIntegration` 为 false。preload 暴露 `window.__DSH_IPC_PORT__`（`IpcPort`）和 `window.__DSH_DESKTOP__`（`bootGraph`、`readPlugin`）。插件字节只来自 Host 图内的 `clientPath`。
 

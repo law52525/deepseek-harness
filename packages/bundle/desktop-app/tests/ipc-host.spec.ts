@@ -1,8 +1,9 @@
 /**
- * Desktop Host IPC adapter: HostIpcGateway plus boot-graph / plugin-byte control.
+ * Desktop Host IPC adapter: HostIpcGateway plus boot-graph / plugin-byte / session-export control.
  */
 
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -154,6 +155,11 @@ describe('desktop IPC host', () => {
     })
     ipc.deliver({ channel: 'control', payload: { type: 'plugin-bytes-response', id: 'x', bytes: '' } })
     ipc.deliver({ channel: 'control', payload: { type: 'plugin-bytes-failure', id: 'x', message: 'n' } })
+    ipc.deliver({
+      channel: 'control',
+      payload: { type: 'session-export-response', id: 'x', status: 200, headers: {} },
+    })
+    ipc.deliver({ channel: 'control', payload: { type: 'session-export-failure', id: 'x', message: 'n' } })
 
     const throwing = memoryIpc()
     const throwCtx = new Context()
@@ -201,6 +207,185 @@ describe('desktop IPC host', () => {
     expect(delayed.posted.at(-1)).toMatchObject({ payload: { themePreference: 'system' } })
     await ctx.fiber.dispose()
     await other.fiber.dispose()
+  })
+
+  it('answers session.export GET with a temp ZIP and HEAD without a body path', async () => {
+    const zip = Buffer.from('PK\x03\x04zip')
+    const ctx = new Context()
+    const api = fakeApi()
+    api.downloads.sessionLog = async (request) => {
+      expect(request.includeDescendants).toBe(true)
+      return new Response(zip, {
+        status: 200,
+        headers: {
+          'content-type': 'application/zip',
+          'content-disposition': 'attachment; filename="dsh-session-root.zip"',
+        },
+      })
+    }
+    ctx.provide('apiProxy', api)
+    ctx.provide('clientModules', {
+      graph: () => ({ rev: 'r', entries: [] }),
+      clientPath: () => undefined,
+    })
+    const ipc = memoryIpc()
+    attachDesktopIpcHost(ctx, ipc.transport)
+
+    ipc.deliver({
+      channel: 'control',
+      payload: {
+        type: 'session-export-request',
+        id: 'e1',
+        method: 'GET',
+        sessionId: 'session-root',
+        includeDescendants: true,
+      },
+    })
+    await vi.waitFor(() => {
+      expect(ipc.posted.some(entry =>
+        entry.channel === 'control' && entry.payload.type === 'session-export-response')).toBe(true)
+    })
+    const get = ipc.posted.find(entry =>
+      entry.channel === 'control' && entry.payload.type === 'session-export-response')
+    if (get?.channel !== 'control' || get.payload.type !== 'session-export-response') {
+      throw new Error('expected session-export-response')
+    }
+    expect(get.payload.status).toBe(200)
+    expect(get.payload.headers['content-type']).toBe('application/zip')
+    expect(get.payload.bodyPath).toBeDefined()
+    const bodyPath = get.payload.bodyPath as string
+    expect(existsSync(bodyPath)).toBe(true)
+    await unlink(bodyPath)
+
+    ipc.deliver({
+      channel: 'control',
+      payload: {
+        type: 'session-export-request',
+        id: 'e2',
+        method: 'HEAD',
+        sessionId: 'session-root',
+        includeDescendants: true,
+      },
+    })
+    await vi.waitFor(() => {
+      expect(ipc.posted.some(entry =>
+        entry.channel === 'control'
+        && entry.payload.type === 'session-export-response'
+        && entry.payload.id === 'e2')).toBe(true)
+    })
+    const head = ipc.posted.find(entry =>
+      entry.channel === 'control'
+      && entry.payload.type === 'session-export-response'
+      && entry.payload.id === 'e2')
+    expect(head).toMatchObject({ payload: { status: 200 } })
+    if (head?.channel === 'control' && head.payload.type === 'session-export-response') {
+      expect(head.payload.bodyPath).toBeUndefined()
+    }
+
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards empty GET bodies, omitted descendants, and sessionLog throws', async () => {
+    const ctx = new Context()
+    const api = fakeApi()
+    let calls = 0
+    api.downloads.sessionLog = async (request) => {
+      calls += 1
+      if (calls === 1) {
+        expect(request.includeDescendants).toBeUndefined()
+        return new Response(new Uint8Array(), { status: 200 })
+      }
+      if (calls === 2) return new Response(null, { status: 204 })
+      if (calls === 3) throw new Error('export boom')
+      throw 'export boom'
+    }
+    ctx.provide('apiProxy', api)
+    ctx.provide('clientModules', {
+      graph: () => ({ rev: 'r', entries: [] }),
+      clientPath: () => undefined,
+    })
+    const ipc = memoryIpc()
+    attachDesktopIpcHost(ctx, ipc.transport)
+
+    ipc.deliver({
+      channel: 'control',
+      payload: {
+        type: 'session-export-request',
+        id: 'empty',
+        method: 'GET',
+        sessionId: 'session-root',
+        includeDescendants: false,
+      },
+    })
+    await vi.waitFor(() => {
+      expect(ipc.posted.some(entry =>
+        entry.channel === 'control'
+        && entry.payload.type === 'session-export-response'
+        && entry.payload.id === 'empty')).toBe(true)
+    })
+    expect(ipc.posted.at(-1)).toMatchObject({
+      payload: { type: 'session-export-response', id: 'empty', status: 200 },
+    })
+
+    ipc.deliver({
+      channel: 'control',
+      payload: {
+        type: 'session-export-request',
+        id: 'nobody',
+        method: 'GET',
+        sessionId: 'session-root',
+        includeDescendants: true,
+      },
+    })
+    await vi.waitFor(() => {
+      expect(ipc.posted.some(entry =>
+        entry.channel === 'control'
+        && entry.payload.type === 'session-export-response'
+        && entry.payload.id === 'nobody')).toBe(true)
+    })
+    expect(ipc.posted.at(-1)).toMatchObject({
+      payload: { type: 'session-export-response', id: 'nobody', status: 204 },
+    })
+
+    ipc.deliver({
+      channel: 'control',
+      payload: {
+        type: 'session-export-request',
+        id: 'fail',
+        method: 'GET',
+        sessionId: 'session-root',
+        includeDescendants: true,
+      },
+    })
+    await vi.waitFor(() => {
+      expect(ipc.posted.some(entry =>
+        entry.channel === 'control' && entry.payload.type === 'session-export-failure')).toBe(true)
+    })
+    expect(ipc.posted.at(-1)).toMatchObject({
+      payload: { type: 'session-export-failure', id: 'fail', message: 'export boom' },
+    })
+
+    ipc.deliver({
+      channel: 'control',
+      payload: {
+        type: 'session-export-request',
+        id: 'fail2',
+        method: 'GET',
+        sessionId: 'session-root',
+        includeDescendants: true,
+      },
+    })
+    await vi.waitFor(() => {
+      expect(ipc.posted.some(entry =>
+        entry.channel === 'control'
+        && entry.payload.type === 'session-export-failure'
+        && entry.payload.id === 'fail2')).toBe(true)
+    })
+    expect(ipc.posted.at(-1)).toMatchObject({
+      payload: { type: 'session-export-failure', id: 'fail2', message: 'export boom' },
+    })
+
+    await ctx.fiber.dispose()
   })
 
   it('applies onto process IPC when process.send exists', async () => {
