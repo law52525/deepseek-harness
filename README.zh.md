@@ -26,6 +26,16 @@ npx @deepseek-ai/dsh web
 
 <a id="run-from-source"></a>
 
+### Desktop（预览）
+
+`dsh web` 仍是默认入口。若要构建一份不需要系统 Node 的本地安装包：
+
+```sh
+pnpm run dist:desktop
+```
+
+在 macOS arm64 上会在 `apps/desktop/dist/` 写出 `.dmg`；在 Windows x64 上写出 NSIS `.exe`。macOS 应用为 ad-hoc 签名：Gatekeeper 会拦截，需在 Finder 中右键点「打开」。Windows exe 未签名：SmartScreen 会警告。这些构建不会自动更新。正式签名产物属于后续阶段。
+
 ### 从源码运行
 
 如需从仓库源码运行：

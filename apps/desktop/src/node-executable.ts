@@ -1,11 +1,13 @@
 /**
- * Resolve the system Node executable. Electron's `process.execPath` is not
- * Node; native addons in the Host child stay on the system Node ABI.
+ * Resolve the Node executable for the Host child. A packaged app uses the
+ * extraResources Node; unpackaged `electron .` uses system Node. Never returns
+ * Electron, and never uses `ELECTRON_RUN_AS_NODE`.
  */
 
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { basename } from 'node:path'
+import { resolveBundledNode } from './packaged-resources.ts'
 
 /**
  * Whether a path is an Electron binary rather than Node.
@@ -18,10 +20,13 @@ export function isElectronExecutable(executable: string): boolean {
 }
 
 /**
- * Find a system Node binary. Never returns Electron, and never uses `ELECTRON_RUN_AS_NODE`.
+ * Find Node for the Host child: packaged extraResources first, then system Node.
+ * Never returns Electron, and never uses `ELECTRON_RUN_AS_NODE`.
  * @returns an existing Node executable path.
  */
 export function resolveNodeExecutable(): string {
+  const bundled = resolveBundledNode()
+  if (bundled !== undefined && !isElectronExecutable(bundled)) return bundled
   for (const candidate of [process.env.npm_node_execpath, process.env.NODE_BINARY]) {
     if (candidate !== undefined && candidate !== '' && existsSync(candidate) && !isElectronExecutable(candidate)) {
       return candidate

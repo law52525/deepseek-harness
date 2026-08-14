@@ -12,7 +12,7 @@ P0 supplies an IPC carrier. [P1](./2026-08-14-desktop-profile-host.md) supplies 
 
 ## Decision
 
-**`apps/desktop`** (`@deepseek-ai/dsh-desktop`) is the Electron application assembly. It is not a capability package. `pnpm run dev:desktop` runs `pnpm run build` then `electron .`. Production packaging is [P4](../../proposed/architecture/2026-08-14-desktop-installer-product.md).
+**`apps/desktop`** (`@deepseek-ai/dsh-desktop`) is the Electron application assembly. It is not a capability package. `pnpm run dev:desktop` runs `pnpm run build` then `electron .`. Production packaging is [P4](../process/2026-08-14-desktop-installer-packaging.md).
 
 ### Process model
 
@@ -72,3 +72,4 @@ Native directory picker stays the Node `-native` pair. [P3](./2026-08-14-desktop
 - [P0 IPC carrier](./2026-08-14-desktop-ipc-carrier.md)
 - [P1 desktop profile Host](./2026-08-14-desktop-profile-host.md)
 - [P3 native shell capabilities](./2026-08-14-desktop-native-shell-capabilities.md)
+- [P4 installer packaging](../process/2026-08-14-desktop-installer-packaging.md)

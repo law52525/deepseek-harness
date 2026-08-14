@@ -7,8 +7,15 @@
 import { globSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { isCordisGroupEntry, loadCordisYaml } from './cordis-yaml.ts'
+import {
+  inspectRuntimeClosure,
+  loadManifest as loadClosureManifest,
+  loadWorkspacePackages as loadClosureWorkspacePackages,
+  RUNTIME_CLOSURE_MANIFESTS,
+} from './runtime-closure.ts'
 
 interface PackageManifest {
   name?: string
@@ -98,22 +105,44 @@ export async function verifyRuntimeClosure(
   }
 }
 
-if (import.meta.main) {
-  const root = resolve(import.meta.dirname, '..')
-  const { values } = parseArgs({
-    args: process.argv.slice(2),
-    options: { manifest: { type: 'string' } },
-  })
-  const result = await verifyRuntimeClosure(root, values.manifest)
-  if (result.failures.length > 0) {
-    console.error('verify-runtime-closure: preset plugins or required workspace peers are missing from python/sdk-runtime dependencies:')
-    for (const failure of result.failures) console.error(`  ${failure}`)
-    process.exitCode = 1
-  } else {
+const root = resolve(import.meta.dirname, '..')
+
+/**
+ * Check one or more deploy-root manifests and exit 1 on the first missing peer.
+ * @param manifestRels - repository-relative package.json paths.
+ */
+export async function verifyRuntimeClosures(manifestRels: readonly string[]): Promise<void> {
+  const workspace = await loadClosureWorkspacePackages(root)
+  let failed = false
+  for (const relative of manifestRels) {
+    const runtimeManifestPath = resolve(root, relative)
+    const runtimeManifest = await loadClosureManifest(runtimeManifestPath)
+    const runtimeName = runtimeManifest.name ?? relative
+    const inspection = inspectRuntimeClosure(runtimeName, runtimeManifest.dependencies ?? {}, workspace)
+    if (inspection.failures.length > 0) {
+      failed = true
+      console.error(`verify-runtime-closure: required workspace peers are missing from ${relative} dependencies:`)
+      for (const failure of inspection.failures) console.error(`  ${failure}`)
+      continue
+    }
     console.log(
-      `verify-runtime-closure: ${result.presetCount} agent presets and ${result.workspacePackageCount} workspace packages form a closed runtime dependency graph.`,
+      `verify-runtime-closure: ${relative}: ${inspection.packages.length} workspace packages form a closed runtime dependency graph.`,
     )
   }
+  if (failed) process.exit(1)
+}
+
+const scriptPath = fileURLToPath(import.meta.url)
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === scriptPath) {
+  const { values } = parseArgs({
+    args: process.argv.slice(2),
+    options: { manifest: { type: 'string', multiple: true } },
+    allowPositionals: false,
+  })
+  const manifests = values.manifest !== undefined && values.manifest.length > 0
+    ? values.manifest
+    : [...RUNTIME_CLOSURE_MANIFESTS]
+  await verifyRuntimeClosures(manifests)
 }
 
 async function missingPresetPlugins(
