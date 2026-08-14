@@ -664,6 +664,14 @@
       "ignoreDependencies": [
         "@deepseek-ai/.+"
       ]
+    },
+    "packages/bundle/desktop-app": {
+      "entry": [
+        "tests/**/*.e2e.ts"
+      ],
+      "ignoreDependencies": [
+        "@deepseek-ai/.+"
+      ]
     }
   }
 }

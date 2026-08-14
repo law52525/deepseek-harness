@@ -399,8 +399,6 @@ Source: [`packages/shell/bash-sandbox/src/index.ts:35`](../packages/shell/bash-s
 
 ## `@deepseek-ai/dsh-client-connection`
 
-Requires: `webServer`
-
 ```ts config-catalog
 /** Plugin config: the deployment's non-loopback serving authorities. */
 export interface ConnectionConfig {
@@ -574,6 +572,23 @@ export interface Config {
 ```
 
 Source: [`packages/credentials/credentials-local/src/index.ts:64`](../packages/credentials/credentials-local/src/index.ts)
+
+<a id="deepseek-aidsh-desktop-app"></a>
+
+## `@deepseek-ai/dsh-desktop-app`
+
+```ts config-catalog
+/** Plugin config: composed deployment settings. */
+export interface Config {
+  /**
+   * Register the model-visible harness-source prompt section. A one-shot
+   * non-interactive layer can turn it off when its user is not in the GUI.
+   */
+  surfaceContext: boolean
+}
+```
+
+Source: [`packages/bundle/desktop-app/src/index.ts:28`](../packages/bundle/desktop-app/src/index.ts)
 
 <a id="deepseek-aidsh-e2b"></a>
 
@@ -823,7 +838,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/apiproxy/src/index.ts:41`](../packages/host/apiproxy/src/index.ts)
+Source: [`packages/host/apiproxy/src/index.ts:43`](../packages/host/apiproxy/src/index.ts)
 
 <a id="deepseek-aidsh-host-directory-picker-browse"></a>
 
@@ -3227,7 +3242,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-api-remotes` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-authorization` — requires `credentials` ([`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts))
 - `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
-- `@deepseek-ai/dsh-client-modules` — requires `webServer` · `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
+- `@deepseek-ai/dsh-client-modules` — requires `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-agent-preset` ([`packages/client/ui-agent-preset/src/index.ts`](../packages/client/ui-agent-preset/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-attachment` ([`packages/client/ui-attachment/src/index.ts`](../packages/client/ui-attachment/src/index.ts))

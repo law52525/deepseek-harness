@@ -6,7 +6,7 @@ English | [中文](2026-08-14-desktop-electron-shell.zh.md)
 
 ## Problem
 
-P0 supplies an IPC carrier. P1 supplies a Host profile with a client graph and no HTTP. Nothing yet creates a window, loads `dsh-web-frontend` dist, injects `window.__DSH_BOOT__`, or fetches plugin bundles. The Web shell kernel [`AppWebEntry`](../../../../packages/client/web/README.md) expects that manifest on `window` and loads plugins via `<script src="/plugins/…">`. `file://` origin is `'null'`, classic script tags cannot use the Host's `/plugins` routes (there are none), and `WebApiClient` would call `globalThis.fetch` against that null origin.
+P0 supplies an IPC carrier. [P1](../../implemented/architecture/2026-08-14-desktop-profile-host.md) supplies a Host profile with a client graph and no HTTP. Nothing yet creates a window, loads `dsh-web-frontend` dist, injects `window.__DSH_BOOT__`, or fetches plugin bundles. The Web shell kernel [`AppWebEntry`](../../../../packages/client/web/README.md) expects that manifest on `window` and loads plugins via `<script src="/plugins/…">`. `file://` origin is `'null'`, classic script tags cannot use the Host's `/plugins` routes (there are none), and `WebApiClient` would call `globalThis.fetch` against that null origin.
 
 `BootSeams.loadBundle` already replaces script arrival for jsdom tests. The connection client `apply` always constructs `WebApiClient` unless `?fixture` is set.
 

@@ -25,6 +25,7 @@ The shipped apps own these command lines:
 | Profile | Arguments |
 |---|---|
 | `web` | `--host`, `--port`, repeatable `--trusted-host`, `--no-open` |
+| `desktop` | `--help` only; no bind flags |
 | `headless` | the task text, as the positional argument |
 
 A one-shot task (`dsh --profile headless "run the tests"`) creates one fresh persisted Agent through the core registry, submits the task, waits for quiescence, and flushes the Session before deriving the last non-empty assistant text and final `turn/end` reason from its durable interval. It prints the text on stdout and exits 0 for `completed`, else 1. An invocation with no task is a usage error from that app. The shipped headless profile mounts no ApiProxy, Host, HTTP server, Web runtime, or browser client; a successful run writes nothing to stderr and opens no listening port.
@@ -72,6 +73,16 @@ dsh web --no-open
 dsh web --patch ./extra.cordis.yml
 dsh web --dump-config
 dsh web --help
+```
+
+## Desktop alias
+
+`dsh desktop` is a hardcoded alias for `--profile desktop`. The desktop Host uses the same client roster as web and does not listen on HTTP. `--help` prints that app's help and starts no server.
+
+```sh
+dsh desktop
+dsh desktop --dump-config
+dsh desktop --help
 ```
 
 The production Web runner needs built package and frontend artifacts (`pnpm run build`). It serves `http://127.0.0.1:3080` by default and, for a local launch, opens that canonical host URL only after the complete Loader tree settles. A non-empty inherited `SSH_CONNECTION` or `SSH_TTY` suppresses the browser handoff because the SSH client or editor owns the local forwarded address; the host URL is still printed. The CLI intentionally does not support `--host 0.0.0.0` yet and exits with a usage error. Immediately before a local handoff it prints `dsh web: opening the default browser; pass --no-open to disable`; if the operating-system handoff fails, a diagnostic on stderr states the reason, leaves the server running, and names the URL for manual use. `--trusted-host` adds named authorities accepted by the `/api` browser-trust fence.

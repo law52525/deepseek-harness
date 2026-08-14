@@ -577,6 +577,23 @@ export interface Config {
 
 来源：[`packages/credentials/credentials-local/src/index.ts:64`](../packages/credentials/credentials-local/src/index.ts)
 
+<a id="deepseek-aidsh-desktop-app"></a>
+
+## `@deepseek-ai/dsh-desktop-app`
+
+```ts config-catalog
+/** Plugin config: composed deployment settings. */
+export interface Config {
+  /**
+   * Register the model-visible harness-source prompt section. A one-shot
+   * non-interactive layer can turn it off when its user is not in the GUI.
+   */
+  surfaceContext: boolean
+}
+```
+
+来源：[`packages/bundle/desktop-app/src/index.ts:28`](../packages/bundle/desktop-app/src/index.ts)
+
 <a id="deepseek-aidsh-e2b"></a>
 
 ## `@deepseek-ai/dsh-e2b`

@@ -548,6 +548,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Composes the __DSH_BOOT__ entry graph from an incremental dsh.client scan, serves plugin bundles, and notifies rebuilt/graph-changed subscribers.',
   },
   {
+    key: 'desktopStartup',
+    pkg: 'desktop-app',
+    title: 'Desktop invocation acceptance',
+    mode: 'bundle',
+    consumers: ['desktop-app', 'modules', 'connection'],
+    note: 'Presence-only accepted-invocation marker for the desktop profile: --help leaves it absent so client-graph rows stay pending, and there are no bind flags.',
+  },
+  {
+    key: 'desktopRuntime',
+    pkg: 'desktop-app',
+    title: 'Desktop Host surface marker',
+    mode: 'bundle',
+    consumers: [],
+    note: 'Marks the settled desktop Host with no bind address; later shell wiring reads the client graph this Host already composes.',
+  },
+  {
     key: 'workflowEngine',
     pkg: 'workflow',
     title: 'Workflow script engine',
@@ -730,7 +746,7 @@ const APP_EXAMPLES = [
     title: 'DSH Base Composition',
     label: 'packages/bundle/base/cordis.patch.yml',
     config: 'packages/bundle/base/cordis.patch.yml',
-    summary: 'The dsh-base bundle patch every profile applies first; mode bundles (dsh-web-app, dsh-headless) and the user\'s profile layer patch over it.',
+    summary: 'The dsh-base bundle patch every profile applies first; mode bundles (dsh-web-app, dsh-desktop-app, dsh-headless) and the user\'s profile layer patch over it.',
   },
   {
     id: 'headless',

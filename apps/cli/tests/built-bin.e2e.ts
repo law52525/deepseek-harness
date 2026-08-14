@@ -356,6 +356,24 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(headlessHelp.stderr).toBe('')
       expect(headlessHelp.stdout).toContain('Usage: dsh --profile headless')
 
+      const desktopHelp = await runBuiltBin(['--profile', 'desktop', '--help'], {
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+      })
+      expect(desktopHelp.code).toBe(0)
+      expect(desktopHelp.stderr).toBe('')
+      expect(desktopHelp.stdout).toContain('Usage: dsh --profile desktop')
+      expect(desktopHelp.stdout).not.toContain('--port')
+      expect(desktopHelp.stdout).not.toContain('dsh web: http://')
+
+      const desktopAliasHelp = await runBuiltBin(['desktop', '--help'], {
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+      })
+      expect(desktopAliasHelp.code).toBe(0)
+      expect(desktopAliasHelp.stderr).toBe('')
+      expect(desktopAliasHelp.stdout).toContain('Usage: dsh --profile desktop')
+
       const missingTask = await runBuiltBin(['--profile', 'headless'], {
         DSH_HOME: home,
         DSH_TELEMETRY_DISABLED: '1',
@@ -734,6 +752,23 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-host-/)
       expect(stdout).not.toContain("name: '@deepseek-ai/dsh-web-app'")
       expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-client-/)
+    }, 30_000)
+
+    it('prints the desktop profile with the client roster and without HTTP', async () => {
+      const { stdout, code, stderr } = await runBuiltBin(
+        ['--profile', 'desktop', '--dump-default-config'],
+        { DSH_HOME: home },
+      )
+      expect(code).toBe(0)
+      expect(stderr).toBe('')
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-desktop-app'")
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-host-apiproxy'")
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-client-modules'")
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-client-connection'")
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-api-remotes'")
+      expect(stdout).not.toContain("name: '@deepseek-ai/dsh-host-webserver'")
+      expect(stdout).not.toContain("name: '@deepseek-ai/dsh-client-hmr'")
+      expect(stdout).not.toMatch(/webStartup|\.port \?\?/)
     }, 30_000)
 
     it('composes the profile user layer and a --patch overlay in order', async () => {

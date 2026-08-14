@@ -2,11 +2,12 @@
  * Node half of the client module system (`dsh.client` dual-face package): scans
  * the host Loader's entries for packages declaring `dsh.client`, composes the
  * `window.__DSH_BOOT__` entry graph (wire single source: {@link WebBootEntry}
- * in `./client/manifest.ts`) in module-graph order, serves
- * `/plugins/<id>/client.js` and its source map, contributes the boot manifest
- * plus the parser-blocking bootstrap preloads to the webserver's index
- * injection table, and provides the `clientModuleHost` service (the HMR node
- * half's registration/notification face).
+ * in `./client/manifest.ts`) in module-graph order, and provides the
+ * `clientModules` service from that graph. When a `webServer` is present it
+ * also serves `/plugins/<id>/client.js` and its source map and contributes the
+ * boot manifest plus the parser-blocking bootstrap preloads to the webserver's
+ * index injection table. HTTP registration is optional so a desktop Host can
+ * read {@link ClientModuleRegistry.graph} without listening.
  *
  * Scanning is incremental per package — there is no full-rescan code path.
  * Every cordis `internal/plugin` emission (fiber construction/disposal) marks
@@ -273,14 +274,14 @@ window.__ModuleLoader__={
 }
 
 /**
- * The web plugin table service: incremental `dsh.client` scan + wire composition
- * + bundle route + index injection rows. Construction runs the activation scan
- * synchronously — a malformed declaration or missing bundle among the
- * already-loaded entries aggregates into one loud throw (FAILED fiber; the
- * boot activation audit reports it).
+ * The web plugin table service: incremental `dsh.client` scan + wire composition,
+ * with optional bundle route + index injection when HTTP is composed. Construction
+ * runs the activation scan synchronously — a malformed declaration or missing
+ * bundle among the already-loaded entries aggregates into one loud throw
+ * (FAILED fiber; the boot activation audit reports it).
  */
 export class ClientModuleRegistry extends Service {
-  static inject = ['webServer', 'loader']
+  static inject = ['loader']
 
   private readonly table = new Map<string, WebPluginRecord>()
   // Negative verdicts (unresolvable specifier — builtins like cordis:include,
@@ -296,7 +297,7 @@ export class ClientModuleRegistry extends Service {
 
   /**
    * Build the service: subscribe, seed, and run the activation flush.
-   * @param ctx - plugin context carrying webServer and loader.
+   * @param ctx - plugin context carrying loader; HTTP registration waits for webServer.
    */
   constructor(ctx: Context) {
     super(ctx, 'clientModules')
@@ -336,10 +337,12 @@ export class ClientModuleRegistry extends Service {
       throw new ClientPackageCompositionError(failures)
     }
 
-    ctx.effect(
-      () => ctx.webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
-      'client-modules: bundle route',
-    )
+    ctx.inject(['webServer'], (httpCtx) => {
+      httpCtx.effect(
+        () => httpCtx.webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
+        'client-modules: bundle route',
+      )
+    })
     ctx.on('webserver/index-inject', (table) => {
       table.push(...bootInjections(this.composed))
     })

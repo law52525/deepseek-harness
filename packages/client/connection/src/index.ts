@@ -43,8 +43,8 @@ function assertImageBodyCapacity(ctx: Context, maxRequestBodyBytes: number): voi
   }
 }
 
-/** Services required before providing Connection; API Proxy is an optional `/api` fallback. */
-export const inject = ['webServer']
+/** No required services; HTTP `/api` registration waits for an optional `webServer`. */
+export const inject: string[] = []
 
 /** Plugin config: the deployment's non-loopback serving authorities. */
 export interface ConnectionConfig {
@@ -119,11 +119,12 @@ const PRIVILEGED_METHODS = new Set([
 ])
 
 /**
- * Mounts the API gateway under the browser transport prefix. Every request on
- * the prefix passes the browser-trust fence first (DNS-rebinding and
- * cross-site defense — [api-request-trust](./api-request-trust.ts));
- * privileged methods additionally pass it with an empty trust list, which
- * pins them to loopback.
+ * Provides the Host Connection service and, when HTTP is composed, mounts the
+ * API gateway under the browser transport prefix. Every request on the prefix
+ * passes the browser-trust fence first (DNS-rebinding and cross-site defense —
+ * [api-request-trust](./api-request-trust.ts)); privileged methods additionally
+ * pass it with an empty trust list, which pins them to loopback. Without a
+ * `webServer`, the fiber still provides `connection` so interceptors can register.
  * @param ctx - Host plugin context.
  * @param config - resolved plugin config (schema defaults applied).
  */
@@ -170,27 +171,29 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
       await bridge(req, res, fetchHandler, maxRequestBodyBytes)
     },
   }
-  ctx.effect(() => ctx.webServer.register(route), 'client-connection: /api route')
-  ctx.inject(['apiProxy'], (apiCtx) => {
-    assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
-    const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
-    const registerDownlink = (
-      path: string,
-      handle: WebUpgradeRoute['handler'],
-    ): void => {
-      apiCtx.effect(() => apiCtx.webServer.registerUpgrade({
-        path,
-        handler: (req, socket, head) => {
-          if (!isTrustedApiRequest(req, trustedHosts)) {
-            rejectWebSocketUpgrade(socket)
-            return
-          }
-          return handle(req, socket, head)
-        },
-      }), `client-connection: ${path} WebSocket`)
-    }
-    apiCtx.effect(() => () => downlinks.close(), 'client-connection: WebSocket downlinks')
-    registerDownlink(MUX_EVENTS_PATH, (req, socket, head) => { downlinks.handleMux(req, socket, head) })
-    registerDownlink(HOST_EVENTS_PATH, (req, socket, head) => { downlinks.handleHost(req, socket, head) })
+  ctx.inject(['webServer'], (httpCtx) => {
+    httpCtx.effect(() => httpCtx.webServer.register(route), 'client-connection: /api route')
+    httpCtx.inject(['apiProxy'], (apiCtx) => {
+      assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
+      const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
+      const registerDownlink = (
+        path: string,
+        handle: WebUpgradeRoute['handler'],
+      ): void => {
+        apiCtx.effect(() => apiCtx.webServer.registerUpgrade({
+          path,
+          handler: (req, socket, head) => {
+            if (!isTrustedApiRequest(req, trustedHosts)) {
+              rejectWebSocketUpgrade(socket)
+              return
+            }
+            return handle(req, socket, head)
+          },
+        }), `client-connection: ${path} WebSocket`)
+      }
+      apiCtx.effect(() => () => downlinks.close(), 'client-connection: WebSocket downlinks')
+      registerDownlink(MUX_EVENTS_PATH, (req, socket, head) => { downlinks.handleMux(req, socket, head) })
+      registerDownlink(HOST_EVENTS_PATH, (req, socket, head) => { downlinks.handleHost(req, socket, head) })
+    })
   })
 }

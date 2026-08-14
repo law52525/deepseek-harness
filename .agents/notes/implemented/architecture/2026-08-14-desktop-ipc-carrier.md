@@ -69,7 +69,7 @@ The gateway treats the IPC peer as a **loopback, same-origin, already-authentica
 
 ### Out of scope
 
-Electron, a `desktop` profile, `file://` plugin loading, and installers remain later phases.
+Electron, `file://` plugin loading, and installers remain later phases. The [desktop profile](./2026-08-14-desktop-profile-host.md) is a later composition that does not instantiate this carrier.
 
 ## Alternatives considered
 
@@ -89,7 +89,7 @@ Electron, a `desktop` profile, `file://` plugin loading, and installers remain l
 
 ## Consequences
 
-The four-quadrant RPC is testable over IPC without Electron, so a later desktop shell adapts `ipcMain` / `ipcRenderer` (and Node child `process` IPC) to `IpcPort` without changing message types. `dsh-client-connection` still owns the browser HTTP/WebSocket carrier; this decision does not add a desktop profile or `apps/desktop`.
+The four-quadrant RPC is testable over IPC without Electron, so a later desktop shell adapts `ipcMain` / `ipcRenderer` (and Node child `process` IPC) to `IpcPort` without changing message types. `dsh-client-connection` still owns the browser HTTP/WebSocket carrier; this decision does not add `apps/desktop`. The [desktop profile](./2026-08-14-desktop-profile-host.md) is a later composition that still does not instantiate `IpcApiClient`.
 
 JSON serialization cannot carry binary bodies. The current RPC is JSON-only; a later method that needs bytes must add an explicit binary frame rather than silently base64-ing.
 

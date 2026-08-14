@@ -2,7 +2,7 @@
 
 [English](client-modules.md) | 中文
 
-Web 插件表：[dsh-client-modules](../../packages/client/modules) 中 client 模块系统的 Node 半，以 `ctx.clientModules`（`ClientModuleRegistry`）形式提供。它扫描宿主 Loader 的 entry，找出声明了 `dsh.client` 的包，组合出 `window.__DSH_BOOT__` entry 图，在 `/plugins/<id>/client.js` 提供各个 bundle，并以启动 manifest（元数据清单）行回应每次 index 注入收集——这是同一个服务的四个面。它是 Web GUI 栈的一项可选能力，不属于 agent loop（智能体循环）主干，并且是 [dsh-host-webserver](../../packages/host/webserver) 的消费方：[web-server.md](web-server.zh.md) 所述的载体提供本服务注册的前缀路由与其回应的 `webserver/index-inject` 事件。同一个包的浏览器半（`ctx.modules`，即拉取并物化这些 bundle 的 lazy CJS 模块表）属于内核机件，记录在[包 README](../../packages/client/modules/README.zh.md)中，不在本页。
+Web 插件表：[dsh-client-modules](../../packages/client/modules) 中 client 模块系统的 Node 半，以 `ctx.clientModules`（`ClientModuleRegistry`）形式提供。它扫描宿主 Loader 的 entry，找出声明了 `dsh.client` 的包，组合出 `window.__DSH_BOOT__` entry 图，在 `/plugins/<id>/client.js` 提供各个 bundle，并以启动 manifest（元数据清单）行回应每次 index 注入收集——这是同一个服务的四个面。它是 Web GUI 栈的一项可选能力，不属于 agent loop（智能体循环）主干，并且是 [dsh-host-webserver](../../packages/host/webserver) 的消费方：[web-server.md](web-server.zh.md) 所述的载体提供本服务注册的前缀路由与其回应的 `webserver/index-inject` 事件。[desktop Host](../../packages/bundle/desktop-app/README.zh.md) 组合同一份图且不挂载 HTTP；`ctx.desktopStartup` 与 `ctx.desktopRuntime` 是该 profile 的装配标记。同一个包的浏览器半（`ctx.modules`，即拉取并物化这些 bundle 的 lazy CJS 模块表）属于内核机件，记录在[包 README](../../packages/client/modules/README.zh.md)中，不在本页。
 
 源码：[`packages/client/modules/src/client/manifest.ts`](../../packages/client/modules/src/client/manifest.ts)
 
@@ -82,7 +82,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.clientModules` — `ClientModuleRegistry`
 
-The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index injection rows. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).
+The web plugin table service: incremental `dsh.client` scan + wire composition, with optional bundle route + index injection when HTTP is composed. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).
 
 ```ts cordis-catalog
 /**
@@ -123,4 +123,20 @@ onGraphChanged(listener: () => void): () => void
 ```
 
 Source: [`packages/client/modules/src/index.ts`](../../packages/client/modules/src/index.ts)
+
+<a id="ctxdesktopruntime--desktopruntimevalues"></a>
+
+### `ctx.desktopRuntime` — `DesktopRuntimeValues`
+
+Desktop Host marker shared by later shell wiring; carries no bind address.
+
+Source: [`packages/bundle/desktop-app/src/index.ts`](../../packages/bundle/desktop-app/src/index.ts)
+
+<a id="ctxdesktopstartup--desktopstartupvalues"></a>
+
+### `ctx.desktopStartup` — `DesktopStartupValues`
+
+What the desktop rows read from DESKTOP_STARTUP_SERVICE: an accepted invocation with no bind flags.
+
+Source: [`packages/bundle/desktop-app/src/startup.ts`](../../packages/bundle/desktop-app/src/startup.ts)
 <!-- END GENERATED cordis-surface -->
