@@ -37,10 +37,8 @@ function writePackage(
   return clientPath
 }
 
-/** Construct the node-half service and capture its plugin-bundle route. */
-function constructWithRoute(packageNames: string[]): { service: ClientModuleRegistry; route: WebRoute } {
-  const ctx = new Context()
-  ctx.baseUrl = pathToFileURL(root!).href + '/'
+/** Shared loader fake for the enabled fixture entries. */
+function provideLoader(ctx: Context, packageNames: string[]): void {
   ctx.provide('loader', {
     *entries() {
       for (const packageName of packageNames) {
@@ -48,6 +46,22 @@ function constructWithRoute(packageNames: string[]): { service: ClientModuleRegi
       }
     },
   })
+}
+
+/**
+ * Nested `ctx.inject(['webServer'])` activates after `await Promise.resolve()`
+ * in the child fiber; two ticks also covers a nested `apiProxy` inject.
+ */
+async function settleNestedInjects(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+/** Construct the node-half service and capture its plugin-bundle route. */
+async function constructWithRoute(packageNames: string[]): Promise<{ service: ClientModuleRegistry; route: WebRoute }> {
+  const ctx = new Context()
+  ctx.baseUrl = pathToFileURL(root!).href + '/'
+  provideLoader(ctx, packageNames)
   let route: WebRoute | undefined
   const webServer: Pick<WebServer, 'port' | 'register' | 'tapIndex'> = {
     port: 0,
@@ -58,14 +72,19 @@ function constructWithRoute(packageNames: string[]): { service: ClientModuleRegi
     tapIndex: () => () => {},
   }
   ctx.provide('webServer', webServer as WebServer)
-  const service = new ClientModuleRegistry(ctx)
+  const fiber = ctx.plugin(ClientModuleRegistry)
+  await fiber
+  await settleNestedInjects()
   if (route === undefined) throw new Error('client bundle route was not registered')
-  return { service, route }
+  return { service: ctx.clientModules, route }
 }
 
-/** Construct the node-half service over the enabled fixture entries. */
+/** Construct the node-half service over the enabled fixture entries (no HTTP). */
 function construct(packageNames: string[]): ClientModuleRegistry {
-  return constructWithRoute(packageNames).service
+  const ctx = new Context()
+  ctx.baseUrl = pathToFileURL(root!).href + '/'
+  provideLoader(ctx, packageNames)
+  return new ClientModuleRegistry(ctx)
 }
 
 describe('client bundle activation', () => {
@@ -121,7 +140,7 @@ describe('client bundle activation', () => {
     writeFileSync(clientPath, 'module.exports = {}\n')
     const map = '{"version":3,"sources":["src/client/index.tsx"]}\n'
     writeFileSync(`${clientPath}.map`, map)
-    const { route } = constructWithRoute([packageName])
+    const { route } = await constructWithRoute([packageName])
     let status = 0
     let headers: Record<string, string> | undefined
     let body = ''
@@ -148,5 +167,23 @@ describe('client bundle activation', () => {
       'cache-control': 'no-cache',
     })
     expect(body).toBe(map)
+  })
+
+  it('composes the graph without registering HTTP when webServer is absent', () => {
+    const packageName = '@fixture/no-http-graph'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    const ctx = new Context()
+    ctx.baseUrl = pathToFileURL(root!).href + '/'
+    ctx.provide('loader', {
+      *entries() {
+        yield { options: { name: packageName }, fiber: {}, disabled: false }
+      },
+    })
+    const service = new ClientModuleRegistry(ctx)
+    expect(service.graph().entries.map(entry => entry.id)).toEqual([packageName])
+    expect(service.clientPath(packageName)).toBe(clientPath)
+    expect(ctx.get('webServer')).toBeUndefined()
   })
 })

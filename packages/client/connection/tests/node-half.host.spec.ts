@@ -86,7 +86,17 @@ async function mounted(config?: { trustedHosts?: string[] }): Promise<{
   ctx.provide('apiProxy', {} as unknown as ApiProxy)
   const fiber = ctx.plugin({ inject: [...inject], apply }, config)
   await fiber.await()
+  await settleNestedInjects()
   return { routes, upgrades, dispose: () => fiber.dispose() }
+}
+
+/**
+ * Nested `ctx.inject(['webServer'])` (and its nested `apiProxy` inject)
+ * activate after `await Promise.resolve()` in each child fiber.
+ */
+async function settleNestedInjects(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
 }
 
 describe('connection node half', () => {
@@ -219,6 +229,7 @@ describe('connection node half', () => {
     ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
+    await settleNestedInjects()
     expect(routes).toHaveLength(1)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
 
@@ -266,6 +277,7 @@ describe('connection node half', () => {
     ctx.provide('apiProxy', {} as unknown as ApiProxy)
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
     await fiber.await()
+    await settleNestedInjects()
     const connection = ctx.get('connection') as HostConnectionHandle
     const calls: unknown[] = []
     const remove = connection.rpc.intercept(
@@ -343,6 +355,7 @@ describe('connection node half', () => {
     ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
     await fiber.await()
+    await settleNestedInjects()
     const connection = ctx.get('connection') as HostConnectionHandle
     const remove = connection.rpc.handle('/rpc', async (endpoint) => {
       if (endpoint === 'fail') throw new Error('handler broke')
@@ -491,5 +504,15 @@ describe('connection node half over a real HTTP server', () => {
       await close()
       await dispose()
     }
+  })
+
+  it('provides connection without registering HTTP when webServer is absent', async () => {
+    const ctx = new Context()
+    ctx.provide('apiProxy', {} as unknown as ApiProxy)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    expect(ctx.get('connection')).toBeDefined()
+    expect(ctx.get('webServer')).toBeUndefined()
+    await fiber.dispose()
   })
 })

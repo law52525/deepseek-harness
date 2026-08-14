@@ -16,7 +16,7 @@ profile 落地之后，组合可以安装，命令行却不能。`apps/cli` 仍�
 
 boot 只挂载一次整套组合。Cordis 让每一行等待其注入激活；Loader 随后在激活前一刻，基于已注入就绪的插件上下文插值该行的 `!!js`。Include 会保留嵌套的行表达式，直到目标行到达这一时点。`--help` 会让提供方服务保持缺失，因此依赖行永不激活；活动 patch 重载会针对仍然在线的服务再次插值，所以已经服务中的端口不会被悄悄重置。
 
-已交付的各应用把自己的 flag 搬进了组合包：`dsh-web-app` 持有 Web 家族，`dsh-headless` 持有任务位置参数，缺少任务时按用法错误拒绝。`apps/cli/src/web.ts` 已删除；`runProfile` 不再知道任何 flag 目标行 id。在树外，turtle-ui 以同样的方式获得了 `--resume <session>` / `--session <id>`，这才是这套设计的真正验证：一个已安装的插件加上了一个 flag，启动器毫无改动。
+已交付的各应用把自己的 flag 搬进了组合包：`dsh-web-app` 持有 Web 家族，`dsh-desktop-app` 持有无绑定 flag 的 `--help`，`dsh-headless` 持有任务位置参数，缺少任务时按用法错误拒绝。`apps/cli/src/web.ts` 已删除；`runProfile` 不再知道任何 flag 目标行 id。在树外，turtle-ui 以同样的方式获得了 `--resume <session>` / `--session <id>`，这才是这套设计的真正验证：一个已安装的插件加上了一个 flag，启动器毫无改动。
 
 还有两条后果。Loader 会并发挂载兄弟行，因此一行可能已经激活，而另一行仍在挂载，或整次 boot 正在回滚；所以 Web 组合包只会在自身的 Loader 配置树结算后公布 URL。另外，Web 组合包的运行时插件也持有 harness 源码提示词段，因此 `dsh web` 与 `dsh --profile web` 无需 Web 专用启动器设置即可按完全相同的方式启动。
 

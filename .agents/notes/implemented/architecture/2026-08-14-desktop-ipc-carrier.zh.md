@@ -69,7 +69,7 @@ stream-abort   { type, id }
 
 ### Out of scope
 
-Electron、`desktop` profile、`file://` 插件装载和安装包仍属后续阶段。
+Electron、`file://` 插件装载和安装包仍属后续阶段。[desktop profile](./2026-08-14-desktop-profile-host.md) 是后续组合，并不实例化本载体。
 
 ## Alternatives considered
 
@@ -89,7 +89,7 @@ Electron、`desktop` profile、`file://` 插件装载和安装包仍属后续阶
 
 ## Consequences
 
-四象限 RPC 可以在不含 Electron 的情况下经 IPC 测试，因此随后的桌面壳把 `ipcMain` / `ipcRenderer`（以及 Node 子进程的 `process` IPC）适配到 `IpcPort` 时不必改消息类型。`dsh-client-connection` 仍持有浏览器 HTTP/WebSocket 载体；本决策不增加 desktop profile 或 `apps/desktop`。
+四象限 RPC 可以在不含 Electron 的情况下经 IPC 测试，因此随后的桌面壳把 `ipcMain` / `ipcRenderer`（以及 Node 子进程的 `process` IPC）适配到 `IpcPort` 时不必改消息类型。`dsh-client-connection` 仍持有浏览器 HTTP/WebSocket 载体；本决策不增加 `apps/desktop`。[desktop profile](./2026-08-14-desktop-profile-host.md) 是后续组合，仍不实例化 `IpcApiClient`。
 
 JSON 序列化无法承载二进制正文。当前 RPC 仅有 JSON；若后续方法需要字节，本载体必须增加显式二进制帧，而不是悄悄做 base64。
 

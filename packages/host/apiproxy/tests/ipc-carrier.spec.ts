@@ -561,12 +561,13 @@ describe('HostIpcGateway edge cases', () => {
       await hanging.dispose()
 
       const abortingFetch: { fetch: typeof fetch } = {
-        async fetch(_input, init) {
+        async fetch(_input, init): Promise<Response> {
           const signal = init?.signal
-          if (signal === undefined) throw new Error('missing signal')
-          await new Promise<never>((_resolve, reject) => {
+          if (signal == null) throw new Error('missing signal')
+          await new Promise<void>((_resolve, reject) => {
             signal.addEventListener('abort', () => { reject(new Error('aborted fetch')) }, { once: true })
           })
+          return new Response(null, { status: 500 })
         },
       }
       const abortGw = new HostIpcGateway(port, abortingFetch, fakeApi().events)

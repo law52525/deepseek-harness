@@ -148,8 +148,12 @@
     # and serves /plugins/<id>/client.js; the browser half is the module table
     # the shell kernel constructs before cordis exists (adopted as a plugin
     # entry by the kernel, never fetched).
+    # Waits for webStartup so `dsh --profile web --help` leaves the graph
+    # pending (no client-bundle scan) while still composing it once flags
+    # resolve, including a Host that omitted the webserver row.
     - id: modules
       name: '@deepseek-ai/dsh-client-modules'
+      inject: [webStartup]
 
     # Owns both ends of the web transport: node half binds the gateway to the
     # webserver under /api; browser half is the fetch/SSE client.

@@ -47,7 +47,7 @@ Implement in this order. Each phase has its own Agent Note. One Cursor session i
 | Phase | Note | Delivers |
 |---|---|---|
 | P0 | [IPC carrier](../../implemented/architecture/2026-08-14-desktop-ipc-carrier.md) | Message protocol, `IpcApiClient`, host gateway, tests with no Electron |
-| P1 | [Desktop profile](./2026-08-14-desktop-profile-host.md) | `desktop` profile, Host without HTTP, optional `webServer` on dual-face plugins |
+| P1 | [Desktop profile](../../implemented/architecture/2026-08-14-desktop-profile-host.md) | `desktop` profile, Host without HTTP, optional `webServer` on dual-face plugins |
 | P2 | [Electron shell](./2026-08-14-desktop-electron-shell.md) | `apps/desktop`, preload, `BootSeams.loadBundle`, boot-manifest injection |
 | P3 | [Native shell capabilities](./2026-08-14-desktop-native-shell-capabilities.md) | Wire picker and path-open through the shell; WebView preview stays deferred |
 | P4 | [Installer packaging](../process/2026-08-14-desktop-installer-packaging.md) | electron-builder, Node closure including Windows, `.dmg` / `.exe` |

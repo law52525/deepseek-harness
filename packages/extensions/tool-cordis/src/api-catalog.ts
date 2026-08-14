@@ -380,8 +380,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'clientModules',
-    summary: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index tap.',
-    description: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).',
+    summary: 'The web plugin table service: incremental `dsh.client` scan + wire composition, with optional bundle route + index tap when HTTP is composed.',
+    description: 'The web plugin table service: incremental `dsh.client` scan + wire composition, with optional bundle route + index tap when HTTP is composed. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).',
     methods: [
       {
         signature: 'graph(): WebBootGraph',
@@ -524,6 +524,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'ref', description: 'the reference to remove.' }],
       },
     ],
+  },
+  {
+    key: 'desktopRuntime',
+    summary: 'Desktop Host marker shared by later shell wiring; carries no bind address.',
+    description: 'Desktop Host marker shared by later shell wiring; carries no bind address.',
+    methods: [
+      {
+        signature: 'surface: \'desktop\'',
+        description: 'Discriminator for this Host surface.',
+        parameters: [],
+      },
+    ],
+  },
+  {
+    key: 'desktopStartup',
+    summary: 'What the desktop rows read from DESKTOP_STARTUP_SERVICE: an accepted invocation with no bind flags.',
+    description: 'What the desktop rows read from DESKTOP_STARTUP_SERVICE: an accepted invocation with no bind flags.',
+    methods: [],
   },
   {
     key: 'directoryPicker',
