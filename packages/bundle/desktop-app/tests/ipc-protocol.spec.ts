@@ -151,6 +151,24 @@ describe('desktop IPC protocol', () => {
     expect(parseDesktopControl(undefined)).toBeUndefined()
   })
 
+  it('parses generic open-auth-window shell documents', () => {
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'open-auth-window', id: '1', url: 'https://example.com/login', callbackUrlPrefix: 'https://example.com/cb' },
+    })).toEqual({
+      channel: 'shell',
+      payload: { type: 'open-auth-window', id: '1', url: 'https://example.com/login', callbackUrlPrefix: 'https://example.com/cb' },
+    })
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'open-auth-window-result', id: '1', canceled: true },
+    })).toMatchObject({ channel: 'shell', payload: { type: 'open-auth-window-result', canceled: true } })
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'open-auth-window', id: '1', url: '', callbackUrlPrefix: 'https://x' },
+    })).toBeUndefined()
+  })
+
   it('recognizes built-in theme preferences only', () => {
     expect(isDesktopThemePreference('system')).toBe(true)
     expect(isDesktopThemePreference('light')).toBe(true)
