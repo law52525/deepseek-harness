@@ -7,13 +7,14 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import { controlEnvelope, controlFromChild, rpcEnvelope, rpcPayloadFromChild } from './forwarder.ts'
+import { controlEnvelope, controlFromChild, rpcEnvelope, rpcPayloadFromChild, shellEnvelope, shellFromChild } from './forwarder.ts'
 import { resolveNodeExecutable } from './node-executable.ts'
 import { resolveBundledDshBin } from './packaged-resources.ts'
 import type {
   DesktopControlMessage,
   DesktopControlToHost,
   DesktopControlToShell,
+  DesktopShellToParent,
   DesktopThemePreference,
   WebBootGraph,
 } from '@deepseek-ai/dsh-desktop-app/ipc-protocol'
@@ -39,8 +40,12 @@ export class DesktopHostChild {
 
   /**
    * @param child - process spawned with an IPC fd.
+   * @param openAuthWindow - generic auth-window opener used by the shell channel.
    */
-  constructor(private readonly child: ChildProcess) {
+  constructor(
+    private readonly child: ChildProcess,
+    private readonly openAuthWindow: AuthWindowOpener = async () => ({ canceled: true }),
+  ) {
     this.ready = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new Error('desktop: Host child did not post host-ready'))
@@ -226,6 +231,13 @@ export class DesktopHostChild {
       }
       return
     }
+    const shell = shellFromChild(value)
+    if (shell !== undefined) {
+      if (shell.type === 'open-auth-window') {
+        void this.answerOpenAuthWindow(shell)
+      }
+      return
+    }
     const control = controlFromChild(value)
     if (control === undefined || !isControlReply(control)) {
       return
@@ -234,6 +246,29 @@ export class DesktopHostChild {
     if (pending === undefined) return
     this.pending.delete(control.id)
     pending.resolve(control)
+  }
+
+  private async answerOpenAuthWindow(request: DesktopShellToParent): Promise<void> {
+    try {
+      const result = await this.openAuthWindow({
+        url: request.url,
+        callbackUrlPrefix: request.callbackUrlPrefix,
+        ...request.width === undefined ? {} : { width: request.width },
+        ...request.height === undefined ? {} : { height: request.height },
+        ...request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs },
+      })
+      if ('canceled' in result && result.canceled) {
+        this.child.send(shellEnvelope({ type: 'open-auth-window-result', id: request.id, canceled: true }))
+        return
+      }
+      this.child.send(shellEnvelope({
+        type: 'open-auth-window-result',
+        id: request.id,
+        callbackUrl: result.callbackUrl,
+      }))
+    } catch {
+      this.child.send(shellEnvelope({ type: 'open-auth-window-result', id: request.id, canceled: true }))
+    }
   }
 }
 
@@ -276,7 +311,18 @@ export interface SpawnDesktopHostOptions {
   env?: NodeJS.ProcessEnv
   /** Child working directory; defaults to the parent's cwd. */
   cwd?: string
+  /** Open a generic auth window; Host plugins pass url + callback prefix. */
+  openAuthWindow?: AuthWindowOpener
 }
+
+/** Caller-supplied BrowserWindow opener; the shell stays free of product URLs. */
+export type AuthWindowOpener = (options: {
+  url: string
+  callbackUrlPrefix: string
+  width?: number
+  height?: number
+  timeoutMs?: number
+}) => Promise<{ callbackUrl: string } | { canceled: true }>
 
 /**
  * Environment for the Host child: inherit the parent, apply overrides, drop Electron-as-Node.
@@ -319,5 +365,5 @@ export function spawnDesktopHost(options: SpawnDesktopHostOptions = {}): Desktop
   const node = resolveNodeExecutable()
   const argv = hostChildArgv(node)
   const child = spawn(argv.command, argv.args, hostChildSpawnOptions(options))
-  return new DesktopHostChild(child)
+  return new DesktopHostChild(child, options.openAuthWindow)
 }

@@ -21,4 +21,6 @@ contextBridge.exposeInMainWorld('__DSH_IPC_PORT__', port)
 contextBridge.exposeInMainWorld('__DSH_DESKTOP__', {
   bootGraph: () => ipcRenderer.invoke('dsh-boot-graph'),
   readPlugin: (id: string) => ipcRenderer.invoke('dsh-read-plugin', id),
+  openAuthWindow: (options: { url: string; callbackUrlPrefix: string; width?: number; height?: number }) =>
+    ipcRenderer.invoke('dsh-open-auth-window', options),
 })

@@ -15,6 +15,7 @@ import { hostErrorPage } from './error-page.ts'
 import { resolveFrontendDist } from './frontend-dist.ts'
 import { spawnDesktopHost, type DesktopHostChild } from './host-child.ts'
 import { responseFromSessionExport } from './session-export.ts'
+import { openAuthWindow, type AuthWindowFactory, type OpenAuthWindowOptions } from './auth-window.ts'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'dsh', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
@@ -39,6 +40,41 @@ let host: DesktopHostChild | undefined
 let windowRef: BrowserWindow | undefined
 let disposing = false
 let protocolRegistered = false
+
+function electronAuthFactory(): AuthWindowFactory {
+  return {
+    create({ width, height }) {
+      return new BrowserWindow({
+        width,
+        height,
+        autoHideMenuBar: true,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+          partition: `temp:auth-window-${crypto.randomUUID()}`,
+        },
+      })
+    },
+  }
+}
+
+function runOpenAuthWindow(raw: unknown): Promise<{ callbackUrl: string } | { canceled: true }> {
+  if (raw === null || typeof raw !== 'object') return Promise.resolve({ canceled: true })
+  const record = raw as Record<string, unknown>
+  if (typeof record.url !== 'string' || record.url === '') return Promise.resolve({ canceled: true })
+  if (typeof record.callbackUrlPrefix !== 'string' || record.callbackUrlPrefix === '') {
+    return Promise.resolve({ canceled: true })
+  }
+  const options: OpenAuthWindowOptions = {
+    url: record.url,
+    callbackUrlPrefix: record.callbackUrlPrefix,
+    ...typeof record.width === 'number' ? { width: record.width } : {},
+    ...typeof record.height === 'number' ? { height: record.height } : {},
+    ...typeof record.timeoutMs === 'number' ? { timeoutMs: record.timeoutMs } : {},
+  }
+  return openAuthWindow(options, electronAuthFactory())
+}
 
 /**
  * Load the error page into the current window after a Host crash.
@@ -74,12 +110,14 @@ function wireIpc(child: DesktopHostChild): void {
   ipcMain.removeAllListeners('dsh-rpc')
   ipcMain.removeHandler('dsh-boot-graph')
   ipcMain.removeHandler('dsh-read-plugin')
+  ipcMain.removeHandler('dsh-open-auth-window')
   ipcMain.on('dsh-rpc', (_event, payload: unknown) => { child.postRpc(payload) })
   ipcMain.handle('dsh-boot-graph', () => child.bootGraph())
   ipcMain.handle('dsh-read-plugin', (_event, id: unknown) => {
     if (typeof id !== 'string' || id === '') throw new Error('desktop: plugin id required')
     return child.readPlugin(id)
   })
+  ipcMain.handle('dsh-open-auth-window', (_event, options: unknown) => runOpenAuthWindow(options))
 }
 
 /**
@@ -101,7 +139,7 @@ async function sessionExportProtocolResponse(request: Request): Promise<Response
 async function createWindow(): Promise<void> {
   const distRoot = resolveFrontendDist()
   registerProtocol(distRoot)
-  if (host === undefined) host = spawnDesktopHost()
+  if (host === undefined) host = spawnDesktopHost({ openAuthWindow: options => openAuthWindow(options, electronAuthFactory()) })
   const child = host
   try {
     await child.awaitReady()
@@ -147,6 +185,7 @@ async function disposeHost(): Promise<void> {
   disposing = true
   ipcMain.removeHandler('dsh-boot-graph')
   ipcMain.removeHandler('dsh-read-plugin')
+  ipcMain.removeHandler('dsh-open-auth-window')
   ipcMain.removeAllListeners('dsh-rpc')
   await host?.dispose()
 }
