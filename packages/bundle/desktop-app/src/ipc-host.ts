@@ -133,6 +133,7 @@ function dispatchEnvelope(
     for (const handler of rpcHandlers) handler(envelope.payload as IpcMessage)
     return
   }
+  if (envelope.channel === 'shell') return
   const message = envelope.payload
   switch (message.type) {
     case 'boot-graph-request':

@@ -7,6 +7,7 @@ import {
   parseDesktopEnvelope,
   type DesktopControlMessage,
   type DesktopIpcEnvelope,
+  type DesktopShellMessage,
 } from '@deepseek-ai/dsh-desktop-app/ipc-protocol'
 
 /**
@@ -47,4 +48,24 @@ export function controlFromChild(value: unknown): DesktopControlMessage | undefi
  */
 export function controlEnvelope(payload: DesktopControlMessage): DesktopIpcEnvelope {
   return { channel: 'control', payload }
+}
+
+/**
+ * Unwrap a shell-channel document arriving from the child.
+ * @param value - cloned `process` IPC value.
+ * @returns the shell document, or undefined when the value is not a shell envelope.
+ */
+export function shellFromChild(value: unknown): DesktopShellMessage | undefined {
+  const envelope = parseDesktopEnvelope(value)
+  if (envelope === undefined || envelope.channel !== 'shell') return undefined
+  return envelope.payload
+}
+
+/**
+ * Wrap one shell document for the child's process-IPC channel.
+ * @param payload - a typed shell document.
+ * @returns the `shell` envelope.
+ */
+export function shellEnvelope(payload: DesktopShellMessage): DesktopIpcEnvelope {
+  return { channel: 'shell', payload }
 }

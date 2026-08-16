@@ -46,10 +46,34 @@ export type DesktopControlToShell =
 /** Every control document that may appear on the process IPC channel. */
 export type DesktopControlMessage = DesktopControlToHost | DesktopControlToShell
 
+/** Host → shell requests that need a BrowserWindow (generic; callers supply URLs). */
+export type DesktopShellToParent =
+  | {
+    type: 'open-auth-window'
+    id: string
+    url: string
+    callbackUrlPrefix: string
+    width?: number
+    height?: number
+    timeoutMs?: number
+  }
+
+/** Shell → Host replies for {@link DesktopShellToParent}. */
+export type DesktopShellToChild =
+  | {
+    type: 'open-auth-window-result'
+    id: string
+    callbackUrl?: string
+    canceled?: true
+  }
+
+export type DesktopShellMessage = DesktopShellToParent | DesktopShellToChild
+
 /** One process-IPC envelope. RPC `payload` is an `IpcMessage` object; main must not parse it. */
 export type DesktopIpcEnvelope =
   | { channel: 'rpc'; payload: unknown }
   | { channel: 'control'; payload: DesktopControlMessage }
+  | { channel: 'shell'; payload: DesktopShellMessage }
 
 const THEME_PREFERENCES: readonly DesktopThemePreference[] = ['light', 'dark', 'system']
 
@@ -75,7 +99,57 @@ export function parseDesktopEnvelope(value: unknown): DesktopIpcEnvelope | undef
     const payload = parseControl(record.payload)
     return payload === undefined ? undefined : { channel: 'control', payload }
   }
+  if (record.channel === 'shell') {
+    const payload = parseShell(record.payload)
+    return payload === undefined ? undefined : { channel: 'shell', payload }
+  }
   return undefined
+}
+
+/**
+ * Parse a shell-channel document (Host ↔ Electron main, not RPC).
+ * @param value - the `shell` channel payload.
+ * @returns the typed document, or undefined when required fields are missing.
+ */
+export function parseDesktopShell(value: unknown): DesktopShellMessage | undefined {
+  return parseShell(value)
+}
+
+function parseShell(value: unknown): DesktopShellMessage | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const record = value as Record<string, unknown>
+  switch (record.type) {
+    case 'open-auth-window':
+      return typeof record.id === 'string' && record.id !== ''
+        && typeof record.url === 'string' && record.url !== ''
+        && typeof record.callbackUrlPrefix === 'string' && record.callbackUrlPrefix !== ''
+        && (record.width === undefined || typeof record.width === 'number')
+        && (record.height === undefined || typeof record.height === 'number')
+        && (record.timeoutMs === undefined || typeof record.timeoutMs === 'number')
+        ? {
+          type: 'open-auth-window',
+          id: record.id,
+          url: record.url,
+          callbackUrlPrefix: record.callbackUrlPrefix,
+          ...typeof record.width === 'number' ? { width: record.width } : {},
+          ...typeof record.height === 'number' ? { height: record.height } : {},
+          ...typeof record.timeoutMs === 'number' ? { timeoutMs: record.timeoutMs } : {},
+        }
+        : undefined
+    case 'open-auth-window-result':
+      return typeof record.id === 'string' && record.id !== ''
+        && (record.callbackUrl === undefined || typeof record.callbackUrl === 'string')
+        && (record.canceled === undefined || record.canceled === true)
+        ? {
+          type: 'open-auth-window-result',
+          id: record.id,
+          ...typeof record.callbackUrl === 'string' ? { callbackUrl: record.callbackUrl } : {},
+          ...record.canceled === true ? { canceled: true as const } : {},
+        }
+        : undefined
+    default:
+      return undefined
+  }
 }
 
 /**
