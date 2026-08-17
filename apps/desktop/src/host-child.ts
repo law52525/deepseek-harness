@@ -261,7 +261,9 @@ export class DesktopHostChild {
     pending.resolve(control)
   }
 
-  private async answerOpenAuthWindow(request: DesktopShellToParent): Promise<void> {
+  private async answerOpenAuthWindow(
+    request: Extract<DesktopShellToParent, { type: 'open-auth-window' }>,
+  ): Promise<void> {
     try {
       const result = await this.openAuthWindow({
         url: request.url,
@@ -391,8 +393,8 @@ export function spawnDesktopHost(options: SpawnDesktopHostOptions = {}): Desktop
   const argv = hostChildArgv(node)
   const child = spawn(argv.command, argv.args, hostChildSpawnOptions(options))
   return new DesktopHostChild(child, options.openAuthWindow, {
-    blockingOverlay: options.blockingOverlay,
-    checkForUpdates: options.checkForUpdates,
-    onFatal: options.onFatal,
+    ...options.blockingOverlay === undefined ? {} : { blockingOverlay: options.blockingOverlay },
+    ...options.checkForUpdates === undefined ? {} : { checkForUpdates: options.checkForUpdates },
+    ...options.onFatal === undefined ? {} : { onFatal: options.onFatal },
   })
 }

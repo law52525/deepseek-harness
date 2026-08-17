@@ -14,6 +14,20 @@ export interface DesktopAutoUpdater {
   quitAndInstall(): void
 }
 
+/**
+ * Mac native autoUpdater emits `before-quit-for-update`; electron-updater's
+ * typed event map omits it, and NSIS may never emit it. Prefer
+ * {@link DesktopAutoUpdateOptions.disarmForUpdateInstall} as the disarm path.
+ * @param updater - electron-updater instance (or test double with `.on`).
+ * @param listener - runs when the native updater is about to quit.
+ */
+export function onBeforeQuitForUpdate(
+  updater: { on(event: string, listener: () => void): unknown },
+  listener: () => void,
+): void {
+  updater.on('before-quit-for-update', listener)
+}
+
 export interface DesktopAutoUpdateTimers {
   setTimeout: typeof setTimeout
   clearTimeout: typeof clearTimeout
