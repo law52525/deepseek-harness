@@ -57,6 +57,19 @@ export type DesktopShellToParent =
     height?: number
     timeoutMs?: number
   }
+  | {
+    type: 'arm-blocking-overlay'
+    id: string
+    timeoutMs: number
+    title: string
+    body: string
+    failedInstallTitle?: string
+    failedInstallBody?: string
+  }
+  | { type: 'overlay-rendered'; id: string }
+  | { type: 'disarm-blocking-overlay'; id: string }
+  | { type: 'check-for-updates'; id: string; feedUrl: string }
+  | { type: 'blocking-overlay-fatal'; id: string; detail: string }
 
 /** Shell → Host replies for {@link DesktopShellToParent}. */
 export type DesktopShellToChild =
@@ -146,6 +159,40 @@ function parseShell(value: unknown): DesktopShellMessage | undefined {
           ...typeof record.callbackUrl === 'string' ? { callbackUrl: record.callbackUrl } : {},
           ...record.canceled === true ? { canceled: true as const } : {},
         }
+        : undefined
+    case 'arm-blocking-overlay':
+      return typeof record.id === 'string' && record.id !== ''
+        && typeof record.timeoutMs === 'number'
+        && typeof record.title === 'string'
+        && typeof record.body === 'string'
+        ? {
+          type: 'arm-blocking-overlay' as const,
+          id: record.id,
+          timeoutMs: record.timeoutMs,
+          title: record.title,
+          body: record.body,
+          ...typeof record.failedInstallTitle === 'string' && typeof record.failedInstallBody === 'string'
+            ? { failedInstallTitle: record.failedInstallTitle, failedInstallBody: record.failedInstallBody }
+            : {},
+        }
+        : undefined
+    case 'overlay-rendered':
+      return typeof record.id === 'string' && record.id !== ''
+        ? { type: 'overlay-rendered', id: record.id }
+        : undefined
+    case 'disarm-blocking-overlay':
+      return typeof record.id === 'string' && record.id !== ''
+        ? { type: 'disarm-blocking-overlay', id: record.id }
+        : undefined
+    case 'check-for-updates':
+      return typeof record.id === 'string' && record.id !== ''
+        && typeof record.feedUrl === 'string' && record.feedUrl !== ''
+        ? { type: 'check-for-updates', id: record.id, feedUrl: record.feedUrl }
+        : undefined
+    case 'blocking-overlay-fatal':
+      return typeof record.id === 'string' && record.id !== ''
+        && typeof record.detail === 'string' && record.detail !== ''
+        ? { type: 'blocking-overlay-fatal', id: record.id, detail: record.detail }
         : undefined
     default:
       return undefined
