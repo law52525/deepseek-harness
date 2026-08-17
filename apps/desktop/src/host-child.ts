@@ -257,7 +257,7 @@ export class DesktopHostChild {
         ...request.height === undefined ? {} : { height: request.height },
         ...request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs },
       })
-      if ('canceled' in result && result.canceled) {
+      if ('canceled' in result) {
         this.child.send(shellEnvelope({ type: 'open-auth-window-result', id: request.id, canceled: true }))
         return
       }
