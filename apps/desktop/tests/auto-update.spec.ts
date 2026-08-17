@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   INSTALL_WATCHDOG_MS,
   noteBlockingOverlayArmed,
+  onBeforeQuitForUpdate,
   startDesktopAutoUpdate,
   type DesktopAutoUpdater,
 } from '../src/auto-update.ts'
@@ -139,5 +140,11 @@ describe('desktop auto-update', () => {
     vi.advanceTimersByTime(1)
     expect(rearm).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
+  })
+
+  it('registers a before-quit-for-update listener on the native updater', () => {
+    const on = vi.fn()
+    onBeforeQuitForUpdate({ on }, () => undefined)
+    expect(on).toHaveBeenCalledWith('before-quit-for-update', expect.any(Function))
   })
 })
