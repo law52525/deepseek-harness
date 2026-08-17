@@ -9,7 +9,7 @@ import { extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, Menu, protocol } from 'electron'
 import { autoUpdater } from 'electron-updater'
-import { startDesktopAutoUpdate, noteBlockingOverlayArmed } from './auto-update.ts'
+import { startDesktopAutoUpdate, noteBlockingOverlayArmed, onBeforeQuitForUpdate } from './auto-update.ts'
 import {
   BlockingOverlayController,
   allowLifecycleRequest,
@@ -72,7 +72,7 @@ const blockingOverlay = new BlockingOverlayController(
     create({ title, body }) {
       const parent = windowRef !== undefined && !windowRef.isDestroyed() ? windowRef : undefined
       const win = new BrowserWindow({
-        parent,
+        ...parent === undefined ? {} : { parent },
         modal: parent !== undefined,
         show: true,
         closable: false,
@@ -321,15 +321,16 @@ async function disposeHost(): Promise<void> {
 
 void app.whenReady().then(() => {
   if (!app.isPackaged && process.platform === 'darwin') app.dock?.setIcon(SHELL_ICON)
-  autoUpdater.on('before-quit-for-update', () => {
+  onBeforeQuitForUpdate(autoUpdater, () => {
     blockingOverlay.disarm('update-install')
   })
   void createWindow()
+  const feedUrl = process.env.DSH_UPDATE_FEED_URL
   void startDesktopAutoUpdate({
     isPackaged: app.isPackaged,
     updater: autoUpdater,
     appVersion: app.getVersion(),
-    feedUrl: process.env.DSH_UPDATE_FEED_URL,
+    ...feedUrl === undefined ? {} : { feedUrl },
     isArmed: () => blockingOverlay.armed,
     disarmForUpdateInstall: () => blockingOverlay.disarm('update-install'),
     rearmAfterFailedInstall,

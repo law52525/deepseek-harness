@@ -112,14 +112,9 @@ describe('blocking overlay controller', () => {
     vi.useRealTimers()
   })
 
-  it('denies every keyDown; keyUp is not a close path', () => {
-    expect(shouldBlockShortcut({ type: 'keyDown', key: 'w', meta: true })).toBe(true)
-    expect(shouldBlockShortcut({ type: 'keyDown', key: 'W', control: true })).toBe(true)
-    expect(shouldBlockShortcut({ type: 'keyDown', key: 'F4', alt: true })).toBe(true)
-    expect(shouldBlockShortcut({ type: 'keyDown', key: 'Escape' })).toBe(true)
-    expect(shouldBlockShortcut({ type: 'keyDown', key: 'F11' })).toBe(true)
-    expect(shouldBlockShortcut({ type: 'keyDown', key: 'w' })).toBe(true)
-    expect(shouldBlockShortcut({ type: 'keyUp', key: 'w', meta: true })).toBe(false)
+  it('denies every keyDown including close and fullscreen shortcuts; keyUp is not a close path', () => {
+    expect(shouldBlockShortcut({ type: 'keyDown' })).toBe(true)
+    expect(shouldBlockShortcut({ type: 'keyUp' })).toBe(false)
   })
 
   it('blocks app quit while armed; only disarm lifts the default deny', () => {
