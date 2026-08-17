@@ -10,6 +10,7 @@ import { dirname, join } from 'node:path'
 import { controlEnvelope, controlFromChild, rpcEnvelope, rpcPayloadFromChild, shellEnvelope, shellFromChild } from './forwarder.ts'
 import { resolveNodeExecutable } from './node-executable.ts'
 import { resolveBundledDshBin } from './packaged-resources.ts'
+import type { BlockingOverlayController } from './blocking-overlay.ts'
 import type {
   DesktopControlMessage,
   DesktopControlToHost,
@@ -41,10 +42,12 @@ export class DesktopHostChild {
   /**
    * @param child - process spawned with an IPC fd.
    * @param openAuthWindow - generic auth-window opener used by the shell channel.
+   * @param shellExtras - optional blocking-overlay + update-check handlers (D-08).
    */
   constructor(
     private readonly child: ChildProcess,
     private readonly openAuthWindow: AuthWindowOpener = async () => ({ canceled: true }),
+    private readonly shellExtras: DesktopShellExtras = {},
   ) {
     this.ready = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -235,6 +238,16 @@ export class DesktopHostChild {
     if (shell !== undefined) {
       if (shell.type === 'open-auth-window') {
         void this.answerOpenAuthWindow(shell)
+      } else if (shell.type === 'arm-blocking-overlay') {
+        this.shellExtras.blockingOverlay?.arm(shell)
+      } else if (shell.type === 'overlay-rendered') {
+        this.shellExtras.blockingOverlay?.markRendered(shell.id)
+      } else if (shell.type === 'disarm-blocking-overlay') {
+        this.shellExtras.blockingOverlay?.disarm('gate-satisfied', shell.id)
+      } else if (shell.type === 'blocking-overlay-fatal') {
+        this.shellExtras.onFatal?.(shell.detail)
+      } else if (shell.type === 'check-for-updates') {
+        this.shellExtras.checkForUpdates?.(shell.feedUrl)
       }
       return
     }
@@ -313,6 +326,18 @@ export interface SpawnDesktopHostOptions {
   cwd?: string
   /** Open a generic auth window; Host plugins pass url + callback prefix. */
   openAuthWindow?: AuthWindowOpener
+  /** Generic blocking overlay; Host supplies title/body/timeout, never product URLs. */
+  blockingOverlay?: BlockingOverlayController
+  /** Generic update check; Host supplies the feed URL. */
+  checkForUpdates?: (feedUrl: string) => void
+  /** Terminal failure (Host crash or overlay arm failure); caller-supplied copy. */
+  onFatal?: (detail: string) => void
+}
+
+export interface DesktopShellExtras {
+  blockingOverlay?: BlockingOverlayController
+  checkForUpdates?: (feedUrl: string) => void
+  onFatal?: (detail: string) => void
 }
 
 /** Caller-supplied BrowserWindow opener; the shell stays free of product URLs. */
@@ -365,5 +390,9 @@ export function spawnDesktopHost(options: SpawnDesktopHostOptions = {}): Desktop
   const node = resolveNodeExecutable()
   const argv = hostChildArgv(node)
   const child = spawn(argv.command, argv.args, hostChildSpawnOptions(options))
-  return new DesktopHostChild(child, options.openAuthWindow)
+  return new DesktopHostChild(child, options.openAuthWindow, {
+    blockingOverlay: options.blockingOverlay,
+    checkForUpdates: options.checkForUpdates,
+    onFatal: options.onFatal,
+  })
 }
