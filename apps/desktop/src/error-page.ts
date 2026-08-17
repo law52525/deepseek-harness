@@ -20,8 +20,8 @@ export function hostErrorPage(detail: string): string {
     </style>
   </head>
   <body>
-    <h1>Host process stopped</h1>
-    <p>The desktop Host child exited. Close this window and start the app again.</p>
+      <h1>Host process stopped</h1>
+    <p>The desktop Host child exited. This page is terminal. Quit and start the app again — the application is not running.</p>
     <pre>${escaped}</pre>
   </body>
 </html>

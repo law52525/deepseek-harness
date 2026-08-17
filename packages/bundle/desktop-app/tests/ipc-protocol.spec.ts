@@ -167,6 +167,52 @@ describe('desktop IPC protocol', () => {
       channel: 'shell',
       payload: { type: 'open-auth-window', id: '1', url: '', callbackUrlPrefix: 'https://x' },
     })).toBeUndefined()
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'arm-blocking-overlay', id: 'g1', timeoutMs: 10_000, title: 'Update', body: 'Please update' },
+    })).toEqual({
+      channel: 'shell',
+      payload: { type: 'arm-blocking-overlay', id: 'g1', timeoutMs: 10_000, title: 'Update', body: 'Please update' },
+    })
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: {
+        type: 'arm-blocking-overlay',
+        id: 'g1',
+        timeoutMs: 10_000,
+        title: 'Update',
+        body: 'Please update',
+        failedInstallTitle: 'install failed',
+        failedInstallBody: 'reinstall',
+      },
+    })).toEqual({
+      channel: 'shell',
+      payload: {
+        type: 'arm-blocking-overlay',
+        id: 'g1',
+        timeoutMs: 10_000,
+        title: 'Update',
+        body: 'Please update',
+        failedInstallTitle: 'install failed',
+        failedInstallBody: 'reinstall',
+      },
+    })
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'overlay-rendered', id: 'g1' },
+    })).toMatchObject({ channel: 'shell', payload: { type: 'overlay-rendered', id: 'g1' } })
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'check-for-updates', id: 'g1', feedUrl: 'https://example.invalid/v2' },
+    })).toMatchObject({ channel: 'shell', payload: { type: 'check-for-updates', feedUrl: 'https://example.invalid/v2' } })
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'arm-blocking-overlay', id: 'g1', timeoutMs: 10_000 },
+    })).toBeUndefined()
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'blocking-overlay-fatal', id: 'g1', detail: 'unable to arm overlay' },
+    })).toMatchObject({ channel: 'shell', payload: { type: 'blocking-overlay-fatal', detail: 'unable to arm overlay' } })
   })
 
   it('recognizes built-in theme preferences only', () => {
