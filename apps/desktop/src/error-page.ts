@@ -13,7 +13,7 @@ export function hostErrorPage(detail: string): string {
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Wandox Harness</title>
+    <title>Wandox Work</title>
     <style>
       body { font-family: system-ui, sans-serif; margin: 3rem; color: #111; }
       pre { white-space: pre-wrap; }
