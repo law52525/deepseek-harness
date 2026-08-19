@@ -11,6 +11,8 @@ import { dirname, join } from 'node:path'
 const DESKTOP_HOST_RESOURCE = 'host'
 /** extraResources destination for the web frontend dist. */
 const DESKTOP_FRONTEND_RESOURCE = 'frontend'
+/** extraResources destination for the generic profile template + stamp. */
+const DESKTOP_PROFILE_TEMPLATE_RESOURCE = 'profile-template'
 
 /** Process fields the packaged layout reads. */
 export interface DesktopProcessPaths {
@@ -72,4 +74,21 @@ export function resolveBundledFrontendDist(processLike: DesktopProcessPaths = pr
   if (resources === undefined) return undefined
   const index = join(resources, DESKTOP_FRONTEND_RESOURCE, 'index.html')
   return existsSync(index) ? dirname(index) : undefined
+}
+
+/**
+ * Bundled profile template directory (stamp + profile files).
+ * @param processLike - `process` or a test stub.
+ * @returns the directory that contains `version-stamp`, or undefined when unpackaged.
+ */
+export function resolveBundledProfileTemplate(processLike: DesktopProcessPaths = process): string | undefined {
+  const resources = desktopResourcesRoot(processLike)
+  if (resources === undefined) return undefined
+  const dir = join(resources, DESKTOP_PROFILE_TEMPLATE_RESOURCE)
+  if (!existsSync(dir)) return undefined
+  const stamp = join(dir, 'version-stamp')
+  if (!existsSync(stamp)) {
+    throw new Error(`desktop: profile-template is present but missing version-stamp at ${stamp}`)
+  }
+  return dir
 }

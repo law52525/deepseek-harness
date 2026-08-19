@@ -1,7 +1,10 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
+  assertTreeHasNoSymlinks,
   installerCliArgv,
   packedResourcesCandidates,
   packagerTarget,
@@ -30,6 +33,24 @@ describe('desktop installer CLI argv', () => {
   it('drops a lone -- so pnpm run forwards flags', () => {
     expect(installerCliArgv(['--', '--skip-build'])).toEqual(['--skip-build'])
     expect(installerCliArgv(['--skip-packager'])).toEqual(['--skip-packager'])
+  })
+})
+
+describe('profile template symlink assertion', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  })
+
+  it('accepts a materialized tree and rejects leftover symlinks', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-template-links-'))
+    roots.push(root)
+    mkdirSync(join(root, 'node_modules', 'leftpad'), { recursive: true })
+    writeFileSync(join(root, 'package.json'), '{"name":"dsh-profile-desktop"}\n')
+    writeFileSync(join(root, 'node_modules', 'leftpad', 'index.js'), 'module.exports = 1\n')
+    expect(() => assertTreeHasNoSymlinks(root)).not.toThrow()
+    symlinkSync(join(root, 'package.json'), join(root, 'link.json'))
+    expect(() => assertTreeHasNoSymlinks(root)).toThrow(/still has symlinks/)
   })
 })
 

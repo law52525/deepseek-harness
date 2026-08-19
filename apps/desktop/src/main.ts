@@ -25,6 +25,8 @@ import { fileFromDshUrl, isDesktopSessionExportPath, sessionExportFromDshUrl } f
 import { hostErrorPage } from './error-page.ts'
 import { resolveFrontendDist } from './frontend-dist.ts'
 import { spawnDesktopHost, type DesktopHostChild } from './host-child.ts'
+import { resolveBundledProfileTemplate } from './packaged-resources.ts'
+import { ensureProfileFromTemplate } from './profile-bootstrap.ts'
 import { responseFromSessionExport } from './session-export.ts'
 import { openAuthWindow, type AuthWindowFactory, type OpenAuthWindowOptions } from './auth-window.ts'
 
@@ -245,6 +247,10 @@ async function sessionExportProtocolResponse(request: Request): Promise<Response
 }
 
 async function createWindow(): Promise<void> {
+  if (app.isPackaged) {
+    const templateRoot = resolveBundledProfileTemplate()
+    if (templateRoot !== undefined) ensureProfileFromTemplate({ templateRoot })
+  }
   const distRoot = resolveFrontendDist()
   registerProtocol(distRoot)
   if (host === undefined) {
