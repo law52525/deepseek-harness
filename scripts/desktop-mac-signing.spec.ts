@@ -6,7 +6,7 @@ import {
   parseDeveloperIdIdentity,
   resolveMacSigningIdentity,
 } from './desktop-mac-signing.ts'
-import { githubPublishRepo, packagerArgs } from './build-desktop-installer.ts'
+import { packagerArgs } from './build-desktop-installer.ts'
 
 const FIND_IDENTITY = `
   1) ABCDEF0123456789 "Developer ID Application: Example Org (TEAMID1234)"
@@ -58,13 +58,11 @@ describe('desktop installer packager args', () => {
       { os: 'mac', arch: 'arm64' },
       true,
       'Developer ID Application: Example Org (TEAMID1234)',
-      { owner: 'example', repo: 'fork' },
     )
     expect(signed).toContain('--config.mac.identity=Example Org (TEAMID1234)')
     expect(signed.some(flag => flag.includes('Developer ID Application:'))).toBe(false)
     expect(signed).toContain('--config.mac.notarize=true')
-    expect(signed).toContain('--config.publish.owner=example')
-    expect(signed).toContain('--config.publish.repo=fork')
+    expect(signed.some(flag => flag.includes('publish.owner') || flag.includes('publish.repo'))).toBe(false)
     expect(signed).not.toContain('--config.mac.identity=-')
     expect(packagerArgs({ os: 'win', arch: 'x64' }, false)).toEqual([
       '--publish',
@@ -72,14 +70,5 @@ describe('desktop installer packager args', () => {
       '--win',
       '--x64',
     ])
-  })
-
-  it('parses GITHUB_REPOSITORY for electron-updater publish config', () => {
-    expect(githubPublishRepo('deepseek-ai/deepseek-harness')).toEqual({
-      owner: 'deepseek-ai',
-      repo: 'deepseek-harness',
-    })
-    expect(githubPublishRepo('owner-only')).toBeUndefined()
-    expect(githubPublishRepo(undefined)).toBeUndefined()
   })
 })

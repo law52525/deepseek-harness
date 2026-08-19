@@ -1,4 +1,4 @@
-// Hero chrome for the blank-draft phase of ConversationRoot: fish headline,
+// Hero chrome for the blank-draft phase of ConversationRoot: mark + headline,
 // glow backdrop, and the workspace row. Pure presentation — the resident
 // composer is NOT rendered here (it keeps its own stable tree position in
 // ConversationRoot so the textarea survives the hero → composer flip); CSS
@@ -117,12 +117,11 @@ export function HeroShell({ t, children }: HeroShellProps) {
     <div className={css.root}>
       <div className={css.stack}>
         <div className={css.headline}>
-          {/* figma 34:10412: fish 34×25 leading the headline, gap 10. */}
+          {/* figma 34:10412: mark 34×25 leading the headline, gap 10. */}
           <span className={css.fishHitbox}>
             <FishLogo size={34} className={css.fish} />
           </span>
           <span className={css.headlineText}>{t('hero.headline')}</span>
-          <span className={css.previewBadge}>{t('hero.preview')}</span>
         </div>
         <div className={css.body}>
           {/* The resident composer (ConversationRoot's root-owned scrollport;
