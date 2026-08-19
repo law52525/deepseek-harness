@@ -47,7 +47,7 @@ const STAGE_DIR = join(DESKTOP_DIR, 'stage')
 const HOST_STAGE = join(STAGE_DIR, HOST_RESOURCE)
 const FRONTEND_STAGE = join(STAGE_DIR, FRONTEND_RESOURCE)
 /** Must match `productName` in apps/desktop/electron-builder.yml. */
-const PRODUCT_NAME = 'Wandox Harness'
+const PRODUCT_NAME = 'Wandox Work'
 /** extraResources destination for the generic profile template. */
 const PROFILE_TEMPLATE_RESOURCE = 'profile-template'
 const PROFILE_TEMPLATE_STAGE = join(STAGE_DIR, PROFILE_TEMPLATE_RESOURCE)
