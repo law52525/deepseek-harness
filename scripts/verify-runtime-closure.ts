@@ -19,7 +19,7 @@ import {
   RUNTIME_CLOSURE_MANIFESTS,
 } from './runtime-closure.ts'
 
-const root = resolve(import.meta.dirname, '..')
+const repoRoot = resolve(import.meta.dirname, '..')
 
 const AGENT_PRESET_GLOB = 'apps/cli/config/agent-presets/*/agent.cordis.yml'
 
@@ -30,31 +30,67 @@ interface RuntimePlatform {
 
 type RuntimePlatformManifest = Record<string, RuntimePlatform>
 
+/** Result of one deploy-root closure inspection. */
+export interface RuntimeClosureResult {
+  failures: string[]
+  presetCount: number
+  workspacePackageCount: number
+}
+
+/** Agent-preset closure result: failures plus the number of discovered presets. */
+interface PresetClosureResult {
+  failures: string[]
+  presetCount: number
+}
+
+/**
+ * Check one deploy-root manifest (defaulting to the Python SDK runtime) against
+ * the workspace peer graph and the shipped agent presets.
+ * @param root - repository root.
+ * @param manifestPath - runtime manifest path relative to {@link root}.
+ * @returns discovered preset count, reachable workspace package count, and violations.
+ */
+export async function verifyRuntimeClosure(
+  root: string,
+  manifestPath = 'python/sdk-runtime/package.json',
+): Promise<RuntimeClosureResult> {
+  const runtimeManifest = await loadManifest(resolve(root, manifestPath))
+  const runtimeName = runtimeManifest.name ?? manifestPath
+  const runtimeDependencies = runtimeManifest.dependencies ?? {}
+  const workspace = await loadWorkspacePackages(root)
+  const inspection = inspectRuntimeClosure(runtimeName, runtimeDependencies, workspace)
+  const preset = await missingPresetPlugins(root, runtimeDependencies)
+  return {
+    failures: [...inspection.failures, ...preset.failures],
+    presetCount: preset.presetCount,
+    workspacePackageCount: inspection.packages.length,
+  }
+}
+
 /**
  * Check one or more deploy-root manifests and exit 1 on the first missing peer.
  * @param manifestRels - repository-relative package.json paths.
  */
 export async function verifyRuntimeClosures(manifestRels: readonly string[]): Promise<void> {
-  const workspace = await loadWorkspacePackages(root)
+  const workspace = await loadWorkspacePackages(repoRoot)
   let failed = false
   for (const relative of manifestRels) {
-    const runtimeManifestPath = resolve(root, relative)
+    const runtimeManifestPath = resolve(repoRoot, relative)
     const runtimeManifest = await loadManifest(runtimeManifestPath)
     const runtimeName = runtimeManifest.name ?? relative
     const runtimeDependencies = runtimeManifest.dependencies ?? {}
     const inspection = inspectRuntimeClosure(runtimeName, runtimeDependencies, workspace)
-    if (inspection.failures.length > 0) {
+    const presetFailures = relative === 'python/sdk-runtime/package.json'
+      ? (await missingPresetPlugins(repoRoot, runtimeDependencies)).failures
+      : []
+    if (inspection.failures.length > 0 || presetFailures.length > 0) {
       failed = true
-      console.error(`verify-runtime-closure: required workspace peers are missing from ${relative} dependencies:`)
-      for (const failure of inspection.failures) console.error(`  ${failure}`)
-      continue
-    }
-    if (relative === 'python/sdk-runtime/package.json') {
-      const presetFailures = await missingPresetPlugins(root, runtimeDependencies)
-      if (presetFailures.length > 0) {
-        failed = true
-        for (const failure of presetFailures) console.error(`  ${failure}`)
+      if (inspection.failures.length > 0) {
+        console.error(`verify-runtime-closure: required workspace peers are missing from ${relative} dependencies:`)
+        for (const failure of inspection.failures) console.error(`  ${failure}`)
       }
+      for (const failure of presetFailures) console.error(`  ${failure}`)
+      continue
     }
     console.log(
       `verify-runtime-closure: ${relative}: ${inspection.packages.length} workspace packages form a closed runtime dependency graph.`,
@@ -81,12 +117,12 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === scriptPath) {
  * listed as `workspace:` dependencies of the Python SDK runtime manifest.
  * @param root - repository root.
  * @param runtimeDependencies - the Python SDK deploy root `dependencies` map.
- * @returns preset/target chains whose plugins are missing or non-workspace.
+ * @returns discovered preset count and the preset/target chains whose plugins are missing or non-workspace.
  */
 async function missingPresetPlugins(
   root: string,
   runtimeDependencies: Readonly<Record<string, string>>,
-): Promise<string[]> {
+): Promise<PresetClosureResult> {
   const failures: string[] = []
   const platforms = await loadJson<RuntimePlatformManifest>(resolve(root, 'python/sdk-runtime/platforms.json'))
   const targets = Object.keys(platforms).sort()
@@ -118,7 +154,7 @@ async function missingPresetPlugins(
   }
   failures.push(...[...missing.entries()].map(([chain, missingTargets]) =>
     `${chain} (${[...missingTargets].sort().join(', ')})`))
-  return failures
+  return { failures, presetCount: presetPaths.length }
 }
 
 function activeBarePluginPackages(entries: unknown[], processPlatform: string): Set<string> {
