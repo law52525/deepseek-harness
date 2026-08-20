@@ -39,7 +39,7 @@
       "path": "../../client/modules"
     },
     {
-      "path": "../../client/ui-theme"
+      "path": "../../client/ui-theme/tsconfig.host.json"
     },
     {
       "path": "../../settings/settings"
