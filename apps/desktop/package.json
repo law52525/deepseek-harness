@@ -16,14 +16,19 @@
     "lib/*.js"
   ],
   "license": "MIT",
+  "author": "DeepSeek AI",
   "dependencies": {
     "@deepseek-ai/dsh": "workspace:^",
     "@deepseek-ai/dsh-desktop-app": "workspace:^",
-    "@deepseek-ai/dsh-web-frontend": "workspace:^",
-    "electron": "^37.3.0"
+    "@deepseek-ai/dsh-web-frontend": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-host-apiproxy": "workspace:^"
+    "@deepseek-ai/dsh-host-apiproxy": "workspace:^",
+    "electron": "^37.3.0",
+    "electron-builder": "^26.0.12"
+  },
+  "scripts": {
+    "dist": "electron-builder --publish never"
   }
 }

@@ -50,7 +50,7 @@ Implement in this order. Each phase has its own Agent Note. One Cursor session i
 | P1 | [Desktop profile](../../implemented/architecture/2026-08-14-desktop-profile-host.md) | `desktop` profile, Host without HTTP, optional `webServer` on dual-face plugins |
 | P2 | [Electron shell](../../implemented/architecture/2026-08-14-desktop-electron-shell.md) | `apps/desktop`, preload, `BootSeams.loadBundle`, boot-manifest injection |
 | P3 | [Native shell capabilities](../../implemented/architecture/2026-08-14-desktop-native-shell-capabilities.md) | Wire picker and path-open through the shell; WebView preview stays deferred |
-| P4 | [Installer packaging](../process/2026-08-14-desktop-installer-packaging.md) | electron-builder, Node closure including Windows, `.dmg` / `.exe` |
+| P4 | [Installer packaging](../../implemented/process/2026-08-14-desktop-installer-packaging.md) | electron-builder, Node closure including Windows, `.dmg` / `.exe` |
 | P5 | [Release CI](../process/2026-08-14-desktop-installer-release-ci.md) | Signing, notarization, updates, CI matrix |
 
 P3 may overlap P4 after P2. P4 may start after P2; the first installer may keep the existing Node native picker. P5 starts after P4 produces unsigned artifacts.

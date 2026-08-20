@@ -145,6 +145,7 @@
     "mock:llm": "node --import tsx packages/test-support/llm-mock-server/src/bin.ts",
     "dev:web": "tsx scripts/dev-web.ts --poll",
     "dev:desktop": "pnpm run build && pnpm --filter @deepseek-ai/dsh-desktop exec electron .",
+    "dist:desktop": "tsx scripts/build-desktop-installer.ts",
     "postinstall": "node scripts/install-lefthook.mjs"
   },
   "devDependencies": {

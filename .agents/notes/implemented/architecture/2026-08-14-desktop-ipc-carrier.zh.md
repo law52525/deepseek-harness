@@ -69,7 +69,7 @@ stream-abort   { type, id }
 
 ### Out of scope
 
-安装包仍属后续阶段。[Electron 壳](./2026-08-14-desktop-electron-shell.md) 适配本载体；apiproxy 没有 `electron` 依赖。
+安装包属于 [P4](../process/2026-08-14-desktop-installer-packaging.md)。[Electron 壳](./2026-08-14-desktop-electron-shell.md) 适配本载体；apiproxy 没有 `electron` 依赖。
 
 ## Alternatives considered
 

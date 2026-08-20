@@ -50,7 +50,7 @@ Host 进 Electron main 的同进程方案允许作为后续简化，前提是 ad
 | P1 | [Desktop profile](../../implemented/architecture/2026-08-14-desktop-profile-host.md) | `desktop` profile、无 HTTP 的 Host、双面插件上可选的 `webServer` |
 | P2 | [Electron 壳](../../implemented/architecture/2026-08-14-desktop-electron-shell.md) | `apps/desktop`、preload、`BootSeams.loadBundle`、启动清单注入 |
 | P3 | [原生壳能力](../../implemented/architecture/2026-08-14-desktop-native-shell-capabilities.md) | 把选择器与打开路径接到壳上；WebView 预览保持后置 |
-| P4 | [安装包打包](../process/2026-08-14-desktop-installer-packaging.md) | electron-builder、含 Windows 的 Node 闭包、`.dmg` / `.exe` |
+| P4 | [安装包打包](../../implemented/process/2026-08-14-desktop-installer-packaging.md) | electron-builder、含 Windows 的 Node 闭包、`.dmg` / `.exe` |
 | P5 | [发布 CI](../process/2026-08-14-desktop-installer-release-ci.md) | 签名、公证、更新、CI 矩阵 |
 
 P3 可在 P2 之后与 P4 重叠。P4 可在 P2 之后开始；第一版安装包可以继续用现有的 Node 原生选择器。P5 在 P4 产出未签名产物之后开始。

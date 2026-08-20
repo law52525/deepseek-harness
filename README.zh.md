@@ -22,6 +22,16 @@ npx @deepseek-ai/dsh web
 
 该命令默认会在 `http://127.0.0.1:3080` 启动 Web UI，本机启动时还会用默认浏览器打开页面。通过 SSH 启动时只打印宿主机 URL，因为本地转发地址由 SSH 客户端或编辑器持有。传入 `--no-open` 可仅运行服务器而不打开浏览器。详见 [Web UI 指南](docs/user/guide/index.md)。
 
+### Desktop（预览）
+
+`dsh web` 仍是默认入口。若要构建一份不需要系统 Node 的本地安装包：
+
+```sh
+pnpm run dist:desktop
+```
+
+在 macOS arm64 上会在 `apps/desktop/dist/` 写出 `.dmg`；在 Windows x64 上写出 NSIS `.exe`。macOS 应用为 ad-hoc 签名：Gatekeeper 会拦截，需在 Finder 中右键点「打开」。Windows exe 未签名：SmartScreen 会警告。这些构建不会自动更新。正式签名产物属于后续阶段。
+
 ### 从源码运行
 
 如需从仓库源码运行：
