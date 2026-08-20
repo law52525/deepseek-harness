@@ -1,5 +1,5 @@
 /**
- * Full-app auto-update from GitHub Releases. A missing feed must not quit the app.
+ * Full-app auto-update from the packaged generic feed. A missing feed must not quit the app.
  */
 
 /** Subset of `electron-updater` used by the desktop shell. */

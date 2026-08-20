@@ -16,7 +16,7 @@
     "lib/*.js"
   ],
   "license": "MIT",
-  "author": "DeepSeek AI",
+  "author": "Wandox",
   "dependencies": {
     "@deepseek-ai/dsh": "workspace:^",
     "@deepseek-ai/dsh-desktop-app": "workspace:^",

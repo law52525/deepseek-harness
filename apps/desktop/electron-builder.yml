@@ -1,7 +1,13 @@
-appId: ai.deepseek.harness.desktop
-productName: DeepSeek Harness
-copyright: Copyright © DeepSeek AI
+appId: com.wandox.harness
+productName: Wandox Harness
+copyright: Copyright © Wandox
 asar: true
+extraMetadata:
+  version: 2.0.0
+  name: wandox-harness
+  author: Wandox
+  repository:
+    url: ''
 npmRebuild: false
 nodeGypRebuild: false
 afterPack: ./after-pack.cjs
@@ -20,8 +26,8 @@ extraResources:
   - from: stage
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 publish:
-  provider: github
-  releaseType: release
+  provider: generic
+  url: https://wandox-work.oss-cn-shenzhen.aliyuncs.com/v2
 mac:
   # Unsigned `dist:desktop` passes `--config.mac.identity=-`. Signed
   # `dist:mac:signed` passes the Developer ID Application identity, hardened

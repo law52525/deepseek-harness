@@ -7,10 +7,10 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { chmod, copyFile, cp, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { createRequire } from 'node:module'
@@ -47,8 +47,32 @@ const STAGE_DIR = join(DESKTOP_DIR, 'stage')
 const HOST_STAGE = join(STAGE_DIR, HOST_RESOURCE)
 const FRONTEND_STAGE = join(STAGE_DIR, FRONTEND_RESOURCE)
 /** Must match `productName` in apps/desktop/electron-builder.yml. */
-const PRODUCT_NAME = 'DeepSeek Harness'
+const PRODUCT_NAME = 'Wandox Harness'
+/** extraResources destination for the generic profile template. */
+const PROFILE_TEMPLATE_RESOURCE = 'profile-template'
+const PROFILE_TEMPLATE_STAGE = join(STAGE_DIR, PROFILE_TEMPLATE_RESOURCE)
 const DEPLOY_SOURCE_NODE_MODULES = 'desktop-runtime/node_modules'
+
+/**
+ * Fail if `root` still contains symlinks. The template must already be
+ * materialized; `cp` copies links as links, so this is the pack-time backstop.
+ */
+export function assertTreeHasNoSymlinks(root: string): void {
+  const leftover: string[] = []
+  const walk = (dir: string, prefix: string): void => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name)
+      const rel = prefix.length === 0 ? name : join(prefix, name)
+      const stat = lstatSync(full)
+      if (stat.isSymbolicLink()) leftover.push(rel.replaceAll('\\', '/'))
+      else if (stat.isDirectory()) walk(full, rel)
+    }
+  }
+  walk(root, '')
+  if (leftover.length > 0) {
+    throw new Error(`${LOG}: profile template still has symlinks (not materialized):\n${leftover.join('\n')}`)
+  }
+}
 const DEPLOY_ONLY_DOCS = ['README.md', 'README.zh.md', 'README.i18n.yaml']
 const LOG = 'build-desktop-installer'
 
@@ -139,22 +163,14 @@ export class DesktopInstallerCli {
  * @param target - mac arm64 or win x64.
  * @param signed - Developer ID path; ignored on Windows.
  * @param identity - Developer ID Application name when `signed`.
- * @param github - owner/repo for `app-update.yml` when packing in Actions.
  * @returns argv after the electron-builder executable.
  */
 export function packagerArgs(
   target: PackagerTarget,
   signed: boolean,
   identity?: string,
-  github?: { owner: string; repo: string },
 ): string[] {
   const args = ['--publish', 'never', `--${target.os}`, `--${target.arch}`]
-  if (github !== undefined) {
-    args.push(
-      `--config.publish.owner=${github.owner}`,
-      `--config.publish.repo=${github.repo}`,
-    )
-  }
   if (signed) {
     if (identity === undefined) {
       throw new Error(`${LOG}: signed packager args require a Developer ID identity`)
@@ -164,25 +180,6 @@ export function packagerArgs(
   }
   if (target.os === 'mac') args.push('--config.mac.identity=-')
   return args
-}
-
-/**
- * GitHub Releases owner/repo for electron-updater's generated `app-update.yml`.
- * Actions sets `GITHUB_REPOSITORY`; local packs use `package.json` repository.
- * @param githubRepository - `owner/repo` or undefined.
- * @returns owner and repo, or undefined when the value is not `owner/repo`.
- */
-export function githubPublishRepo(
-  githubRepository: string | undefined,
-): { owner: string; repo: string } | undefined {
-  if (githubRepository === undefined || githubRepository === '') return undefined
-  const slash = githubRepository.indexOf('/')
-  if (slash <= 0 || slash === githubRepository.length - 1) return undefined
-  if (githubRepository.includes('/', slash + 1)) return undefined
-  return {
-    owner: githubRepository.slice(0, slash),
-    repo: githubRepository.slice(slash + 1),
-  }
 }
 
 /**
@@ -338,6 +335,34 @@ class DesktopInstallerBuild {
   }
 
   /**
+   * Copy the caller-supplied profile template into extraResources.
+   * Unset `DSH_PROFILE_TEMPLATE` packs a vanilla Host (upstream `dist:desktop`).
+   */
+  async stageProfileTemplate(): Promise<void> {
+    const source = process.env.DSH_PROFILE_TEMPLATE
+    if (source === undefined || source === '') {
+      const dest = resolve(root, PROFILE_TEMPLATE_STAGE)
+      if (!this.cli.dryRun) await rm(dest, { recursive: true, force: true })
+      console.log(`${LOG}: DSH_PROFILE_TEMPLATE unset; packing without a profile template`)
+      return
+    }
+    const stamp = join(source, 'version-stamp')
+    if (!existsSync(stamp)) {
+      throw new Error(`${LOG}: DSH_PROFILE_TEMPLATE is missing version-stamp: ${source}`)
+    }
+    const dest = resolve(root, PROFILE_TEMPLATE_STAGE)
+    if (this.cli.dryRun) {
+      console.log(`${LOG}: [dry-run] cp ${source} ${dest}`)
+      return
+    }
+    await rm(dest, { recursive: true, force: true })
+    await mkdir(dirname(dest), { recursive: true })
+    await cp(source, dest, { recursive: true })
+    assertTreeHasNoSymlinks(dest)
+    console.log(`${LOG}: staged profile template from ${source}`)
+  }
+
+  /**
    * Boot the staged Host with `--help` and `--dump-config` (no window).
    */
   async smokeHost(): Promise<void> {
@@ -408,7 +433,6 @@ class DesktopInstallerBuild {
       target,
       this.cli.signed,
       identity,
-      githubPublishRepo(process.env.GITHUB_REPOSITORY),
     )
     const builder = packageBinInvocation(
       DESKTOP_PACKAGE_JSON,
@@ -459,6 +483,10 @@ async function assertPackedClosure(dist: string, target: PackagerTarget): Promis
     join(HOST_RESOURCE, ENTRY_BIN),
     join(FRONTEND_RESOURCE, 'index.html'),
   ]
+  if (existsSync(join(resources, PROFILE_TEMPLATE_RESOURCE)) || process.env.DSH_PROFILE_TEMPLATE) {
+    required.push(join(PROFILE_TEMPLATE_RESOURCE, 'version-stamp'))
+    required.push(join(PROFILE_TEMPLATE_RESOURCE, 'package.json'))
+  }
   if (target.os === 'mac') required.push(...MAC_HOST_BINARIES)
   for (const relative of required) {
     const absolute = join(resources, relative)
@@ -466,6 +494,8 @@ async function assertPackedClosure(dist: string, target: PackagerTarget): Promis
       throw new Error(`${LOG}: packed extraResources missing ${relative} at ${absolute}`)
     }
   }
+  const packedTemplate = join(resources, PROFILE_TEMPLATE_RESOURCE)
+  if (existsSync(packedTemplate)) assertTreeHasNoSymlinks(packedTemplate)
   await assertStagingHasNoSecrets(resources)
   console.log(`${LOG}: packed extraResources include Host closure and frontend dist`)
 }
@@ -542,6 +572,7 @@ async function main(): Promise<void> {
   await pipeline.deployHost()
   await pipeline.bundleNode()
   await pipeline.stageFrontend()
+  await pipeline.stageProfileTemplate()
   await pipeline.rejectSecrets()
   await pipeline.smokeHost()
   await pipeline.pack()

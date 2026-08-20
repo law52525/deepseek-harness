@@ -19,22 +19,13 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
       >
         <span
           aria-hidden="true"
-          class="railMark"
-        >
-          <div
-            data-slot="sidebar.brand.mark"
-            style="display: contents;"
-          >
-            <svg
-              aria-hidden="true"
-              data-content="965fe321"
-              fill="none"
-              height="17.6580310880829"
-              viewBox="0 0 23.16 17.04"
-              width="24"
-            />
-          </div>
-        </span>
+          class="railFish"
+          data-content="bbb887cc"
+          fill="none"
+          height="17.6580310880829"
+          viewBox="0 0 23.16 17.04"
+          width="24"
+        />
         <svg
           class="panelIcon"
           data-content="35f95b0c"
@@ -111,45 +102,12 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
       >
         <span
           aria-hidden="true"
-          class="brandIdentity"
-        >
-          <span
-            class="brandMark"
-          >
-            <div
-              data-slot="sidebar.brand.mark"
-              style="display: contents;"
-            >
-              <svg
-                aria-hidden="true"
-                data-content="965fe321"
-                fill="none"
-                height="17.6580310880829"
-                viewBox="0 0 23.16 17.04"
-                width="24"
-              />
-            </div>
-          </span>
-          <span
-            class="brandName"
-          >
-            <div
-              data-slot="sidebar.brand.name"
-              style="display: contents;"
-            >
-              <span
-                class="fallbackBrandName"
-              >
-                DSH Local Build
-              </span>
-              <span
-                class="buildRevision"
-              >
-                abc1234
-              </span>
-            </div>
-          </span>
-        </span>
+          data-content="745fa6c5"
+          fill="none"
+          height="24"
+          viewBox="0 0 148 24"
+          width="148"
+        />
       </button>
       <button
         aria-label="Collapse sidebar"
@@ -237,45 +195,12 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
       >
         <span
           aria-hidden="true"
-          class="brandIdentity"
-        >
-          <span
-            class="brandMark"
-          >
-            <div
-              data-slot="sidebar.brand.mark"
-              style="display: contents;"
-            >
-              <svg
-                aria-hidden="true"
-                data-content="965fe321"
-                fill="none"
-                height="17.6580310880829"
-                viewBox="0 0 23.16 17.04"
-                width="24"
-              />
-            </div>
-          </span>
-          <span
-            class="brandName"
-          >
-            <div
-              data-slot="sidebar.brand.name"
-              style="display: contents;"
-            >
-              <span
-                class="fallbackBrandName"
-              >
-                DSH Local Build
-              </span>
-              <span
-                class="buildRevision"
-              >
-                abc1234
-              </span>
-            </div>
-          </span>
-        </span>
+          data-content="745fa6c5"
+          fill="none"
+          height="24"
+          viewBox="0 0 148 24"
+          width="148"
+        />
       </button>
       <button
         aria-label="收起侧边栏"

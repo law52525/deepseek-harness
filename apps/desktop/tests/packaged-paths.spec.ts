@@ -8,6 +8,7 @@ import {
   resolveBundledDshBin,
   resolveBundledFrontendDist,
   resolveBundledNode,
+  resolveBundledProfileTemplate,
 } from '../src/packaged-resources.ts'
 
 const roots: string[] = []
@@ -33,6 +34,12 @@ describe('packaged resources', () => {
     expect(resolveBundledNode(processLike)).toBe(join(host, nodeName))
     expect(resolveBundledDshBin(processLike)).toBe(join(host, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'))
     expect(resolveBundledFrontendDist(processLike)).toBe(frontend)
+    expect(resolveBundledProfileTemplate(processLike)).toBeUndefined()
+
+    mkdirSync(join(resources, 'profile-template'))
+    expect(() => resolveBundledProfileTemplate(processLike)).toThrow(/missing version-stamp/)
+    writeFileSync(join(resources, 'profile-template', 'version-stamp'), 'abc\n')
+    expect(resolveBundledProfileTemplate(processLike)).toBe(join(resources, 'profile-template'))
   })
 
   it('returns undefined when extraResources are absent', () => {
@@ -40,5 +47,6 @@ describe('packaged resources', () => {
     expect(resolveBundledNode(processLike)).toBeUndefined()
     expect(resolveBundledDshBin(processLike)).toBeUndefined()
     expect(resolveBundledFrontendDist(processLike)).toBeUndefined()
+    expect(resolveBundledProfileTemplate(processLike)).toBeUndefined()
   })
 })
