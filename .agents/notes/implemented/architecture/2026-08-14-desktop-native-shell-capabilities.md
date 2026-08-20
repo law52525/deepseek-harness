@@ -65,7 +65,7 @@ WebView preview stays out of this note's code. Open-in-OS is the preview until a
 
 ## Related
 
-- [Desktop product](../../proposed/architecture/2026-08-14-desktop-installer-product.md)
+- [Desktop product](./2026-08-14-desktop-installer-product.md)
 - [P0 IPC carrier](./2026-08-14-desktop-ipc-carrier.md)
 - [P1 desktop profile Host](./2026-08-14-desktop-profile-host.md)
 - [P2 Electron shell](./2026-08-14-desktop-electron-shell.md)

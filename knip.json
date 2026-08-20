@@ -9,6 +9,7 @@
     "musl-gcc",
     "python3",
     "sandbox-exec",
+    "security",
     "tar",
     "taskkill",
     "where.exe"
@@ -763,6 +764,7 @@
       "entry": [
         "src/main.ts",
         "src/preload.ts",
+        "after-pack.cjs",
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
       ],

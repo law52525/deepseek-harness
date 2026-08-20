@@ -20,7 +20,7 @@ Electron main spawns a system-Node child (`npm_node_execpath`, `NODE_BINARY`, or
 
 The child posts `host-ready` after `loader.await()` (or immediately when no Loader is present). A terminal `dsh desktop` has no parent IPC channel, so `ipc-host` is a no-op and P1 CLI behavior is unchanged.
 
-On quit, main aborts in-flight IPC handlers, SIGTERM the child, waits, then SIGKILL if needed. A child crash loads an error page; the window is not left attached to a dead port.
+On quit, main aborts in-flight IPC handlers, SIGTERM the child, waits, then SIGKILL if needed. A child crash loads an error page; the window is not left attached to a dead port. Packaged builds check GitHub Releases for a full-app update ([P5](../process/2026-08-14-desktop-installer-release-ci.md)); a missing feed does not quit the app.
 
 ### Control versus RPC
 
@@ -68,8 +68,9 @@ Native directory picker stays the Node `-native` pair. [P3](./2026-08-14-desktop
 
 ## Related
 
-- [Desktop product](../../proposed/architecture/2026-08-14-desktop-installer-product.md)
+- [Desktop product](./2026-08-14-desktop-installer-product.md)
 - [P0 IPC carrier](./2026-08-14-desktop-ipc-carrier.md)
 - [P1 desktop profile Host](./2026-08-14-desktop-profile-host.md)
 - [P3 native shell capabilities](./2026-08-14-desktop-native-shell-capabilities.md)
 - [P4 installer packaging](../process/2026-08-14-desktop-installer-packaging.md)
+- [P5 release CI](../process/2026-08-14-desktop-installer-release-ci.md)

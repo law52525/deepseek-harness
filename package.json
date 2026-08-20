@@ -146,6 +146,7 @@
     "dev:web": "tsx scripts/dev-web.ts --poll",
     "dev:desktop": "pnpm run build && pnpm --filter @deepseek-ai/dsh-desktop exec electron .",
     "dist:desktop": "tsx scripts/build-desktop-installer.ts",
+    "dist:mac:signed": "tsx scripts/build-desktop-installer.ts --signed",
     "postinstall": "node scripts/install-lefthook.mjs"
   },
   "devDependencies": {

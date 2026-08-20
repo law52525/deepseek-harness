@@ -24,13 +24,15 @@ npx @deepseek-ai/dsh web
 
 ### Desktop（预览）
 
-`dsh web` 仍是默认入口。若要构建一份不需要系统 Node 的本地安装包：
+`dsh web` 仍是默认入口。本仓库的 GitHub Releases 发布已公证的 macOS arm64 `.dmg`（可直接打开，不会被 Gatekeeper 拦截），以及未签名的 Windows x64 NSIS `.exe`（SmartScreen 会警告）。已安装的构建会检查该 Release 做整应用自动更新。
+
+若要构建一份不需要系统 Node 的本地安装包：
 
 ```sh
 pnpm run dist:desktop
 ```
 
-在 macOS arm64 上会在 `apps/desktop/dist/` 写出 `.dmg`；在 Windows x64 上写出 NSIS `.exe`。macOS 应用为 ad-hoc 签名：Gatekeeper 会拦截，需在 Finder 中右键点「打开」。Windows exe 未签名：SmartScreen 会警告。这些构建不会自动更新。正式签名产物属于后续阶段。
+在 macOS arm64 上会在 `apps/desktop/dist/` 写出 ad-hoc 签名的 `.dmg`（Gatekeeper 会拦截，需右键点「打开」）。在 Windows x64 上写出未签名 NSIS `.exe`。若 Mac 的钥匙串里已有 Developer ID Application 身份，且 gitignore 的根目录 `.env` 中有 `APPLE_*`，可以改跑 `pnpm run dist:mac:signed` 以公证并 staple。
 
 ### 从源码运行
 

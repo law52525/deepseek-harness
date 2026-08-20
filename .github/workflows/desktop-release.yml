@@ -1,0 +1,174 @@
+# Pack notarized macOS arm64 and unsigned Windows x64 desktop installers and
+# upload them to a GitHub Release. electron-updater reads that Release.
+#
+# Secrets (environment `desktop-release`; never echo them):
+#   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD
+#   CSC_LINK — base64-encoded Developer ID Application .p12
+#   CSC_KEY_PASSWORD — p12 password
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'desktop-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PRIMARY_NODE_VERSION: '24'
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  macos:
+    name: Notarized macOS arm64
+    runs-on: macos-14
+    environment: desktop-release
+    permissions:
+      contents: write
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Configure pnpm store path
+        id: pnpm-store
+        run: |
+          store_root="$HOME/.local/share/pnpm/store"
+          echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
+          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
+          echo "path=$store_path" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve release tag
+        id: meta
+        run: |
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          expected="desktop-v${version}"
+          if [ "${{ github.ref_type }}" = tag ]; then
+            if [ "${{ github.ref_name }}" != "$expected" ]; then
+              echo "::error::Tag ${{ github.ref_name }} must be ${expected}."
+              exit 1
+            fi
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${expected}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.CSC_LINK }}
+          p12-password: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      - name: Build notarized arm64 dmg
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: pnpm run dist:mac:signed
+
+      - name: Upload macOS Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(apps/desktop/dist/*.dmg apps/desktop/dist/*.zip apps/desktop/dist/latest-mac.yml)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo '::error::No macOS installer assets under apps/desktop/dist.'
+            exit 1
+          fi
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --notes "Desktop installers ${TAG}."
+          fi
+          gh release upload "$TAG" "${assets[@]}" --clobber
+
+  windows:
+    name: Unsigned Windows x64
+    runs-on: windows-2025
+    environment: desktop-release
+    permissions:
+      contents: write
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve release tag
+        id: meta
+        run: |
+          $version = node -p "require('./apps/desktop/package.json').version"
+          $expected = "desktop-v$version"
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            if ($env:GITHUB_REF_NAME -ne $expected) {
+              Write-Error "Tag $env:GITHUB_REF_NAME must be $expected."
+              exit 1
+            }
+            "tag=$env:GITHUB_REF_NAME" >> $env:GITHUB_OUTPUT
+          } else {
+            "tag=$expected" >> $env:GITHUB_OUTPUT
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build unsigned NSIS exe
+        run: pnpm run dist:desktop
+
+      - name: Upload Windows Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          $assets = @(Get-ChildItem -Path apps/desktop/dist -File | Where-Object {
+            $_.Extension -in '.exe', '.yml' -and (
+              $_.Name -like '*.exe' -or $_.Name -eq 'latest.yml'
+            )
+          } | ForEach-Object { $_.FullName })
+          if ($assets.Count -eq 0) {
+            Write-Error 'No Windows installer assets under apps/desktop/dist.'
+            exit 1
+          }
+          gh release view $env:TAG 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:TAG --title $env:TAG --notes "Desktop installers $env:TAG."
+          }
+          gh release upload $env:TAG @assets --clobber
