@@ -23,7 +23,7 @@ interface IpcPort {
 }
 ```
 
-Tests implement `IpcPort` with `MessageChannel` or a pair of `EventEmitter`s. A later Electron shell adapts `ipcMain` / `ipcRenderer` (and the Node child `process` IPC) to this interface without changing message types.
+Tests implement `IpcPort` with `MessageChannel` or a pair of `EventEmitter`s. The [Electron shell](./2026-08-14-desktop-electron-shell.md) adapts `ipcMain` / `ipcRenderer` (and the Node child `process` IPC) to this interface without changing message types.
 
 ### Messages
 
@@ -65,11 +65,11 @@ The gateway treats the IPC peer as a **loopback, same-origin, already-authentica
 
 ### Connection plugin
 
-`dsh-client-connection` HTTP routes are unchanged. Tests construct `IpcApiClient` directly. A later desktop shell may recognize a documented `globalThis` seam and construct the exported client.
+`dsh-client-connection` HTTP routes are unchanged. The [Electron shell](./2026-08-14-desktop-electron-shell.md) recognizes `window.__DSH_IPC_PORT__` and constructs the exported client; tests also construct `IpcApiClient` directly.
 
 ### Out of scope
 
-Electron, `file://` plugin loading, and installers remain later phases. The [desktop profile](./2026-08-14-desktop-profile-host.md) is a later composition that does not instantiate this carrier.
+Installers remain a later phase. The [Electron shell](./2026-08-14-desktop-electron-shell.md) adapts this carrier; apiproxy has no `electron` dependency.
 
 ## Alternatives considered
 
@@ -89,8 +89,8 @@ Electron, `file://` plugin loading, and installers remain later phases. The [des
 
 ## Consequences
 
-The four-quadrant RPC is testable over IPC without Electron, so a later desktop shell adapts `ipcMain` / `ipcRenderer` (and Node child `process` IPC) to `IpcPort` without changing message types. `dsh-client-connection` still owns the browser HTTP/WebSocket carrier; this decision does not add `apps/desktop`. The [desktop profile](./2026-08-14-desktop-profile-host.md) is a later composition that still does not instantiate `IpcApiClient`.
+The four-quadrant RPC is testable over IPC without Electron, so the [Electron shell](./2026-08-14-desktop-electron-shell.md) adapts `ipcMain` / `ipcRenderer` (and Node child `process` IPC) to `IpcPort` without changing message types. `dsh-client-connection` still owns the browser HTTP/WebSocket carrier; this package has no `electron` dependency. The [desktop profile](./2026-08-14-desktop-profile-host.md) composes the Host; the shell instantiates the gateway in the child.
 
 JSON serialization cannot carry binary bodies. The current RPC is JSON-only; a later method that needs bytes must add an explicit binary frame rather than silently base64-ing.
 
-Treating every IPC peer as loopback is correct only while the Node child accepts connections solely from the Electron main process that spawned it. A later desktop shell must not open a TCP fallback.
+Treating every IPC peer as loopback is correct only while the Node child accepts connections solely from the Electron main process that spawned it. The shell must not open a TCP fallback.

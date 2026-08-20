@@ -9,8 +9,12 @@ import type { RpcMessage } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 import { FixtureApiClient } from '../src/client/fixture.ts'
 import { WebApiClient } from '../src/client/web-api-client.ts'
+import { IpcApiClient, type IpcPort } from '@deepseek-ai/dsh-host-apiproxy/client'
 
-type Win = { location?: { hostname: string; search: string; origin?: string } }
+type Win = {
+  location?: { hostname: string; search: string; origin?: string; protocol?: string }
+  __DSH_IPC_PORT__?: IpcPort | { post?: unknown; subscribe?: unknown }
+}
 type WebSocketGlobal = { WebSocket?: typeof WebSocket }
 
 const originalWebSocket = globalThis.WebSocket
@@ -49,6 +53,7 @@ class FakeWebSocket extends EventTarget {
 
 afterEach(() => {
   delete (globalThis as Win).location
+  delete (globalThis as Win).__DSH_IPC_PORT__
   sockets.length = 0
   if (originalWebSocket === undefined) delete (globalThis as WebSocketGlobal).WebSocket
   else globalThis.WebSocket = originalWebSocket
@@ -82,6 +87,53 @@ describe('connection client apply', () => {
   it('reports non-loopback page authority through the connection handle', async () => {
     ;(globalThis as Win).location = { hostname: '192.0.2.20', search: '' }
     expect((await mount()).isLoopback).toBe(false)
+  })
+
+  it('selects IpcApiClient when the preload port is present and treats it as loopback', async () => {
+    const posted: unknown[] = []
+    ;(globalThis as Win).location = { hostname: 'app', search: '', protocol: 'dsh:', origin: 'dsh://app' }
+    ;(globalThis as Win).__DSH_IPC_PORT__ = {
+      post(message) { posted.push(message) },
+      subscribe() { return () => undefined },
+    }
+    const handle = await mount()
+    expect(handle.api).toBeInstanceOf(IpcApiClient)
+    expect(handle.isLoopback).toBe(true)
+    const original = globalThis.fetch
+    globalThis.fetch = vi.fn()
+    try {
+      void handle.rpc.call('/api', 'goals/create', {}).catch(() => undefined)
+      await Promise.resolve()
+      expect(globalThis.fetch).not.toHaveBeenCalled()
+      expect(posted.some(message =>
+        typeof message === 'object' && message !== null && (message as { type?: string }).type === 'unary-request',
+      )).toBe(true)
+    } finally {
+      globalThis.fetch = original
+      ;(handle.api as IpcApiClient).dispose()
+    }
+  })
+
+  it('keeps ?fixture ahead of the IPC port and still treats file: as loopback', async () => {
+    ;(globalThis as Win).location = { hostname: '', search: '?fixture', protocol: 'file:' }
+    ;(globalThis as Win).__DSH_IPC_PORT__ = {
+      post() { /* unused */ },
+      subscribe() { return () => undefined },
+    }
+    expect((await mount()).api).toBeInstanceOf(FixtureApiClient)
+    expect((await mount()).isLoopback).toBe(true)
+
+    delete (globalThis as Win).__DSH_IPC_PORT__
+    ;(globalThis as Win).location = { hostname: '', search: '', protocol: 'file:' }
+    const filePage = await mount()
+    expect(filePage.api).toBeInstanceOf(WebApiClient)
+    expect(filePage.isLoopback).toBe(true)
+
+    ;(globalThis as Win).__DSH_IPC_PORT__ = { post: 'nope' }
+    ;(globalThis as Win).location = { hostname: '192.0.2.20', search: '' }
+    const ignored = await mount()
+    expect(ignored.api).toBeInstanceOf(WebApiClient)
+    expect(ignored.isLoopback).toBe(false)
   })
 
   it('start() hands out one loop, rejects a second consumer, and stop() aborts the streams', async () => {

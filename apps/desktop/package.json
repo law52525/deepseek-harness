@@ -1,0 +1,29 @@
+{
+  "name": "@deepseek-ai/dsh-desktop",
+  "description": "Electron shell for the desktop profile: a window over dsh-web-frontend dist and a Node Host child with no HTTP listener",
+  "version": "0.1.0-rc.5",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "apps/desktop"
+  },
+  "type": "module",
+  "main": "lib/main.js",
+  "files": [
+    "lib/*.js"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/dsh": "workspace:^",
+    "@deepseek-ai/dsh-desktop-app": "workspace:^",
+    "@deepseek-ai/dsh-web-frontend": "workspace:^",
+    "electron": "^37.3.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-host-apiproxy": "workspace:^"
+  }
+}

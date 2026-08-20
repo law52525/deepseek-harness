@@ -23,7 +23,7 @@ interface IpcPort {
 }
 ```
 
-测试用 `MessageChannel` 或一对 `EventEmitter` 实现 `IpcPort`。随后的 Electron 壳把 `ipcMain` / `ipcRenderer`（以及 Node 子进程的 `process` IPC）适配到该接口，不改消息类型。
+测试用 `MessageChannel` 或一对 `EventEmitter` 实现 `IpcPort`。[Electron 壳](./2026-08-14-desktop-electron-shell.md) 把 `ipcMain` / `ipcRenderer`（以及 Node 子进程的 `process` IPC）适配到该接口，不改消息类型。
 
 ### Messages
 
@@ -65,11 +65,11 @@ stream-abort   { type, id }
 
 ### Connection plugin
 
-`dsh-client-connection` 的 HTTP 路由未改。测试直接构造 `IpcApiClient`。随后的桌面壳可以识别已文档化的 `globalThis` 接缝并构造已导出的客户端。
+`dsh-client-connection` 的 HTTP 路由未改。[Electron 壳](./2026-08-14-desktop-electron-shell.md) 识别 `window.__DSH_IPC_PORT__` 并构造已导出的客户端；测试也直接构造 `IpcApiClient`。
 
 ### Out of scope
 
-Electron、`file://` 插件装载和安装包仍属后续阶段。[desktop profile](./2026-08-14-desktop-profile-host.md) 是后续组合，并不实例化本载体。
+安装包仍属后续阶段。[Electron 壳](./2026-08-14-desktop-electron-shell.md) 适配本载体；apiproxy 没有 `electron` 依赖。
 
 ## Alternatives considered
 
@@ -89,8 +89,8 @@ Electron、`file://` 插件装载和安装包仍属后续阶段。[desktop profi
 
 ## Consequences
 
-四象限 RPC 可以在不含 Electron 的情况下经 IPC 测试，因此随后的桌面壳把 `ipcMain` / `ipcRenderer`（以及 Node 子进程的 `process` IPC）适配到 `IpcPort` 时不必改消息类型。`dsh-client-connection` 仍持有浏览器 HTTP/WebSocket 载体；本决策不增加 `apps/desktop`。[desktop profile](./2026-08-14-desktop-profile-host.md) 是后续组合，仍不实例化 `IpcApiClient`。
+四象限 RPC 可以在不含 Electron 的情况下经 IPC 测试，因此 [Electron 壳](./2026-08-14-desktop-electron-shell.md) 把 `ipcMain` / `ipcRenderer`（以及 Node 子进程的 `process` IPC）适配到 `IpcPort` 时不必改消息类型。`dsh-client-connection` 仍持有浏览器 HTTP/WebSocket 载体；本包没有 `electron` 依赖。[desktop profile](./2026-08-14-desktop-profile-host.md) 组合 Host；壳在子进程中实例化网关。
 
 JSON 序列化无法承载二进制正文。当前 RPC 仅有 JSON；若后续方法需要字节，本载体必须增加显式二进制帧，而不是悄悄做 base64。
 
-把每个 IPC 对端都当作回环，只有在 Node 子进程只接受孵化它的 Electron main 连接时才正确。随后的桌面壳不得打开 TCP 回退。
+把每个 IPC 对端都当作回环，只有在 Node 子进程只接受孵化它的 Electron main 连接时才正确。壳不得打开 TCP 回退。

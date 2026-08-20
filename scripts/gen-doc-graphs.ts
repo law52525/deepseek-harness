@@ -552,7 +552,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Desktop Host surface marker',
     mode: 'bundle',
     consumers: [],
-    note: 'Marks the settled desktop Host with no bind address; later shell wiring reads the client graph this Host already composes.',
+    note: 'Marks the settled desktop Host with no bind address; the Electron shell reads the client graph this Host already composes.',
   },
   {
     key: 'workflowEngine',

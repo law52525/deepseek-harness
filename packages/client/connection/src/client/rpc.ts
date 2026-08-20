@@ -14,9 +14,11 @@ const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
 
 /**
  * Create the browser-backed generic RPC caller.
+ * @param fetchImpl - optional unary fetch; IPC clients pass `IpcApiClient.fetch` so
+ *   `file:` / custom-protocol pages do not hit `globalThis.fetch`.
  * @returns caller that owns request correlation and response-envelope validation.
  */
-export function createWebConnectionRpc(): ClientConnectionRpc {
+export function createWebConnectionRpc(fetchImpl?: typeof fetch): ClientConnectionRpc {
   return {
     async call(channel, endpoint, payload, signal) {
       assertTarget(channel, endpoint)
@@ -27,8 +29,8 @@ export function createWebConnectionRpc(): ClientConnectionRpc {
         method: endpoint,
         payload,
       }
-      const response = await globalThis.fetch(
-        new URL(`${channel}/${endpoint}`, resolveBase()),
+      const response = await (fetchImpl ?? globalThis.fetch)(
+        new URL(`${channel}/${endpoint}`, fetchImpl === undefined ? resolveBase() : INTERNAL_BASE),
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },

@@ -45,4 +45,4 @@ profile 目录包含一个 `package.json`，其中记录树外插件依赖，以
 
 ## 开发
 
-生产运行需要已构建的包与前端产物。请在仓库根目录单独运行 `pnpm run build`，然后使用 `pnpm dsh <args...>` 运行 TypeScript 入口并转发所有参数；模块解析约定以[源码执行参考](reference/README.md#source-execution)为准。
+生产运行需要已构建的包与前端产物。请在仓库根目录单独运行 `pnpm run build`，然后使用 `pnpm dsh <args...>` 运行 TypeScript 入口并转发所有参数；模块解析约定以[源码执行参考](reference/README.md#source-execution)为准。`pnpm run dev:desktop` 会先跑 `pnpm run build`，再对 `--profile desktop` 子进程启动 [Electron 壳](../desktop/README.md)。

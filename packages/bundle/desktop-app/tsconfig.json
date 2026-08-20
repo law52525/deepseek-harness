@@ -28,6 +28,18 @@
     },
     {
       "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../host/apiproxy"
+    },
+    {
+      "path": "../../client/modules"
+    },
+    {
+      "path": "../../client/ui-theme"
+    },
+    {
+      "path": "../../settings/settings"
     }
   ]
 }

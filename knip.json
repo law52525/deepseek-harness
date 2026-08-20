@@ -727,6 +727,7 @@
         "tests/**/*.e2e.ts",
         "tests/**/*.perf.ts",
         "tests/**/*.snapshot.ts",
+        "tests/**/*.spec.ts",
         "tests/support.ts",
         "src/node-module-stub.ts"
       ],
@@ -755,6 +756,18 @@
       ],
       "ignoreDependencies": [
         "@deepseek-ai/.+"
+      ]
+    },
+    "apps/desktop": {
+      "entry": [
+        "src/main.ts",
+        "src/preload.ts",
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
       ]
     },
     "packages/client/modules": {
@@ -802,7 +815,8 @@
     },
     "packages/bundle/desktop-app": {
       "entry": [
-        "tests/**/*.e2e.ts"
+        "tests/**/*.e2e.ts",
+        "tests/**/*.spec.ts"
       ],
       "ignoreDependencies": [
         "@deepseek-ai/.+"

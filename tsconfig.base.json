@@ -157,6 +157,8 @@
       "@deepseek-ai/dsh-headless/startup": ["./packages/bundle/headless/src/startup.ts"],
       "@deepseek-ai/dsh-web-app/startup": ["./packages/bundle/web-app/src/startup.ts"],
       "@deepseek-ai/dsh-desktop-app/startup": ["./packages/bundle/desktop-app/src/startup.ts"],
+      "@deepseek-ai/dsh-desktop-app/ipc-host": ["./packages/bundle/desktop-app/src/ipc-host.ts"],
+      "@deepseek-ai/dsh-desktop-app/ipc-protocol": ["./packages/bundle/desktop-app/src/ipc-protocol.ts"],
       "@deepseek-ai/dsh-client-*/client": ["./packages/client/*/src/client"],
        // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
       // dir names are unique across groups, so first-on-disk-wins resolution is
