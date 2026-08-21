@@ -9,22 +9,36 @@
 
 import type { IconProps } from './icons/props.ts'
 
-/** viewBox width; `width={(size * WORDMARK_NATIVE_WIDTH) / 24}` must match. */
+/** viewBox width of the full mark+name artwork; width in px is `(size * width) / 24`. */
 const WORDMARK_NATIVE_WIDTH = 116
 
 /**
- * Render the full brand wordmark.
- * @param props.size - height in px (default 24; width keeps the native ratio).
+ * Left crop for the name-only wordmark. The W glyph's right edge is 21.56;
+ * 22 removes it so `sidebar.brand.name` can sit beside FishLogo.
+ */
+const NAME_VIEWBOX_MIN_X = 22
+
+/** Display options for the brand wordmark. */
+interface BrandWordmarkProps extends IconProps {
+  /** Whether to include the leading W mark; defaults to true. */
+  includeMark?: boolean | undefined
+}
+
+/**
+ * Render the brand wordmark.
+ * @param props.size - height in px (default 24; width follows the selected artwork).
  * @param props.className - extra class for layout placement.
+ * @param props.includeMark - whether to include the leading W mark.
  * @returns the wordmark svg (aria-hidden decorative brand art).
  */
-export function BrandWordmark({ size = 24, className }: IconProps) {
+export function BrandWordmark({ size = 24, className, includeMark = true }: BrandWordmarkProps) {
+  const width = includeMark ? WORDMARK_NATIVE_WIDTH : WORDMARK_NATIVE_WIDTH - NAME_VIEWBOX_MIN_X
   return (
     <svg
-      width={(size * WORDMARK_NATIVE_WIDTH) / 24}
+      width={(size * width) / 24}
       height={size}
       className={className}
-      viewBox={`0 0 ${WORDMARK_NATIVE_WIDTH} 24`}
+      viewBox={includeMark ? `0 0 ${WORDMARK_NATIVE_WIDTH} 24` : `${NAME_VIEWBOX_MIN_X} 0 ${width} 24`}
       fill="none"
       aria-hidden="true"
     >

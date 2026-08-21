@@ -39,6 +39,7 @@ const IMMEDIATE_PACKAGES = [
   '@deepseek-ai/dsh-client-ui-theme',
   '@deepseek-ai/dsh-client-locale',
   '@deepseek-ai/dsh-api-remotes',
+  '@deepseek-ai/dsh-client-ui-renderer',
 ] as const
 
 describe.skipIf(!existsSync(MODULES_CLIENT))('desktop profile Host graph (built client bundles)', () => {

@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决定
 
-`@deepseek-ai/dsh-client-web` 是不依赖框架的启动内核。它通过 DOM 操作与本地 CSS 回退绘制加载和失败页面，构造客户端模块系统与 Cordis Loader，创建静态接纳的 modules 启动 entry 和宿主图中的每个 entry，并等待所有 fiber 进入 ACTIVE。Loader 状态变化会保留同一个 spinner 节点，只在 entry 首次进入 active 时更新其 CSS 圆弧。圆弧从圆环的五分之一增长至五分之四，在旋转期间始终保留可见缺口。名册稳定后，内核解析 `ctx.uiRenderer`，把现有容器交给 `mount()`。
+`@deepseek-ai/dsh-client-web` 是不依赖框架的启动内核。它通过 DOM 操作与本地 CSS 回退绘制加载和失败页面，构造客户端模块系统与 Cordis Loader，创建静态接纳的 modules 启动 entry 和宿主图中的每个 entry，并等待所有 fiber 进入 ACTIVE。Loader 状态变化会保留同一个 spinner 节点，只在 entry 首次进入 active 时更新其 CSS 圆弧。圆弧从圆环的五分之一增长至五分之四，在旋转期间始终保留可见缺口。名册稳定后，内核解析 `ctx.uiRenderer`，把现有容器交给 `mount()`。[`dsh-web-app`](../../../../packages/bundle/web-app/cordis.patch.yml) 与 [`dsh-desktop-app`](../../../../packages/bundle/desktop-app/cordis.patch.yml) 都把该插件插成 `dsh.client` 行；`ctx.inject(['uiRenderer'])` 没有超时，组合里漏掉这一行时启动页会停在 `Loading plugins…`，控制台也不报错。
 
 `@deepseek-ai/dsh-client-ui-renderer` 是带 `immediately` 标记的动态客户端插件。它持有 React slot outlet、SessionProvider 与 observable 到 uSES 的绑定。它注入的 `slots` 与 `sessions` 激活后，便安装 slot 渲染器并提供 `ctx.uiRenderer`。`mount()` hydrate 内核生成的启动 DOM，再通过 layout effect 在浏览器绘制中间帧前将其替换为组装完成的应用。hydrate 后的 spinner 节点会保持动画相位。组装后的树投影当前会话标题，并执行唯一一次上下文级 `renderSlot('root')` 调用。服务、渲染器安装和 React 根都随各自持有方 dispose。
 
@@ -38,6 +38,6 @@ React、React DOM、Cordis、ui-slots 与 ui-primitives 仍是保持单一浏览
 
 ## 结果
 
-宿主图包含每个动态渲染持有方，HMR 通过插件生命周期替换附件呈现、渲染组装与主题 CSS。渲染服务失败时会留下可读的 DOM 失败页面，而不是空白 React 挂载点。有意省略 ui-attachment 会让其可选 slot 保持为空；随产品交付的 Web 组合包含该插件，而配置中存在但激活失败的 entry 会阻止完整应用交接。
+宿主图包含每个动态渲染持有方，HMR 通过插件生命周期替换附件呈现、渲染组装与主题 CSS。渲染服务失败时会留下可读的 DOM 失败页面，而不是空白 React 挂载点。有意省略 ui-attachment 会让其可选 slot 保持为空；随产品交付的 Web 与桌面组合都包含该插件，而配置中存在但激活失败的 entry 会阻止完整应用交接。desktop-app 的组合测试要求存在 ui-renderer 行，打包 Host 不能在 web-app 之外单独漏掉它。
 
 应用首个 React 帧仍会等待完整客户端名册。外壳仍静态打包平台模块身份；由于 ui-theme CSS 要等到该插件物化后才可用，启动页还要维护一小套私有的明暗配色。

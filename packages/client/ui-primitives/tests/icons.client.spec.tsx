@@ -71,7 +71,14 @@ describe('BrandWordmark', () => {
   it('renders the fixed wordmark artwork at its native ratio', () => {
     const view = render(<primitives.BrandWordmark />)
     const svg = view.container.querySelector('svg')!
-    expect(svg.getAttribute('width')).toBe('134')
-    expect(svg.getAttribute('viewBox')).toBe('0 0 134 24')
+    expect(svg.getAttribute('width')).toBe('116')
+    expect(svg.getAttribute('viewBox')).toBe('0 0 116 24')
+  })
+
+  it('crops the leading W when the name slot omits the mark', () => {
+    const view = render(<primitives.BrandWordmark includeMark={false} />)
+    const svg = view.container.querySelector('svg')!
+    expect(svg.getAttribute('width')).toBe('94')
+    expect(svg.getAttribute('viewBox')).toBe('22 0 94 24')
   })
 })
