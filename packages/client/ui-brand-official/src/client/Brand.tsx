@@ -14,9 +14,9 @@ export function OfficialBrandMark({ size, className }: OfficialBrandMarkProps) {
 }
 
 /**
- * Render the official name artwork without its independently slotted mark.
+ * Render the official name artwork.
  * @returns the official name wordmark.
  */
 export function OfficialBrandName() {
-  return <BrandWordmark includeMark={false} />
+  return <BrandWordmark />
 }
