@@ -1,3 +1,22 @@
+/** HTML shown in the main window while the Host child is still starting. */
+export function hostStartingPage(): string {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Wandox Work</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 3rem; color: #111; }
+    </style>
+  </head>
+  <body>
+    <h1>Starting</h1>
+    <p>The desktop Host is starting.</p>
+  </body>
+</html>
+`
+}
+
 /**
  * HTML shown when the Host child exits before or after ready.
  * @param detail - short reason shown to the operator.

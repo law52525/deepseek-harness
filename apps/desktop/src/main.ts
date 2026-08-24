@@ -4,8 +4,9 @@
  * opaque RPC. HostIpcGateway stays in the child.
  */
 
+import { appendFileSync, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { extname } from 'node:path'
+import { extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, Menu, protocol } from 'electron'
 import { autoUpdater } from 'electron-updater'
@@ -22,7 +23,7 @@ import {
   type BlockingOverlayWindow,
 } from './blocking-overlay.ts'
 import { fileFromDshUrl, isDesktopSessionExportPath, sessionExportFromDshUrl } from './dsh-protocol.ts'
-import { hostErrorPage } from './error-page.ts'
+import { hostErrorPage, hostStartingPage } from './error-page.ts'
 import { resolveFrontendDist } from './frontend-dist.ts'
 import { spawnDesktopHost, type DesktopHostChild } from './host-child.ts'
 import { resolveBundledProfileTemplate } from './packaged-resources.ts'
@@ -34,7 +35,15 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'dsh', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
 ])
 
-const SHELL_ICON = fileURLToPath(new URL('../resources/icon.png', import.meta.url))
+function resolveShellIcon(): string | undefined {
+  try {
+    return fileURLToPath(new URL('../resources/icon.png', import.meta.url))
+  } catch {
+    return undefined
+  }
+}
+
+const SHELL_ICON = resolveShellIcon()
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -54,6 +63,29 @@ let windowRef: BrowserWindow | undefined
 let disposing = false
 let protocolRegistered = false
 let hostFailed = false
+
+function appendDesktopLog(message: string): void {
+  try {
+    const dir = join(app.getPath('userData'), 'logs')
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(join(dir, 'desktop-main.log'), `${new Date().toISOString()} ${message}\n`)
+  } catch {
+    // Startup logging must never prevent a window from appearing.
+  }
+}
+
+function installProcessFailureHandlers(): void {
+  const report = (kind: string, error: unknown): void => {
+    const detail = error instanceof Error ? error.stack ?? error.message : String(error)
+    appendDesktopLog(`${kind} ${detail}`)
+    console.error(`[desktop] ${kind}:`, error)
+    if (windowRef !== undefined && !windowRef.isDestroyed()) enterHostFailure(detail)
+  }
+  process.on('uncaughtException', (error) => { report('uncaughtException', error) })
+  process.on('unhandledRejection', (error) => { report('unhandledRejection', error) })
+}
+
+installProcessFailureHandlers()
 
 function applyArmedChrome(win: BrowserWindow | undefined, armed: boolean): void {
   if (win === undefined || win.isDestroyed()) return
@@ -246,51 +278,11 @@ async function sessionExportProtocolResponse(request: Request): Promise<Response
   }
 }
 
-async function createWindow(): Promise<void> {
-  if (app.isPackaged) {
-    const templateRoot = resolveBundledProfileTemplate()
-    if (templateRoot !== undefined) ensureProfileFromTemplate({ templateRoot })
-  }
-  const distRoot = resolveFrontendDist()
-  registerProtocol(distRoot)
-  if (host === undefined) {
-    host = spawnDesktopHost({
-      openAuthWindow: options => openAuthWindow(options, electronAuthFactory()),
-      blockingOverlay,
-      checkForUpdates: (feedUrl) => {
-        void startDesktopAutoUpdate({
-          isPackaged: app.isPackaged,
-          updater: autoUpdater,
-          appVersion: app.getVersion(),
-          feedUrl,
-          isArmed: () => blockingOverlay.armed,
-          disarmForUpdateInstall: () => blockingOverlay.disarm('update-install'),
-          rearmAfterFailedInstall,
-        })
-      },
-      onFatal: (detail) => { enterHostFailure(detail) },
-    })
-  }
-  const child = host
-  try {
-    await child.awaitReady()
-  } catch (error) {
-    windowRef = new BrowserWindow({
-      width: 1280,
-      height: 800,
-      icon: SHELL_ICON,
-      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: false },
-    })
-    guardMainWindow(windowRef)
-    blockingOverlay.attachParent(windowRef)
-    enterHostFailure(error instanceof Error ? error.message : String(error))
-    return
-  }
-
-  windowRef = new BrowserWindow({
+function createMainWindow(): BrowserWindow {
+  const win = new BrowserWindow({
     width: 1280,
     height: 800,
-    icon: SHELL_ICON,
+    ...SHELL_ICON === undefined ? {} : { icon: SHELL_ICON },
     webPreferences: {
       preload: fileURLToPath(new URL('./preload.js', import.meta.url)),
       contextIsolation: true,
@@ -298,21 +290,62 @@ async function createWindow(): Promise<void> {
       sandbox: false,
     },
   })
-  const win = windowRef
   guardMainWindow(win)
   blockingOverlay.attachParent(win)
-  child.subscribeRpc((payload) => {
-    if (!win.isDestroyed()) win.webContents.send('dsh-rpc', payload)
-  })
-  child.onExit(() => {
-    if (!disposing) enterHostFailure(child.crash?.message ?? 'Host child exited')
-  })
-  wireIpc(child)
-  win.webContents.session.on('will-download', (_event, item) => {
-    const filename = item.getFilename()
-    if (filename !== '') item.setSaveDialogOptions({ defaultPath: filename })
-  })
-  await win.loadURL('dsh://app/')
+  void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(hostStartingPage())}`)
+  return win
+}
+
+async function createWindow(): Promise<void> {
+  windowRef = createMainWindow()
+  const win = windowRef
+  try {
+    appendDesktopLog(
+      `start electron=${process.versions.electron} execPath=${process.execPath} resourcesPath=${process.resourcesPath ?? ''}`,
+    )
+    if (app.isPackaged) {
+      const templateRoot = resolveBundledProfileTemplate()
+      if (templateRoot !== undefined) ensureProfileFromTemplate({ templateRoot })
+    }
+    const distRoot = resolveFrontendDist()
+    registerProtocol(distRoot)
+    if (host === undefined) {
+      host = spawnDesktopHost({
+        openAuthWindow: options => openAuthWindow(options, electronAuthFactory()),
+        blockingOverlay,
+        checkForUpdates: (feedUrl) => {
+          void startDesktopAutoUpdate({
+            isPackaged: app.isPackaged,
+            updater: autoUpdater,
+            appVersion: app.getVersion(),
+            feedUrl,
+            isArmed: () => blockingOverlay.armed,
+            disarmForUpdateInstall: () => blockingOverlay.disarm('update-install'),
+            rearmAfterFailedInstall,
+          })
+        },
+        onFatal: (detail) => { enterHostFailure(detail) },
+      })
+    }
+    const child = host
+    await child.awaitReady()
+    child.subscribeRpc((payload) => {
+      if (!win.isDestroyed()) win.webContents.send('dsh-rpc', payload)
+    })
+    child.onExit(() => {
+      if (!disposing) enterHostFailure(child.crash?.message ?? 'Host child exited')
+    })
+    wireIpc(child)
+    win.webContents.session.on('will-download', (_event, item) => {
+      const filename = item.getFilename()
+      if (filename !== '') item.setSaveDialogOptions({ defaultPath: filename })
+    })
+    await win.loadURL('dsh://app/')
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    appendDesktopLog(`createWindow failed ${detail}`)
+    enterHostFailure(detail)
+  }
 }
 
 async function disposeHost(): Promise<void> {
@@ -326,11 +359,17 @@ async function disposeHost(): Promise<void> {
 }
 
 void app.whenReady().then(() => {
-  if (!app.isPackaged && process.platform === 'darwin') app.dock?.setIcon(SHELL_ICON)
+  if (!app.isPackaged && process.platform === 'darwin' && SHELL_ICON !== undefined) {
+    app.dock?.setIcon(SHELL_ICON)
+  }
   onBeforeQuitForUpdate(autoUpdater, () => {
     blockingOverlay.disarm('update-install')
   })
-  void createWindow()
+  void createWindow().catch((error: unknown) => {
+    const detail = error instanceof Error ? error.message : String(error)
+    appendDesktopLog(`createWindow rejected ${detail}`)
+    enterHostFailure(detail)
+  })
   const feedUrl = process.env.DSH_UPDATE_FEED_URL
   void startDesktopAutoUpdate({
     isPackaged: app.isPackaged,
@@ -343,7 +382,13 @@ void app.whenReady().then(() => {
   })
   app.on('activate', () => {
     if (!shouldRespawnHostOnActivate(hostFailed)) return
-    if (BrowserWindow.getAllWindows().length === 0) void createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      void createWindow().catch((error: unknown) => {
+        const detail = error instanceof Error ? error.message : String(error)
+        appendDesktopLog(`createWindow rejected ${detail}`)
+        enterHostFailure(detail)
+      })
+    }
   })
 })
 

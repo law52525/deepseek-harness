@@ -4,7 +4,7 @@
  * stamp mismatches. It does not know which plugins the template contains.
  */
 
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -19,6 +19,26 @@ export type ProfileBootstrapResult = 'copied' | 'unchanged' | 'skipped'
 export interface ProfileBootstrapPaths {
   dshHome?: string
   templateRoot?: string
+}
+
+/**
+ * Recursive copy that stays on copyFileSync/mkdirSync.
+ *
+ * Node's `fs.cpSync({ recursive: true })` on Windows can abort the process
+ * with STATUS_STACK_BUFFER_OVERRUN when source or dest contains CJK (typical
+ * for `%USERPROFILE%` like `C:\\Users\\管理员\\...`). copyFileSync does not.
+ */
+export function copyTreeSync(src: string, dest: string): void {
+  mkdirSync(dest, { recursive: true })
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const from = join(src, entry.name)
+    const to = join(dest, entry.name)
+    if (entry.isSymbolicLink()) {
+      throw new Error(`desktop: profile template copy refused symlink at ${from}`)
+    }
+    if (entry.isDirectory()) copyTreeSync(from, to)
+    else copyFileSync(from, to)
+  }
 }
 
 /**
@@ -47,7 +67,7 @@ export function ensureProfileFromTemplate(options: ProfileBootstrapPaths = {}): 
   mkdirSync(join(dshHome, 'profiles'), { recursive: true })
   const staging = dest + INSTALLING_SUFFIX
   rmSync(staging, { recursive: true, force: true })
-  cpSync(templateRoot, staging, { recursive: true })
+  copyTreeSync(templateRoot, staging)
   writeFileSync(join(staging, PROFILE_STAMP_NAME), `${stamp}\n`)
 
   const previous = dest + PREVIOUS_SUFFIX

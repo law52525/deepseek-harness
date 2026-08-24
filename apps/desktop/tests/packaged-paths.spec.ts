@@ -42,6 +42,17 @@ describe('packaged resources', () => {
     expect(resolveBundledProfileTemplate(processLike)).toBe(join(resources, 'profile-template'))
   })
 
+  it('resolves bundled Node when resourcesPath contains CJK characters', () => {
+    const resources = mkdtempSync(join(tmpdir(), 'dsh-desktop-中文路径-'))
+    roots.push(resources)
+    const host = join(resources, 'host')
+    mkdirSync(host, { recursive: true })
+    const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
+    writeFileSync(join(host, nodeName), '')
+    const processLike = { resourcesPath: resources, platform: process.platform }
+    expect(resolveBundledNode(processLike)).toBe(join(host, nodeName))
+  })
+
   it('returns undefined when extraResources are absent', () => {
     const processLike = { platform: process.platform }
     expect(resolveBundledNode(processLike)).toBeUndefined()
