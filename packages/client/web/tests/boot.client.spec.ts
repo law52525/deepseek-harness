@@ -132,4 +132,15 @@ describe('plugin activation', () => {
     expect(container.textContent).toBe('mounted')
     await entry.dispose()
   })
+
+  it('fails the boot page when the graph provides no uiRenderer', async () => {
+    const target = installFacade()
+    await expectBootFailure(() => {
+      win.__DSH_BOOT__ = {
+        rev: 'graph',
+        entries: [{ id: MODULES_ID, url: '/modules.js', rev: '1' }],
+      }
+    }, 'uiRenderer service is missing')
+    expect(target.mode).toBe('live')
+  })
 })

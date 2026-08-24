@@ -32,9 +32,11 @@ import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type { IndexInjection } from '@deepseek-ai/dsh-host-webserver'
+import { PARSER_PRELOAD_IDS, bootstrapFacadeScript } from './client/bootstrap-facade.ts'
 import { optionalStringArray, stripClientSuffix } from './client/manifest.ts'
 import type { WebBootEntry, WebBootGraph } from './client/manifest.ts'
 
+export { PARSER_PRELOAD_IDS, bootstrapFacadeScript, installBootstrapFacade } from './client/bootstrap-facade.ts'
 export { stripClientSuffix } from './client/manifest.ts'
 export type {
   BootManifest, BootModuleRow, BootPluginRow, WebBootEntry, WebBootGraph,
@@ -220,15 +222,6 @@ export function orderByModuleGraph(entries: readonly WebBootEntry[]): WebBootEnt
   return ordered
 }
 
-/** Bootstrap package whose ordinary client bundle supplies the module-system implementation. */
-const CLIENT_MODULES_ID = '@deepseek-ai/dsh-client-modules'
-
-/** Dynamic package whose ordinary client bundle must be registered before plugin boot starts. */
-const CLIENT_RUNTIME_ID = '@deepseek-ai/dsh-client-runtime'
-
-/** Ordinary dynamic bundles the HTML parser executes before the Vite shell. */
-const PARSER_PRELOAD_IDS = [CLIENT_MODULES_ID, CLIENT_RUNTIME_ID] as const
-
 /**
  * The boot protocol as index injection rows. The inline registration queue
  * precedes blocking classic scripts for modules' and runtime's ordinary
@@ -240,34 +233,11 @@ const PARSER_PRELOAD_IDS = [CLIENT_MODULES_ID, CLIENT_RUNTIME_ID] as const
  * @returns head rows in execution order: queue script, preload scripts, graph global.
  */
 export function bootInjections(graph: WebBootGraph): IndexInjection[] {
-  const bootstrapId = JSON.stringify(CLIENT_MODULES_ID)
-  const queue = `(()=>{
-const pendingQueue=[]
-window.__ModuleLoader__={
-  mode:"queue",
-  pendingQueue,
-  load(registration){pendingQueue.push(registration)},
-  create(options){
-    if(this.mode!=="queue")throw new Error("client-modules: window.__ModuleLoader__.create called after module-system boot")
-    const index=pendingQueue.findIndex(registration=>registration.id===${bootstrapId})
-    const registration=pendingQueue[index]
-    if(registration===undefined)throw new Error("client-modules: HTML did not preload ${CLIENT_MODULES_ID}/client.js")
-    pendingQueue.splice(index,1)
-    const exports=registration.factory(specifier=>{
-      throw new Error('client-modules: ${CLIENT_MODULES_ID}/client.js requested external "'+specifier+'" before the module system existed')
-    })
-    if(typeof exports!=="object"||exports===null||typeof exports.createClientModuleSystem!=="function"||typeof exports.apply!=="function"){
-      throw new Error("client-modules: ${CLIENT_MODULES_ID}/client.js did not export the bootstrap module face")
-    }
-    return exports.createClientModuleSystem(this,{id:registration.id,exports},options)
-  }
-}
-})()`
   const preload = PARSER_PRELOAD_IDS.map(id => graph.entries.find(entry => entry.id === id))
     .filter((entry): entry is WebBootEntry => entry !== undefined)
     .map((entry): IndexInjection => ({ kind: 'script-src', placement: 'head', src: entry.url }))
   return [
-    { kind: 'script', placement: 'head', text: queue },
+    { kind: 'script', placement: 'head', text: bootstrapFacadeScript() },
     ...preload,
     { kind: 'global', name: '__DSH_BOOT__', value: graph },
   ]

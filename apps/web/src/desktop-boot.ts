@@ -1,10 +1,17 @@
 /**
- * Desktop renderer boot: inject the Host graph, apply the pre-plugin theme,
- * and load plugin factories through BootSeams instead of `<script src>`.
+ * Desktop renderer boot: install the Host-owned ModuleLoader facade, parser-preload
+ * modules and runtime through IPC, inject the Host graph, apply the pre-plugin
+ * theme, and load remaining plugin factories through BootSeams.
  */
 
 import { AppWebEntry } from '@deepseek-ai/dsh-client-web'
-import type { WebBootGraph } from '@deepseek-ai/dsh-client-modules/client'
+// Import the facade installer from source, not `./client`: that export is the
+// plugin bundle AppWebEntry must materialize through the pending queue.
+import {
+  PARSER_PRELOAD_IDS,
+  installBootstrapFacade,
+} from '@deepseek-ai/dsh-client-modules/src/client/bootstrap-facade.ts'
+import type { DshWindow, WebBootGraph } from '@deepseek-ai/dsh-client-modules/client'
 
 /** Built-in theme preference copied beside the boot graph (no HTTP index tap). */
 export type DesktopThemePreference = 'light' | 'dark' | 'system'
@@ -69,15 +76,25 @@ export function applyBootTheme(preference: DesktopThemePreference): void {
 }
 
 /**
- * Desktop AppWebEntry boot: set `window.__DSH_BOOT__`, apply theme, load via IPC.
+ * Desktop AppWebEntry boot: install the ModuleLoader facade, parser-preload
+ * modules and runtime, set `window.__DSH_BOOT__`, apply theme, then `create()`.
  * @param el - `#root` mount point.
  * @param host - preload control face.
  * @returns the running shell entry.
  */
 export async function runDesktopBoot(el: HTMLElement, host: DesktopRendererHost): Promise<AppWebEntry> {
   const { graph, themePreference } = await host.bootGraph()
-  ;(window as Window & { __DSH_BOOT__?: WebBootGraph }).__DSH_BOOT__ = graph
+  const win = window as DshWindow
+  win.__DSH_BOOT__ = graph
   applyBootTheme(themePreference)
+  installBootstrapFacade()
+  for (const id of PARSER_PRELOAD_IDS) {
+    const row = graph.entries.find(entry => entry.id === id)
+    if (row === undefined) {
+      throw new Error(`desktop boot: Host graph is missing parser-preload row ${id}`)
+    }
+    await loadDesktopBundle(row.url, pluginId => host.readPlugin(pluginId))
+  }
   const entry = new AppWebEntry(el, {
     loadBundle: url => loadDesktopBundle(url, id => host.readPlugin(id)),
   })

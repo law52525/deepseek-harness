@@ -87,6 +87,9 @@ export class AppWebEntry {
 
   /** Mount through a dependency fiber so replacing uiRenderer remounts the application. */
   private async mountApp(ctx: Context): Promise<void> {
+    if (ctx.get('uiRenderer') === undefined) {
+      throw new Error('web boot: uiRenderer service is missing (the graph has no @deepseek-ai/dsh-client-ui-renderer row, or it did not activate)')
+    }
     const mounted = ctx.inject(['uiRenderer'], (scope) => {
       scope.effect(() => scope.uiRenderer.mount(this.container), 'web boot: application mount')
     })

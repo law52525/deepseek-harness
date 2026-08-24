@@ -58,7 +58,7 @@ Adding a `dsh.client` row to web-app requires the same row on desktop-app until 
 
 ## Testing
 
-`packages/bundle/desktop-app/tests/composition.spec.ts` composes base plus desktop-app and asserts the client roster and api-gateway without `dsh-host-webserver`, `directory-picker-auto`, HMR, or a port expression. `tests/startup.spec.ts` proves `--help` and unknown `--port` leave `desktopStartup` absent. `tests/desktop-app.spec.ts` proves the runtime marker and optional harness-source section with no URL print.
+`packages/bundle/desktop-app/tests/composition.spec.ts` composes base plus desktop-app and asserts the client roster and api-gateway without `dsh-host-webserver`, `directory-picker-auto`, HMR, or a port expression. It also compares `dsh-client-*` rows to web-app minus HMR (desktop keeps the native picker row). `tests/startup.spec.ts` proves `--help` and unknown `--port` leave `desktopStartup` absent. `tests/desktop-app.spec.ts` proves the runtime marker and optional harness-source section with no URL print.
 
 `packages/client/modules/tests/node-half.client.spec.ts` and `packages/client/connection/tests/node-half.host.spec.ts` prove graph / `connection` without HTTP, while existing web tests still register routes when `webServer` is present.
 

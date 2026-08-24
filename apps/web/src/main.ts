@@ -2,7 +2,8 @@
  * Web application entry: thin bootstrap over the shell library. Everything —
  * module-table seeding, the boot page, and the UI-renderer handoff — lives
  * in @deepseek-ai/dsh-client-web; this file only finds the mount point.
- * The Electron shell sets `window.__DSH_DESKTOP__` and boots through BootSeams.
+ * The Electron shell sets `window.__DSH_DESKTOP__` and boots through
+ * `runDesktopBoot` (ModuleLoader facade, parser preloads, then BootSeams).
  */
 import { AppWebEntry } from '@deepseek-ai/dsh-client-web'
 import { runDesktopBoot, type DesktopRendererHost } from './desktop-boot.ts'

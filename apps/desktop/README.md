@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Electron shell for the desktop profile. Main spawns a system-Node `dsh --profile desktop` child with stdio IPC, serves [`dsh-web-frontend`](../web/package.json) dist at `dsh://app/`, answers `GET`/`HEAD` `/api/session.export` from that Host child, and forwards opaque RPC. [`HostIpcGateway`](../../packages/host/apiproxy/README.md) runs in the child; this package does not decode RPC bodies. The renderer reuses the Web shell kernel with `BootSeams.loadBundle`.
+Electron shell for the desktop profile. Main spawns a system-Node `dsh --profile desktop` child with stdio IPC, serves [`dsh-web-frontend`](../web/package.json) dist at `dsh://app/`, answers `GET`/`HEAD` `/api/session.export` from that Host child, and forwards opaque RPC. [`HostIpcGateway`](../../packages/host/apiproxy/README.md) runs in the child; this package does not decode RPC bodies. The renderer installs the same ModuleLoader facade and parser-preloads as the web Host, then reuses the Web shell kernel with `BootSeams.loadBundle`.
 
 `contextIsolation` is true and `nodeIntegration` is false. Preload exposes `window.__DSH_IPC_PORT__` (`IpcPort`) and `window.__DSH_DESKTOP__` (`bootGraph`, `readPlugin`). Plugin bytes come only from `clientPath` inside the Host graph.
 

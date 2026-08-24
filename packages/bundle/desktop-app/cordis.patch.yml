@@ -80,6 +80,12 @@
         writeEveryEvents: 200
         writeIntervalMs: 5000
 
+    - id: session-reference
+      name: '@deepseek-ai/dsh-session-reference'
+
+    - id: file-reference-local
+      name: '@deepseek-ai/dsh-file-reference-local'
+
     # Whole-log turn/step counts for the chat stats strip (the sessionStats
     # projection key); the projection registry itself is a base-layer row.
     - id: session-stats
@@ -159,6 +165,9 @@
     - id: ui-layout
       name: '@deepseek-ai/dsh-client-ui-layout'
 
+    - id: ui-renderer
+      name: '@deepseek-ai/dsh-client-ui-renderer'
+
     - id: ui-sidebar
       name: '@deepseek-ai/dsh-client-ui-sidebar'
 
@@ -176,6 +185,13 @@
 
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'
+
+    # Official occupants for the generic sidebar and conversation brand slots.
+    - id: ui-brand-official
+      name: '@deepseek-ai/dsh-client-ui-brand-official'
+
+    - id: ui-attachment
+      name: '@deepseek-ai/dsh-client-ui-attachment'
 
     # Tool call tree, generic fallback, and keyed business Tool views.
     - id: ui-tool
@@ -204,7 +220,7 @@
       name: '@deepseek-ai/dsh-client-ui-directory-picker-native'
 
     # Input triggers: the '/' | '@' pipeline (ui-input-trigger), the command surface over
-    # it (ui-commands), and the two reference sources (ui-skill / ui-subagent).
+    # it (ui-commands), and the reference sources (ui-skill / ui-reference).
     - id: ui-input-trigger
       name: '@deepseek-ai/dsh-client-ui-input-trigger'
 
@@ -216,6 +232,9 @@
 
     - id: ui-subagent
       name: '@deepseek-ai/dsh-client-ui-subagent'
+
+    - id: ui-reference
+      name: '@deepseek-ai/dsh-client-ui-reference'
 
     # Background jobs: the session-header list over the jobsBySession mirror.
     - id: ui-jobs

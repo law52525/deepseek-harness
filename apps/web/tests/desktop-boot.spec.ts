@@ -1,17 +1,24 @@
 // @vitest-environment jsdom
-/** Desktop renderer boot: plugin URL parse, loadBundle eval, and theme DOM fields. */
+/** Desktop renderer boot: plugin URL parse, loadBundle eval, theme DOM fields, and facade preloads. */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { AppWebEntry } from '@deepseek-ai/dsh-client-web'
+import type { DshWindow, WebBootGraph } from '@deepseek-ai/dsh-client-modules/client'
+import { PARSER_PRELOAD_IDS } from '@deepseek-ai/dsh-client-modules/src/client/bootstrap-facade.ts'
 import {
   applyBootTheme,
   loadDesktopBundle,
   pluginIdFromUrl,
+  runDesktopBoot,
+  type DesktopRendererHost,
 } from '../src/desktop-boot.ts'
 
 afterEach(() => {
   document.body.replaceChildren()
   document.documentElement.style.colorScheme = ''
   document.body.removeAttribute('data-ds-dark-theme')
+  delete (window as DshWindow).__ModuleLoader__
+  delete (window as DshWindow).__DSH_BOOT__
   vi.restoreAllMocks()
 })
 
@@ -55,4 +62,56 @@ describe('desktop renderer boot', () => {
     applyBootTheme('system')
     expect(document.documentElement.style.colorScheme).toBe('dark')
   })
+
+  it('installs the ModuleLoader facade and parser-preloads before AppWebEntry.run', async () => {
+    const loaded: string[] = []
+    const run = vi.spyOn(AppWebEntry.prototype, 'run').mockImplementation(async () => {
+      const loader = (window as DshWindow).__ModuleLoader__
+      expect(loader?.mode).toBe('queue')
+      expect(loader?.pendingQueue.map(registration => registration.id)).toEqual([...PARSER_PRELOAD_IDS])
+      expect(loaded).toEqual([...PARSER_PRELOAD_IDS])
+    })
+    const el = document.createElement('div')
+    document.body.append(el)
+    await runDesktopBoot(el, fixtureHost((id) => {
+      loaded.push(id)
+      return `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: () => ({}) })`
+    }))
+    expect(run).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a Host graph that omits a parser-preload row', async () => {
+    const el = document.createElement('div')
+    document.body.append(el)
+    const graph: WebBootGraph = {
+      rev: 'r',
+      entries: [{
+        id: '@deepseek-ai/dsh-client-modules',
+        url: '/plugins/@deepseek-ai/dsh-client-modules/client.js?rev=r',
+        rev: 'r',
+      }],
+    }
+    await expect(runDesktopBoot(el, {
+      bootGraph: async () => ({ graph, themePreference: 'light' }),
+      readPlugin: async () => '',
+    })).rejects.toThrow('missing parser-preload row @deepseek-ai/dsh-client-runtime')
+  })
 })
+
+/** Host graph that includes both parser-preload rows so runDesktopBoot can IPC-eval them. */
+function fixtureHost(readPlugin: (id: string) => string): DesktopRendererHost {
+  return {
+    bootGraph: async () => ({
+      graph: {
+        rev: 'r',
+        entries: PARSER_PRELOAD_IDS.map(id => ({
+          id,
+          url: `/plugins/${id}/client.js?rev=r`,
+          rev: 'r',
+        })),
+      },
+      themePreference: 'light',
+    }),
+    readPlugin: async id => readPlugin(id),
+  }
+}
