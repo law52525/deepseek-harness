@@ -249,6 +249,9 @@ class DesktopInstallerBuild {
       console.log(`${LOG}: skipping pnpm run build (--skip-build)`)
     } else {
       const build = pnpmInvocation(['run', 'build'])
+      // 桌面打包必须是 official 客户端 profile，否则 ui-brand-official 不注册品牌位，
+      // 侧栏/窗口标题会退化成 DSH Local Build。
+      process.env.DSH_BUILD_CLIENT_PROFILE = 'official'
       await this.run('build', build.command, build.args)
     }
     this.assertShellBundle()
