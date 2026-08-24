@@ -71,7 +71,7 @@ describe('BrandWordmark', () => {
   it('renders the name artwork at the native ratio', () => {
     const view = render(<primitives.BrandWordmark />)
     const svg = view.container.querySelector('svg')!
-    expect(svg.getAttribute('width')).toBe('116')
-    expect(svg.getAttribute('viewBox')).toBe('0 0 116 24')
+    expect(svg.getAttribute('width')).toBe('92')
+    expect(svg.getAttribute('viewBox')).toBe('0 0 92 24')
   })
 })
