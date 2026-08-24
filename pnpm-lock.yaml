@@ -509,6 +509,9 @@ importers:
       '@deepseek-ai/dsh-attachment-local':
         specifier: workspace:^
         version: link:../packages/attachment/attachment-local
+      '@deepseek-ai/dsh-authorization':
+        specifier: workspace:^
+        version: link:../packages/credentials/authorization
       '@deepseek-ai/dsh-base':
         specifier: workspace:^
         version: link:../packages/bundle/base
@@ -680,6 +683,9 @@ importers:
       '@deepseek-ai/dsh-desktop-app':
         specifier: workspace:^
         version: link:../packages/bundle/desktop-app
+      '@deepseek-ai/dsh-file-reference':
+        specifier: workspace:^
+        version: link:../packages/context/file-reference
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../packages/fs/fs
@@ -12854,6 +12860,7 @@ packages:
   '@xmldom/xmldom@0.8.14':
     resolution: {integrity: sha512-T4EDRUBVZYRldYApjEJiU0e1stYWaRAX7CuSnKzrpwdZKo53zGV8/pqfzV6FfwNl9YThD2OumQYvqtvjvgG7aQ==}
     engines: {node: '>=10.0.0'}
+    deprecated: this version has critical issues, please update to the latest version
 
   '@yarnpkg/cli-dist@4.17.1':
     resolution: {integrity: sha512-2tiSQuJNl/L3QwTdrq6lKWDpkcnp9MGvCT/rIldHcbu3SWfnLdmehvt3eulX1hT7FFt1Gjfq3CesF+kvhFip6g==}

@@ -4,7 +4,7 @@
 // owned draft, and the hero workspace picker (switching = retargetWorkspace).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import {
   createSnapshotStore, EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -22,6 +22,7 @@ import { en, zh } from '../src/client/locales.ts'
 import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
 import { ConversationSession, ConversationSessionHeader } from '../src/client/skeleton/ConversationSession.tsx'
 import { HeroShell } from '../src/client/skeleton/EmptyHero.tsx'
+import type { HeroShellProps } from '../src/client/skeleton/EmptyHero.tsx'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import type {
@@ -32,7 +33,7 @@ import type { ViewTab } from '../src/client/contract/views.ts'
 /** Machine-backed wiring over a sink spy. */
 function fakeWiring() {
   const sink = vi.fn()
-  const shell = new SessionInputShell({ actx: {} as ClientContext, defaultSink: sink })
+  const shell = new SessionInputShell({ actx: {} as ClientContext, defaultSink: sink, commandImages: { serialize: () => Promise.resolve([]), release: () => {}, unsupportedNotice: (token: string) => `${token.trim()} images-unsupported` } })
   return { wiring: shell, sink, shell }
 }
 
@@ -259,7 +260,8 @@ function mount(
 
 describe('Hero chrome', () => {
   it('renders the English headline through the hero locale seat without a preview badge', () => {
-    const view = render(<HeroShell t={makeTranslate(en, commonEn)} />)
+    const renderSlot = vi.fn<HeroShellProps['renderSlot']>(() => null)
+    const view = render(<HeroShell t={makeTranslate(en, commonEn)} renderSlot={renderSlot} />)
     expect(view.getByText('Hand off the repetitive work')).toBeTruthy()
     expect(view.queryByText('Preview')).toBeNull()
   })
