@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ensureProfileFromTemplate, PROFILE_STAMP_NAME } from '../src/profile-bootstrap.ts'
+import { ensureProfileFromTemplate, PROFILE_STAMP_NAME, copyTreeSync } from '../src/profile-bootstrap.ts'
 
 const roots: string[] = []
 afterEach(() => {
@@ -16,6 +16,30 @@ function tmp(prefix: string): string {
 }
 
 describe('ensureProfileFromTemplate', () => {
+  it('copies a template whose path contains CJK characters', () => {
+    const root = tmp('dsh-profile-中文-')
+    const template = join(root, '模板')
+    mkdirSync(join(template, 'node_modules'), { recursive: true })
+    writeFileSync(join(template, 'package.json'), '{"name":"dsh-profile-desktop"}\n')
+    writeFileSync(join(template, PROFILE_STAMP_NAME), 'stamp-cjk\n')
+    const home = join(root, '用户主目录')
+    expect(ensureProfileFromTemplate({ dshHome: home, templateRoot: template })).toBe('copied')
+    expect(readFileSync(join(home, 'profiles', 'desktop', PROFILE_STAMP_NAME), 'utf8').trim()).toBe('stamp-cjk')
+  })
+
+  it('refuses to copy a symlink in the template', () => {
+    const root = tmp('dsh-profile-symlink-')
+    const template = join(root, 'template')
+    mkdirSync(template, { recursive: true })
+    writeFileSync(join(template, 'real.txt'), 'ok\n')
+    try {
+      symlinkSync(join(template, 'real.txt'), join(template, 'link.txt'))
+    } catch {
+      return
+    }
+    expect(() => copyTreeSync(template, join(root, 'dest'))).toThrow(/symlink/)
+  })
+
   it('skips when no template is packaged', () => {
     expect(ensureProfileFromTemplate({})).toBe('skipped')
   })

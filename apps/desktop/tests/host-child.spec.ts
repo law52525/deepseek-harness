@@ -190,6 +190,20 @@ describe('desktop host child', () => {
     errorSpy.mockRestore()
   })
 
+  it('rejects host-ready when spawn emits error instead of crashing the shell', async () => {
+    const child = new FakeChild()
+    const host = new DesktopHostChild(child as never)
+    const seen: string[] = []
+    host.onExit((error) => { seen.push(error.message) })
+    const assertion = expect(host.awaitReady()).rejects.toThrow(/ENOENT/)
+    const error = new Error('spawn ENOENT')
+    ;(error as NodeJS.ErrnoException).code = 'ENOENT'
+    child.emit('error', error)
+    await assertion
+    expect(seen[0]).toMatch(/ENOENT/)
+    await host.dispose()
+  })
+
   it('builds source-launch argv when the CLI src bin exists', () => {
     const argv = hostChildArgv(process.execPath)
     expect(argv.command).toBe(process.execPath)

@@ -53,6 +53,24 @@ export class DesktopHostChild {
       const timer = setTimeout(() => {
         reject(new Error('desktop: Host child did not post host-ready'))
       }, HOST_READY_TIMEOUT_MS)
+      const fail = (error: Error): void => {
+        if (this.exitError !== undefined) return
+        this.exitError = error
+        for (const pending of this.pending.values()) pending.reject(error)
+        this.pending.clear()
+        for (const handler of this.exitHandlers) {
+          try {
+            handler(error)
+          } catch (listenerError) {
+            console.error('[desktop] host exit listener threw:', listenerError)
+          }
+        }
+        if (!this.readySettled) {
+          this.readySettled = true
+          clearTimeout(timer)
+          reject(error)
+        }
+      }
       this.child.on('message', (value: unknown) => {
         const control = controlFromChild(value)
         if (!this.readySettled && control?.type === 'host-ready') {
@@ -64,24 +82,9 @@ export class DesktopHostChild {
         this.dispatch(value)
       })
       this.child.on('exit', (code, signal) => {
-        this.exitError = new Error(
-          `desktop: Host child exited (code ${String(code)}, signal ${String(signal)})`,
-        )
-        for (const pending of this.pending.values()) pending.reject(this.exitError)
-        this.pending.clear()
-        for (const handler of this.exitHandlers) {
-          try {
-            handler(this.exitError)
-          } catch (error) {
-            console.error('[desktop] host exit listener threw:', error)
-          }
-        }
-        if (!this.readySettled) {
-          this.readySettled = true
-          clearTimeout(timer)
-          reject(this.exitError)
-        }
+        fail(new Error(`desktop: Host child exited (code ${String(code)}, signal ${String(signal)})`))
       })
+      this.child.on('error', (error: Error) => { fail(error) })
     })
   }
 
