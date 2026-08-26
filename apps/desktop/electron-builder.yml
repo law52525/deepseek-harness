@@ -3,7 +3,7 @@ productName: Wandox Work
 copyright: Copyright © Wandox
 asar: true
 extraMetadata:
-  version: 2.1.2
+  version: 2.1.3
   name: wandox-harness
   author: Wandox
   repository:
