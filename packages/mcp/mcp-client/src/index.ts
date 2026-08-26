@@ -84,8 +84,13 @@ export interface StreamableHttpConfig {
   serverName: string
   /** MCP endpoint URL. */
   url: string
-  /** Additional headers attached to MCP requests. */
-  headers: Record<string, string>
+  /**
+   * Additional headers attached to MCP requests. A function form is
+   * re-evaluated on every transport creation (including reconnects), so a
+   * credential that only becomes available after startup is picked up on the
+   * next attempt without a restart.
+   */
+  headers: Record<string, string> | (() => Record<string, string>)
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -120,7 +125,7 @@ export const Config = z.union([
     transport: z.const('streamable-http'),
     serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
     url: z.string().required(),
-    headers: z.dict(String).default({}),
+    headers: z.union([z.dict(String), z.function()]).default({}),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     reconnect: Reconnect,
