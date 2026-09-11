@@ -36,4 +36,24 @@ describe('desktop shell startup', () => {
     expect(main).toMatch(/uncaughtException/)
     expect(main).toMatch(/unhandledRejection/)
   })
+
+  it('does not re-load the Host error page after the first terminal failure', () => {
+    const start = main.indexOf('function enterHostFailure')
+    const end = main.indexOf('function registerProtocol')
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    expect(main.slice(start, end)).toContain('if (hostFailed) return')
+  })
+
+  it('does not turn a failed error-page loadURL into another unhandledRejection', () => {
+    const start = main.indexOf('function showHostError')
+    const end = main.indexOf('function enterHostFailure')
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    expect(main.slice(start, end)).toContain('.catch(')
+  })
+
+  it('clips process-failure text before logging or showing it', () => {
+    expect(main).toContain('summarizeDesktopFailure')
+  })
 })

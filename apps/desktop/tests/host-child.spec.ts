@@ -9,7 +9,7 @@ import { IpcApiClient } from '@deepseek-ai/dsh-host-apiproxy'
 import { fakeApi } from '../../../packages/host/apiproxy/tests/fake-api.ts'
 import { attachDesktopIpcHost } from '@deepseek-ai/dsh-desktop-app/ipc-host'
 import { parseDesktopEnvelope } from '@deepseek-ai/dsh-desktop-app/ipc-protocol'
-import { DesktopHostChild, hostChildArgv, hostChildEnv, hostChildSpawnOptions } from '../src/host-child.ts'
+import { DesktopHostChild, hostChildArgv, hostChildEnv, hostChildSpawnOptions, killHostChildTree } from '../src/host-child.ts'
 import { rpcEnvelope } from '../src/forwarder.ts'
 import { existsSync } from 'node:fs'
 
@@ -222,6 +222,19 @@ describe('desktop host child', () => {
   it('hides the Host console window', () => {
     expect(hostChildSpawnOptions().windowsHide).toBe(true)
     expect(hostChildSpawnOptions().stdio).toEqual(['ignore', 'inherit', 'inherit', 'ipc'])
+    expect(hostChildSpawnOptions({ hostLogPath: '/tmp/desktop-host.log' }).stdio)
+      .toEqual(['ignore', 'pipe', 'pipe', 'ipc'])
+  })
+
+  it('kills the Host process tree on Windows via taskkill /T /F', () => {
+    const calls: unknown[] = []
+    killHostChildTree(4242, ((command, args, options) => {
+      calls.push([command, args, options])
+      return { status: 0 }
+    }) as typeof import('node:child_process').spawnSync)
+    expect(calls).toEqual([
+      ['taskkill', ['/PID', '4242', '/T', '/F'], { stdio: 'ignore', windowsHide: true }],
+    ])
   })
 
   it('does not treat host-bound control documents as replies', async () => {

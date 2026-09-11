@@ -56,3 +56,4 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
+  include: installer.nsh

@@ -1,3 +1,21 @@
+/** Cap for operator-facing Host-failure text and data: error URLs. */
+export const DESKTOP_FAILURE_DETAIL_LIMIT = 1200
+
+/**
+ * Clip a thrown value so it can go into a data: HTML URL and a log line.
+ * Nested `data:text/html` payloads must not be copied — Chromium then rejects
+ * the next loadURL, which used to unhandled-reject back into this path and
+ * write a multi-GB `desktop-main.log` on the Electron main thread.
+ * @param error - any thrown value or an already-stringified detail.
+ * @returns a short, data-URL-free string.
+ */
+export function summarizeDesktopFailure(error: unknown): string {
+  const raw = error instanceof Error ? error.stack ?? error.message : String(error)
+  const stripped = raw.replace(/data:text\/html[^'"\s]*/g, 'data:text/html…')
+  if (stripped.length <= DESKTOP_FAILURE_DETAIL_LIMIT) return stripped
+  return `${stripped.slice(0, DESKTOP_FAILURE_DETAIL_LIMIT)}\n…[truncated ${String(stripped.length)} chars]`
+}
+
 /** HTML shown in the main window while the Host child is still starting. */
 export function hostStartingPage(): string {
   return `<!doctype html>
@@ -23,7 +41,7 @@ export function hostStartingPage(): string {
  * @returns a complete HTML document.
  */
 export function hostErrorPage(detail: string): string {
-  const escaped = detail
+  const escaped = summarizeDesktopFailure(detail)
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')

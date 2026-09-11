@@ -26,7 +26,7 @@ import {
   type BlockingOverlayWindow,
 } from './blocking-overlay.ts'
 import { fileFromDshUrl, isDesktopSessionExportPath, sessionExportFromDshUrl } from './dsh-protocol.ts'
-import { hostErrorPage, hostStartingPage } from './error-page.ts'
+import { hostErrorPage, hostStartingPage, summarizeDesktopFailure } from './error-page.ts'
 import { resolveFrontendDist } from './frontend-dist.ts'
 import { spawnDesktopHost, type DesktopHostChild } from './host-child.ts'
 import { resolveBundledProfileTemplate } from './packaged-resources.ts'
@@ -71,7 +71,8 @@ function appendDesktopLog(message: string): void {
   try {
     const dir = join(app.getPath('userData'), 'logs')
     mkdirSync(dir, { recursive: true })
-    appendFileSync(join(dir, 'desktop-main.log'), `${new Date().toISOString()} ${message}\n`)
+    const clipped = summarizeDesktopFailure(message)
+    appendFileSync(join(dir, 'desktop-main.log'), `${new Date().toISOString()} ${clipped}\n`)
   } catch {
     // Startup logging must never prevent a window from appearing.
   }
@@ -79,7 +80,7 @@ function appendDesktopLog(message: string): void {
 
 function installProcessFailureHandlers(): void {
   const report = (kind: string, error: unknown): void => {
-    const detail = error instanceof Error ? error.stack ?? error.message : String(error)
+    const detail = summarizeDesktopFailure(error)
     appendDesktopLog(`${kind} ${detail}`)
     console.error(`[desktop] ${kind}:`, error)
     if (windowRef !== undefined && !windowRef.isDestroyed()) enterHostFailure(detail)
@@ -208,14 +209,17 @@ function showHostError(detail: string): void {
   if (target === undefined || target.isDestroyed()) return
   void target.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(hostErrorPage(detail))}`).then(() => {
     if (!target.isDestroyed()) target.webContents.clearHistory()
+  }).catch((error: unknown) => {
+    appendDesktopLog(`showHostError failed ${summarizeDesktopFailure(error)}`)
   })
 }
 
 /** Disarm overlay/quit guards and freeze the window on a terminal Host-failure page. */
 function enterHostFailure(detail: string): void {
+  if (hostFailed) return
   hostFailed = true
   blockingOverlay.disarm('host-dead')
-  showHostError(detail)
+  showHostError(summarizeDesktopFailure(detail))
 }
 
 function registerProtocol(distRoot: string): void {
@@ -338,6 +342,7 @@ async function createWindow(): Promise<void> {
         }),
         openExternal: url => openHttpsExternal(url, target => shell.openExternal(target)),
         onFatal: (detail) => { enterHostFailure(detail) },
+        hostLogPath: join(app.getPath('userData'), 'logs', 'desktop-host.log'),
       })
     }
     const child = host
@@ -355,7 +360,7 @@ async function createWindow(): Promise<void> {
     })
     await win.loadURL('dsh://app/')
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
+    const detail = summarizeDesktopFailure(error)
     appendDesktopLog(`createWindow failed ${detail}`)
     enterHostFailure(detail)
   }
@@ -379,7 +384,7 @@ void app.whenReady().then(() => {
     blockingOverlay.disarm('update-install')
   })
   void createWindow().catch((error: unknown) => {
-    const detail = error instanceof Error ? error.message : String(error)
+    const detail = summarizeDesktopFailure(error)
     appendDesktopLog(`createWindow rejected ${detail}`)
     enterHostFailure(detail)
   })
@@ -387,7 +392,7 @@ void app.whenReady().then(() => {
     if (!shouldRespawnHostOnActivate(hostFailed)) return
     if (BrowserWindow.getAllWindows().length === 0) {
       void createWindow().catch((error: unknown) => {
-        const detail = error instanceof Error ? error.message : String(error)
+        const detail = summarizeDesktopFailure(error)
         appendDesktopLog(`createWindow rejected ${detail}`)
         enterHostFailure(detail)
       })

@@ -14,6 +14,7 @@ describe('desktop packager icon', () => {
     expect(yml).toMatch(/^ {2}signAndEditExecutable: true$/m)
     expect(yml).toMatch(/^ {2}oneClick: false$/m)
     expect(yml).toMatch(/^ {2}allowToChangeInstallationDirectory: true$/m)
+    expect(yml).toMatch(/^ {2}include: installer\.nsh$/m)
 
     const png = readFileSync(resolve(desktopRoot, 'resources', 'icon.png'))
     expect(png.subarray(0, 8)).toEqual(PNG_MAGIC)

@@ -1,10 +1,10 @@
 /**
  * Node Host child: spawn `--profile desktop` with stdio IPC, wait for
- * `host-ready`, forward opaque RPC, and dispose SIGTERM then SIGKILL.
+ * `host-ready`, forward opaque RPC, and dispose (Win32 taskkill tree, else SIGTERM then SIGKILL).
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { createWriteStream, existsSync, mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { controlEnvelope, controlFromChild, rpcEnvelope, rpcPayloadFromChild, shellEnvelope, shellFromChild } from './forwarder.ts'
@@ -196,7 +196,9 @@ export class DesktopHostChild {
   }
 
   /**
-   * SIGTERM the child, wait, then SIGKILL if it is still alive.
+   * Stop the Host child. Windows uses `taskkill /T /F` so orphaned grandchildren
+   * (and the hidden packaged `node.exe`) do not keep `$INSTDIR` locked.
+   * POSIX: SIGTERM, wait, then SIGKILL if it is still alive.
    * @returns after the process has exited.
    */
   async dispose(): Promise<void> {
@@ -206,7 +208,12 @@ export class DesktopHostChild {
     const exited = new Promise<void>((resolve) => {
       this.child.once('exit', () => { resolve() })
     })
-    this.child.kill('SIGTERM')
+    const pid = this.child.pid
+    if (process.platform === 'win32' && typeof pid === 'number') {
+      killHostChildTree(pid)
+    } else {
+      this.child.kill('SIGTERM')
+    }
     await Promise.race([
       exited,
       new Promise<void>((resolve) => { setTimeout(resolve, DISPOSE_GRACE_MS) }),
@@ -386,6 +393,8 @@ export interface SpawnDesktopHostOptions {
   env?: NodeJS.ProcessEnv
   /** Child working directory; defaults to the parent's cwd. */
   cwd?: string
+  /** When set, Host stdout/stderr append here instead of inheriting the Electron console. */
+  hostLogPath?: string
   /** Open a generic auth window; Host plugins pass url + callback prefix. */
   openAuthWindow?: AuthWindowOpener
   /** Generic blocking overlay; Host supplies title/body/timeout, never product URLs. */
@@ -429,6 +438,17 @@ export function hostChildEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessE
 }
 
 /**
+ * Terminate a packaged Host process tree. `child.kill('SIGKILL')` on Win32 only
+ * ends that one PID; grandchildren and a hidden `resources\host\node.exe` stay
+ * and lock the install directory for NSIS overlay.
+ * @param pid - Host child pid.
+ * @param spawnSyncImpl - injectable `spawnSync` for tests.
+ */
+export function killHostChildTree(pid: number, spawnSyncImpl: typeof spawnSync = spawnSync): void {
+  spawnSyncImpl('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+}
+
+/**
  * Spawn options for the Host child. `node.exe` is a console-subsystem binary;
  * `windowsHide: true` sets CREATE_NO_WINDOW. The Win32 `IFileOpenDialog` worker
  * already uses `windowsHide: true` and does not need a Host console.
@@ -436,13 +456,14 @@ export function hostChildEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessE
  * @returns options passed to `spawn`.
  */
 export function hostChildSpawnOptions(options: SpawnDesktopHostOptions = {}): {
-  stdio: ['ignore', 'inherit', 'inherit', 'ipc']
+  stdio: ['ignore', 'inherit' | 'pipe', 'inherit' | 'pipe', 'ipc']
   env: NodeJS.ProcessEnv
   cwd: string | undefined
   windowsHide: true
 } {
+  const capture = options.hostLogPath !== undefined && options.hostLogPath !== ''
   return {
-    stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+    stdio: capture ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'inherit', 'inherit', 'ipc'],
     env: hostChildEnv(options.env),
     cwd: options.cwd,
     windowsHide: true,
@@ -458,6 +479,13 @@ export function spawnDesktopHost(options: SpawnDesktopHostOptions = {}): Desktop
   const node = resolveNodeExecutable()
   const argv = hostChildArgv(node)
   const child = spawn(argv.command, argv.args, hostChildSpawnOptions(options))
+  const hostLogPath = options.hostLogPath
+  if (hostLogPath !== undefined && hostLogPath !== '') {
+    mkdirSync(dirname(hostLogPath), { recursive: true })
+    const stream = createWriteStream(hostLogPath, { flags: 'a' })
+    child.stdout?.pipe(stream)
+    child.stderr?.pipe(stream)
+  }
   return new DesktopHostChild(child, options.openAuthWindow, {
     ...options.blockingOverlay === undefined ? {} : { blockingOverlay: options.blockingOverlay },
     ...options.checkForUpdates === undefined ? {} : { checkForUpdates: options.checkForUpdates },

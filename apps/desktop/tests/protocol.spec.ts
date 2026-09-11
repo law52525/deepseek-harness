@@ -3,7 +3,7 @@
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fileFromDshUrl, isDesktopSessionExportPath, sessionExportFromDshUrl } from '../src/dsh-protocol.ts'
-import { hostErrorPage } from '../src/error-page.ts'
+import { hostErrorPage, summarizeDesktopFailure } from '../src/error-page.ts'
 
 describe('dsh protocol and error page', () => {
   it('maps dsh://app paths onto dist and rejects escapes', () => {
@@ -40,5 +40,15 @@ describe('dsh protocol and error page', () => {
   it('escapes operator-facing crash text', () => {
     expect(hostErrorPage('<script>alert(1)</script>')).toContain('&lt;script&gt;')
     expect(hostErrorPage('Host process stopped')).toContain('Host process stopped')
+  })
+
+  it('does not nest a failed data: error page into another data: URL', () => {
+    const nested = `Error: ERR_FAILED (-2) loading 'data:text/html;charset=utf-8,${'A'.repeat(8000)}'`
+    const summarized = summarizeDesktopFailure(nested)
+    expect(summarized).not.toMatch(/data:text\/html;charset=utf-8,A{20}/)
+    expect(summarized.length).toBeLessThan(2000)
+    const page = hostErrorPage(nested)
+    expect(page.length).toBeLessThan(4000)
+    expect(encodeURIComponent(page).length).toBeLessThan(8000)
   })
 })
