@@ -251,6 +251,10 @@ export class DesktopHostChild {
         this.shellExtras.onFatal?.(shell.detail)
       } else if (shell.type === 'check-for-updates') {
         this.shellExtras.checkForUpdates?.(shell.feedUrl)
+      } else if (shell.type === 'open-path-and-quit') {
+        void this.answerOpenPathAndQuit(shell)
+      } else if (shell.type === 'open-external') {
+        void this.answerOpenExternal(shell)
       }
       return
     }
@@ -287,6 +291,59 @@ export class DesktopHostChild {
     } catch {
       this.child.send(shellEnvelope({ type: 'open-auth-window-result', id: request.id, canceled: true }))
     }
+  }
+
+  /**
+   * Open an installer path and quit. Success does not reply — the process exits.
+   * @param request - Host `open-path-and-quit` document
+   */
+  private async answerOpenPathAndQuit(
+    request: Extract<DesktopShellToParent, { type: 'open-path-and-quit' }>,
+  ): Promise<void> {
+    const handler = this.shellExtras.openPathAndQuit
+    if (handler === undefined) {
+      this.child.send(shellEnvelope({
+        type: 'open-path-result',
+        id: request.id,
+        ok: false,
+        detail: 'open-path-and-quit is unavailable',
+      }))
+      return
+    }
+    const result = await handler(request.path)
+    if (result.ok) return
+    this.child.send(shellEnvelope({
+      type: 'open-path-result',
+      id: request.id,
+      ok: false,
+      detail: result.detail,
+    }))
+  }
+
+  /**
+   * Open an https: URL. Always replies.
+   * @param request - Host `open-external` document
+   */
+  private async answerOpenExternal(
+    request: Extract<DesktopShellToParent, { type: 'open-external' }>,
+  ): Promise<void> {
+    const handler = this.shellExtras.openExternal
+    if (handler === undefined) {
+      this.child.send(shellEnvelope({
+        type: 'open-external-result',
+        id: request.id,
+        ok: false,
+        detail: 'open-external is unavailable',
+      }))
+      return
+    }
+    const result = await handler(request.url)
+    this.child.send(shellEnvelope({
+      type: 'open-external-result',
+      id: request.id,
+      ok: result.ok,
+      ...result.ok ? {} : { detail: result.detail },
+    }))
   }
 }
 
@@ -335,6 +392,10 @@ export interface SpawnDesktopHostOptions {
   blockingOverlay?: BlockingOverlayController
   /** Generic update check; Host supplies the feed URL. */
   checkForUpdates?: (feedUrl: string) => void
+  /** Open an absolute path then quit on success; failure must not quit. */
+  openPathAndQuit?: (path: string) => Promise<{ ok: true } | { ok: false; detail: string }>
+  /** Open an https: URL; other schemes must be rejected. */
+  openExternal?: (url: string) => Promise<{ ok: boolean; detail?: string }>
   /** Terminal failure (Host crash or overlay arm failure); caller-supplied copy. */
   onFatal?: (detail: string) => void
 }
@@ -342,6 +403,8 @@ export interface SpawnDesktopHostOptions {
 export interface DesktopShellExtras {
   blockingOverlay?: BlockingOverlayController
   checkForUpdates?: (feedUrl: string) => void
+  openPathAndQuit?: (path: string) => Promise<{ ok: true } | { ok: false; detail: string }>
+  openExternal?: (url: string) => Promise<{ ok: boolean; detail?: string }>
   onFatal?: (detail: string) => void
 }
 
@@ -398,6 +461,8 @@ export function spawnDesktopHost(options: SpawnDesktopHostOptions = {}): Desktop
   return new DesktopHostChild(child, options.openAuthWindow, {
     ...options.blockingOverlay === undefined ? {} : { blockingOverlay: options.blockingOverlay },
     ...options.checkForUpdates === undefined ? {} : { checkForUpdates: options.checkForUpdates },
+    ...options.openPathAndQuit === undefined ? {} : { openPathAndQuit: options.openPathAndQuit },
+    ...options.openExternal === undefined ? {} : { openExternal: options.openExternal },
     ...options.onFatal === undefined ? {} : { onFatal: options.onFatal },
   })
 }

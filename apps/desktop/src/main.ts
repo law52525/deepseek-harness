@@ -4,13 +4,16 @@
  * opaque RPC. HostIpcGateway stays in the child.
  */
 
+import { spawn } from 'node:child_process'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, ipcMain, Menu, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, protocol, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { startDesktopAutoUpdate, noteBlockingOverlayArmed, onBeforeQuitForUpdate } from './auto-update.ts'
+import { openHttpsExternal } from './open-external.ts'
+import { openPathAndQuit } from './open-path.ts'
 import {
   BlockingOverlayController,
   allowLifecycleRequest,
@@ -324,6 +327,16 @@ async function createWindow(): Promise<void> {
             rearmAfterFailedInstall,
           })
         },
+        openPathAndQuit: path => openPathAndQuit(path, {
+          platform: process.platform,
+          spawn,
+          openPath: target => shell.openPath(target),
+          quit: () => {
+            blockingOverlay.disarm('update-install')
+            app.quit()
+          },
+        }),
+        openExternal: url => openHttpsExternal(url, target => shell.openExternal(target)),
         onFatal: (detail) => { enterHostFailure(detail) },
       })
     }
@@ -369,16 +382,6 @@ void app.whenReady().then(() => {
     const detail = error instanceof Error ? error.message : String(error)
     appendDesktopLog(`createWindow rejected ${detail}`)
     enterHostFailure(detail)
-  })
-  const feedUrl = process.env.DSH_UPDATE_FEED_URL
-  void startDesktopAutoUpdate({
-    isPackaged: app.isPackaged,
-    updater: autoUpdater,
-    appVersion: app.getVersion(),
-    ...feedUrl === undefined ? {} : { feedUrl },
-    isArmed: () => blockingOverlay.armed,
-    disarmForUpdateInstall: () => blockingOverlay.disarm('update-install'),
-    rearmAfterFailedInstall,
   })
   app.on('activate', () => {
     if (!shouldRespawnHostOnActivate(hostFailed)) return

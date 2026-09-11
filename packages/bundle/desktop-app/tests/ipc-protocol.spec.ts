@@ -213,6 +213,35 @@ describe('desktop IPC protocol', () => {
       channel: 'shell',
       payload: { type: 'blocking-overlay-fatal', id: 'g1', detail: 'unable to arm overlay' },
     })).toMatchObject({ channel: 'shell', payload: { type: 'blocking-overlay-fatal', detail: 'unable to arm overlay' } })
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'open-path-and-quit', id: '1', path: '/tmp/Setup.exe' },
+    })).toEqual({
+      channel: 'shell',
+      payload: { type: 'open-path-and-quit', id: '1', path: '/tmp/Setup.exe' },
+    })
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'open-path-result', id: '1', ok: false, detail: 'failed to open' },
+    })).toEqual({
+      channel: 'shell',
+      payload: { type: 'open-path-result', id: '1', ok: false, detail: 'failed to open' },
+    })
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'open-external', id: '1', url: 'https://example.com/' },
+    })).toEqual({
+      channel: 'shell',
+      payload: { type: 'open-external', id: '1', url: 'https://example.com/' },
+    })
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'open-external-result', id: '1', ok: false, detail: 'only https:' },
+    })).toMatchObject({ channel: 'shell', payload: { ok: false, detail: 'only https:' } })
+    expect(parseDesktopEnvelope({
+      channel: 'shell',
+      payload: { type: 'open-path-and-quit', id: '1', path: '' },
+    })).toBeUndefined()
   })
 
   it('recognizes built-in theme preferences only', () => {

@@ -70,6 +70,8 @@ export type DesktopShellToParent =
   | { type: 'disarm-blocking-overlay'; id: string }
   | { type: 'check-for-updates'; id: string; feedUrl: string }
   | { type: 'blocking-overlay-fatal'; id: string; detail: string }
+  | { type: 'open-path-and-quit'; id: string; path: string }
+  | { type: 'open-external'; id: string; url: string }
 
 /** Shell → Host replies for {@link DesktopShellToParent}. */
 export type DesktopShellToChild =
@@ -79,7 +81,10 @@ export type DesktopShellToChild =
     callbackUrl?: string
     canceled?: true
   }
+  | { type: 'open-path-result'; id: string; ok: false; detail: string }
+  | { type: 'open-external-result'; id: string; ok: boolean; detail?: string }
 
+/** Every shell-channel document that may appear on the process IPC channel. */
 export type DesktopShellMessage = DesktopShellToParent | DesktopShellToChild
 
 /** One process-IPC envelope. RPC `payload` is an `IpcMessage` object; main must not parse it. */
@@ -193,6 +198,33 @@ function parseShell(value: unknown): DesktopShellMessage | undefined {
       return typeof record.id === 'string' && record.id !== ''
         && typeof record.detail === 'string' && record.detail !== ''
         ? { type: 'blocking-overlay-fatal', id: record.id, detail: record.detail }
+        : undefined
+    case 'open-path-and-quit':
+      return typeof record.id === 'string' && record.id !== ''
+        && typeof record.path === 'string' && record.path !== ''
+        ? { type: 'open-path-and-quit', id: record.id, path: record.path }
+        : undefined
+    case 'open-path-result':
+      return typeof record.id === 'string' && record.id !== ''
+        && record.ok === false
+        && typeof record.detail === 'string'
+        ? { type: 'open-path-result', id: record.id, ok: false, detail: record.detail }
+        : undefined
+    case 'open-external':
+      return typeof record.id === 'string' && record.id !== ''
+        && typeof record.url === 'string' && record.url !== ''
+        ? { type: 'open-external', id: record.id, url: record.url }
+        : undefined
+    case 'open-external-result':
+      return typeof record.id === 'string' && record.id !== ''
+        && typeof record.ok === 'boolean'
+        && (record.detail === undefined || typeof record.detail === 'string')
+        ? {
+          type: 'open-external-result',
+          id: record.id,
+          ok: record.ok,
+          ...typeof record.detail === 'string' ? { detail: record.detail } : {},
+        }
         : undefined
     default:
       return undefined
