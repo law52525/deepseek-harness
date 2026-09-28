@@ -18,9 +18,12 @@ const WINDOWS_SETTING = /^DSH_DESKTOP_WINDOWS_(?:CER_FILE|SIGNTOOL|KEY_CONTAINER
 const MACOS_SETTING = /^(?:DSH_DESKTOP_MACOS_(?:SIGNING_IDENTITY|TEAM_ID|PACK_CONCURRENCY|DOWNLOAD_PROXY|NOTARIZATION_PROXY)|APPLE_(?:API_KEY|API_KEY_ID|API_ISSUER|ID|APP_SPECIFIC_PASSWORD|TEAM_ID|KEYCHAIN|KEYCHAIN_PROFILE)|CSC_(?:LINK|KEY_PASSWORD))$/u
 const AMBIENT_RELEASE_SETTING = /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|MANDATORY_UPDATE_.*|WINDOWS_.*|MACOS_.*)|APPLE_.*|(?:WIN_)?CSC_.*|DOWNLOAD_(?:TEST|PROD)_.*)$/iu
 const FILE_SETTINGS = ['DSH_DESKTOP_WINDOWS_CER_FILE', 'DSH_DESKTOP_WINDOWS_SIGNTOOL', 'APPLE_API_KEY', 'APPLE_KEYCHAIN', 'CSC_LINK']
+const PRODUCT_ENV = 'DSH_DESKTOP_PRODUCT_ENV'
 
 /**
  * Read the target's required UTF-8 dotenv file; release settings never fall back to ambient values.
+ * Optional `DSH_DESKTOP_PRODUCT_ENV` overlays shared (non-credential) settings so a product pipeline
+ * can supply update policy without copying the signing file.
  * @param {'win32' | 'darwin'} platform Target platform.
  * @param {NodeJS.ProcessEnv} environment Parent environment, retained only for unrelated build tools.
  * @param {string} appRoot Desktop application directory; relative credential paths resolve here.
@@ -53,9 +56,34 @@ export function loadDesktopPackageEnvironment(platform, environment = process.en
   for (const name of FILE_SETTINGS) {
     if (settings[name]?.trim()) settings[name] = resolve(dirname(path), settings[name].trim())
   }
+  const extraPath = environment[PRODUCT_ENV]?.trim()
+  let extra = {}
+  if (extraPath !== undefined && extraPath !== '') {
+    const extraFile = resolve(extraPath)
+    let extraContents
+    try {
+      extraContents = readFileSync(extraFile, 'utf8')
+    }
+    catch {
+      throw new Error(`desktop package: cannot read ${PRODUCT_ENV} file`)
+    }
+    try {
+      extra = parseEnv(extraContents.replace(/^\uFEFF/u, ''))
+    }
+    catch {
+      throw new Error(`desktop package: invalid dotenv syntax in ${PRODUCT_ENV} file`)
+    }
+    for (const name of Object.keys(extra)) {
+      if (!SHARED_SETTING.test(name)) {
+        throw new Error(`desktop package: unsupported setting ${name} in ${PRODUCT_ENV}; credentials stay in the platform file`)
+      }
+      if (extra[name].includes('\0')) throw new Error(`desktop package: ${name} cannot contain a NUL character`)
+    }
+  }
   return {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !AMBIENT_RELEASE_SETTING.test(name))),
     ...settings,
+    ...extra,
   }
 }
 

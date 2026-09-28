@@ -118,6 +118,32 @@ describe('Desktop local packaging configuration', () => {
     })
   })
 
+  it('overlays shared product settings from DSH_DESKTOP_PRODUCT_ENV without reading signing secrets', async () => {
+    await withDirectory(async (directory) => {
+      await writeFile(join(directory, '.env.macos'), 'DSH_DESKTOP_APP_ID=com.example.mac\n')
+      const extra = join(directory, 'product.env')
+      await writeFile(extra, [
+        'DSH_DESKTOP_AUTO_UPDATE_ENV=test',
+        'DOWNLOAD_TEST_ORIGIN=https://updates.example.invalid',
+        `DOWNLOAD_TEST_RELEASE_ID=${'a'.repeat(32)}`,
+        'DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN=https://policy.example.invalid',
+        'DSH_DESKTOP_MANDATORY_UPDATE_CONFIG={"allowedAuthOrigins":["https://login.example.invalid"]}',
+        '',
+      ].join('\n'))
+      const loaded = loadDesktopPackageEnvironment('darwin', {
+        DSH_DESKTOP_PRODUCT_ENV: extra,
+        DSH_DESKTOP_APP_ID: 'com.stale',
+      }, directory)
+      expect(loaded.DSH_DESKTOP_APP_ID).toBe('com.example.mac')
+      expect(loaded.DOWNLOAD_TEST_ORIGIN).toBe('https://updates.example.invalid')
+      expect(loaded.DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN).toBe('https://policy.example.invalid')
+      expect(loaded.DOWNLOAD_TEST_RELEASE_ID).toBe('a'.repeat(32))
+      await writeFile(extra, 'CSC_LINK=secret.p12\n')
+      expect(() => loadDesktopPackageEnvironment('darwin', { DSH_DESKTOP_PRODUCT_ENV: extra }, directory))
+        .toThrow(/credentials stay in the platform file/u)
+    })
+  })
+
   it('checks application and update configuration before Windows credentials while preserving unsigned and preparation modes', () => {
     expect(() => {
       validateDesktopPackageEnvironment({}, WINDOWS, { unsigned: true })
