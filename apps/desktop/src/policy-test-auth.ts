@@ -33,7 +33,8 @@ export class DesktopPolicyTestAuth {
   constructor(private readonly origin: string, private readonly allowedAuthOrigins: readonly string[],
     private readonly locale: DesktopLocale,
     private readonly parent: () => BrowserWindow | undefined,
-    private readonly record: (event: 'opened' | DesktopPolicyLoginResult) => void) {
+    private readonly record: (event: 'opened' | DesktopPolicyLoginResult) => void,
+    private readonly policyPath = '/api/v0/check_client_update') {
     this.browserSession.setPermissionRequestHandler((_contents, _permission, callback) => { callback(false) })
     this.browserSession.setPermissionCheckHandler(() => false)
     this.browserSession.setDevicePermissionHandler(() => false)
@@ -54,7 +55,7 @@ export class DesktopPolicyTestAuth {
    */
   readonly request: typeof fetch = (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input))
-    if (this.disposed || url.origin !== this.origin || url.pathname !== '/api/v0/check_client_update'
+    if (this.disposed || url.origin !== this.origin || url.pathname !== this.policyPath
       || url.username !== '' || url.password !== '') {
       return Promise.reject(new Error('desktop policy: disallowed authenticated request'))
     }

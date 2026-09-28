@@ -12,7 +12,8 @@ it.each(['test', 'production'] as const)('selects the %s policy and authenticati
   const origin = deployment === 'test' ? origins.DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN : origins.DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN
   expect(policy).toEqual({ origin, allowedPageOrigins: [origin],
     ...(deployment === 'test' ? { allowedAuthOrigins: ['https://login.example.com'] } : {}),
-    authentication: deployment === 'test' ? 'feishu-test' : 'anonymous' })
+    authentication: deployment === 'test' ? 'feishu-test' : 'anonymous',
+    path: '/api/v0/check_client_update' })
   expect(resolveDesktopPolicyConfig(policy)).toMatchObject(policy)
 })
 
@@ -32,7 +33,7 @@ it.each([undefined, '', 'http://test.example.com', 'https://user:secret@test.exa
 })
 
 it.each(['{', 'null', '[]', '{"origin":"https://old.example.com"}', '{"authentication":"anonymous"}',
-  '{"allowedPageOrigins":[]}', '{"allowedPageOrigins":["http://example.com"]}'])('rejects invalid or conflicting shared options %s', (options) => {
+  '{"path":"/other"}', '{"allowedPageOrigins":[]}', '{"allowedPageOrigins":["http://example.com"]}'])('rejects invalid or conflicting shared options %s', (options) => {
   expect(() => resolveDesktopPolicyEnvironment({ ...origins, DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: options })).toThrow()
 })
 
@@ -52,4 +53,34 @@ it.each([{ unsigned: true }, { prepareOnly: true }, {}])('fails before signing/p
     expect(() => { validateDesktopPackageEnvironment({ DSH_DESKTOP_APP_ID: 'com.example.test' }, { platform, arch: 'x64' }, options) })
       .toThrow('DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN')
   }
+})
+
+it('uses anonymous test auth and a custom path when configured', () => {
+  const policy = resolveDesktopPolicyEnvironment({
+    DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: origins.DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN,
+    DSH_DESKTOP_MANDATORY_UPDATE_TEST_AUTH: 'anonymous',
+    DSH_DESKTOP_MANDATORY_UPDATE_PATH: '/work/api/v0/check_client_update',
+    DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: JSON.stringify({ allowedPageOrigins: ['https://download.example.com'] }),
+  })
+  expect(policy).toEqual({
+    origin: origins.DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN,
+    allowedPageOrigins: ['https://download.example.com'],
+    authentication: 'anonymous',
+    path: '/work/api/v0/check_client_update',
+  })
+  expect(policy).not.toHaveProperty('allowedAuthOrigins')
+  expect(resolveDesktopPolicyConfig(policy)).toMatchObject(policy)
+})
+
+it('rejects allowedAuthOrigins when test auth is anonymous', () => {
+  expect(() => resolveDesktopPolicyEnvironment({
+    ...origins, ...auth, DSH_DESKTOP_MANDATORY_UPDATE_TEST_AUTH: 'anonymous',
+  })).toThrow('anonymous policy must not configure allowedAuthOrigins')
+})
+
+it.each(['other', '/api/v0/check_client_update?x=1', 'api/v0/check_client_update',
+  '/api/v0/check_client_update#frag'])('rejects invalid mandatory-update path %j', (path) => {
+  expect(() => resolveDesktopPolicyEnvironment({
+    ...origins, ...auth, DSH_DESKTOP_MANDATORY_UPDATE_PATH: path,
+  })).toThrow('DSH_DESKTOP_MANDATORY_UPDATE_PATH')
 })

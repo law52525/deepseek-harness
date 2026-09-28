@@ -18,7 +18,7 @@ describe('desktop auto-update environment', () => {
     expect(() => resolveDesktopUploadConfig(environment, 'win32', 'x64')).toThrow(/DOWNLOAD_TEST_RELEASE_ID/u)
   })
 
-  it.each(['', ' ', 'release-1', 'a'.repeat(31), 'a'.repeat(33), 'A'.repeat(32), 'g'.repeat(32),
+  it.each(['release-1', 'a'.repeat(31), 'a'.repeat(33), 'A'.repeat(32), 'g'.repeat(32),
     '../feeds', '01234567-89ab-cdef-0123-456789abcdef', `${RELEASE_ID}/bin`])('rejects invalid test release ID %j', (id) => {
     const environment = { DOWNLOAD_TEST_ORIGIN: 'https://updates.example.com', DOWNLOAD_TEST_RELEASE_ID: id }
     expect(() => resolveDesktopAutoUpdateConfig(environment, 'darwin', 'arm64')).toThrow(/DOWNLOAD_TEST_RELEASE_ID/u)
@@ -117,5 +117,64 @@ describe('desktop auto-update environment', () => {
     expect(desktopUpdateMetadataFilename('1.2.3-beta.2', 'win32')).toBe('nightly.yml')
     expect(() => desktopUpdateMetadataFilename('not-semver', 'darwin')).toThrow(/invalid Desktop version/u)
     expect(() => desktopUpdateMetadataFilename('1.2.3', 'linux')).toThrow(/unsupported metadata platform/u)
+  })
+
+  it('omits the test release-id segment when DOWNLOAD_TEST_RELEASE_ID is empty', () => {
+    expect(resolveDesktopAutoUpdateConfig({
+      DOWNLOAD_TEST_ORIGIN: 'https://updates.example.com',
+      DOWNLOAD_TEST_RELEASE_ID: '',
+    }, 'darwin', 'arm64')).toMatchObject({
+      publicUrl: 'https://updates.example.com/dsh-desk/feeds/mac-arm64/',
+      keyPrefix: 'dsh-desk/feeds/mac-arm64',
+      binaryKeyPrefix: 'dsh-desk/bin/mac-arm64',
+    })
+    expect(resolveDesktopAutoUpdateConfig({
+      DOWNLOAD_TEST_ORIGIN: 'https://updates.example.com',
+      DOWNLOAD_TEST_RELEASE_ID: ' ',
+    }, 'win32', 'x64')).toMatchObject({
+      publicUrl: 'https://updates.example.com/dsh-desk/feeds/win-x64/',
+    })
+  })
+
+  it('keeps the official production origin and prefix when the new variables are unset', () => {
+    expect(resolveDesktopAutoUpdateConfig({
+      DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
+    }, 'win32', 'x64')).toMatchObject({
+      origin: 'https://download.deepseek.com',
+      publicUrl: 'https://download.deepseek.com/dsh-desk/feeds/win-x64/',
+      keyPrefix: 'dsh-desk/feeds/win-x64',
+      binaryKeyPrefix: 'dsh-desk/bin/win-x64',
+    })
+  })
+
+  it('uses DOWNLOAD_PROD_ORIGIN and DOWNLOAD_KEY_PREFIX_* when set', () => {
+    expect(resolveDesktopAutoUpdateConfig({
+      DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
+      DOWNLOAD_PROD_ORIGIN: 'https://download.example.com',
+      DOWNLOAD_KEY_PREFIX_PROD: 'v3',
+    }, 'darwin', 'arm64')).toEqual({
+      environment: 'production',
+      target: 'mac-arm64',
+      origin: 'https://download.example.com',
+      publicUrl: 'https://download.example.com/v3/feeds/mac-arm64/',
+      keyPrefix: 'v3/feeds/mac-arm64',
+      binaryKeyPrefix: 'v3/bin/mac-arm64',
+    })
+    expect(resolveDesktopAutoUpdateConfig({
+      DOWNLOAD_TEST_ORIGIN: 'https://download.example.com',
+      DOWNLOAD_TEST_RELEASE_ID: '',
+      DOWNLOAD_KEY_PREFIX_TEST: 'v3-test',
+    }, 'win32', 'x64')).toMatchObject({
+      publicUrl: 'https://download.example.com/v3-test/feeds/win-x64/',
+      keyPrefix: 'v3-test/feeds/win-x64',
+      binaryKeyPrefix: 'v3-test/bin/win-x64',
+    })
+  })
+
+  it.each(['../v3', '/v3', 'v3/extra', 'v3\\win'])('rejects invalid key prefix %j', (prefix) => {
+    expect(() => resolveDesktopAutoUpdateConfig({
+      DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
+      DOWNLOAD_KEY_PREFIX_PROD: prefix,
+    }, 'win32', 'x64')).toThrow(/DOWNLOAD_KEY_PREFIX_PROD/u)
   })
 })
