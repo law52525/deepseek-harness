@@ -275,6 +275,155 @@ describe('first-party Session format catalog', () => {
       events: [{ type: 'feedback/record', seq: 0 }],
     })
   })
+
+  it('migrates a v0 empty tool-call name to V4 as invalid_tool_call', () => {
+    const header = {
+      type: 'session', version: 0, id: 'empty-tool-v4', createdAt: 1, cwd: '/work', delegationDepth: 0,
+    }
+    const toolCall = { type: 'tool-call', id: 'call', name: '', arguments: '{}' }
+    const rows = [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
+      {
+        type: 'assistant/chunk', seq: 2, time: 3,
+        data: {
+          turn: 1, step: 1,
+          chunk: { type: 'tool-call-delta', index: 0, id: 'call', name: '', argumentsDelta: '{}' },
+        },
+      },
+      {
+        type: 'assistant/chunk', seq: 3, time: 4,
+        data: { turn: 1, step: 1, chunk: { type: 'block-end', index: 0, block: toolCall } },
+      },
+      {
+        type: 'assistant/message', seq: 4, time: 5, sourceEventSeqs: [2, 3], surfaceOp: 'append',
+        data: {
+          turn: 1, step: 1,
+          message: {
+            id: 'assistant', role: 'assistant', content: [toolCall],
+            source: { kind: 'model', provider: 'mock', model: 'mock' },
+          },
+        },
+      },
+      { type: 'tool/call', seq: 5, time: 6, data: { turn: 1, step: 1, callId: 'call', name: '', arguments: '{}' } },
+      {
+        type: 'tool/result', seq: 6, time: 7, sourceEventSeqs: [5], surfaceOp: 'append',
+        data: {
+          turn: 1, step: 1,
+          message: {
+            id: 'result', role: 'user',
+            content: [{
+              type: 'tool-result', toolCallId: 'call',
+              content: [{ type: 'text', text: 'Error: unknown tool ""' }], isError: true,
+            }],
+            source: { kind: 'tool', callId: 'call' },
+          },
+        },
+      },
+      { type: 'step/end', seq: 7, time: 8, data: { turn: 1, step: 1 } },
+      { type: 'turn/end', seq: 8, time: 9, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    const restore = createSessionFormatCatalogWithChildren([]).createRestore(header, {
+      recovery: 'strict', validation: 'current',
+    })
+    for (const row of rows) restore.decodeRow(row)
+    const artifact = restore.finish()
+    expect(artifact.header.version).toBe(SESSION_FORMAT_VERSION)
+    const names: string[] = []
+    for (const event of artifact.events) {
+      if (event.type === 'assistant/message') {
+        const content = (event.data as { message: { content: Array<{ type: string; name?: string }> } }).message.content
+        for (const block of content) if (block.type === 'tool-call' && block.name !== undefined) names.push(block.name)
+      }
+      if (event.type === 'tool/call') names.push((event.data as { name: string }).name)
+    }
+    expect(names.length).toBeGreaterThan(0)
+    expect(names.every(name => name === 'invalid_tool_call')).toBe(true)
+    const result = artifact.events.find(event => event.type === 'tool/result')
+    expect((result?.data as { message: { source: { callId: string } } }).message.source.callId).toBe('call')
+  })
+
+  it('migrates a v1 non-blank stream name with a vacant settlement to invalid_tool_call on every appearance', () => {
+    const header = {
+      type: 'session', version: 1, id: 'mixed-stream-name', createdAt: 1, delegationDepth: 0,
+    }
+    const vacant = { type: 'tool-call', id: 'call', name: '', arguments: '{}' }
+    const rows = [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
+      {
+        type: 'assistant/chunk', seq: 2, time: 3,
+        data: {
+          turn: 1, step: 1,
+          chunk: { type: 'tool-call-delta', index: 0, id: 'call', name: 'skill', argumentsDelta: '{}' },
+        },
+      },
+      {
+        type: 'assistant/chunk', seq: 3, time: 4,
+        data: { turn: 1, step: 1, chunk: { type: 'block-end', index: 0, block: vacant } },
+      },
+      {
+        type: 'assistant/message', seq: 4, time: 5, sourceEventSeqs: [2, 3], surfaceOp: 'append',
+        data: {
+          turn: 1, step: 1,
+          message: {
+            id: 'assistant', role: 'assistant', content: [vacant],
+            source: { kind: 'model', provider: 'mock', model: 'mock' },
+          },
+        },
+      },
+      { type: 'tool/call', seq: 5, time: 6, data: { turn: 1, step: 1, callId: 'call', name: '', arguments: '{}' } },
+      {
+        type: 'tool/result', seq: 6, time: 7, sourceEventSeqs: [5], surfaceOp: 'append',
+        data: {
+          turn: 1, step: 1,
+          message: {
+            id: 'result', role: 'user',
+            content: [{
+              type: 'tool-result', toolCallId: 'call',
+              content: [{ type: 'text', text: 'Error: unknown tool ""' }], isError: true,
+            }],
+            source: { kind: 'tool', callId: 'call' },
+          },
+        },
+      },
+      { type: 'step/end', seq: 7, time: 8, data: { turn: 1, step: 1 } },
+      { type: 'turn/end', seq: 8, time: 9, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    const restore = createSessionFormatCatalogWithChildren([]).createRestore(header, {
+      recovery: 'strict', validation: 'current',
+    })
+    for (const row of rows) restore.decodeRow(row)
+    const artifact = restore.finish()
+    expect(artifact.header.version).toBe(SESSION_FORMAT_VERSION)
+    const names: string[] = []
+    const take = (id: unknown, name: unknown) => {
+      if (id === 'call' && typeof name === 'string') names.push(name)
+    }
+    for (const event of artifact.events) {
+      const data = event.data as Record<string, unknown>
+      if (event.type === 'tool/call') take(data['callId'], data['name'])
+      const message = data['message'] as { content?: unknown[] } | undefined
+      if (Array.isArray(message?.content)) {
+        for (const block of message.content) {
+          const item = block as { type?: string; id?: string; name?: string }
+          if (item.type === 'tool-call') take(item.id, item.name)
+        }
+      }
+      if (!Array.isArray(data['stream'])) continue
+      for (const record of data['stream'] as Array<Record<string, unknown>>) {
+        if (record['type'] === 'tool-call-chunks') take(record['id'], record['name'])
+        const chunk = record['chunk'] as Record<string, unknown> | undefined
+        if (chunk?.['type'] === 'tool-call-delta') take(chunk['id'], chunk['name'])
+        if (chunk?.['type'] === 'block-end') {
+          const block = chunk['block'] as { type?: string; id?: string; name?: string } | undefined
+          if (block?.type === 'tool-call') take(block.id, block.name)
+        }
+      }
+    }
+    expect(names.length).toBeGreaterThan(0)
+    expect(names.every(name => name === 'invalid_tool_call')).toBe(true)
+  })
 })
 
 describe('historical child prerequisite catalog', () => {
