@@ -175,6 +175,12 @@ export function createElectronBuilderConfig(
   const welcomeBrand = trimmed(env, BRAND_RESOURCES_ENV) === undefined
     ? undefined
     : join(trimmed(env, BRAND_RESOURCES_ENV), 'welcome-brand.svg')
+  const rendererFiles = welcomeBrand === undefined
+    ? ['renderer/**/*']
+    : [
+      { from: 'renderer', to: 'renderer', filter: ['**/*', '!assets/welcome-brand.svg'] },
+      { from: welcomeBrand, to: 'renderer/assets/welcome-brand.svg' },
+    ]
   const installerSidebar = trimmed(env, BRAND_RESOURCES_ENV) === undefined
     ? join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp')
     : join(trimmed(env, BRAND_RESOURCES_ENV), 'uninstaller-sidebar.bmp')
@@ -229,12 +235,11 @@ export function createElectronBuilderConfig(
       'lib/preload-platform-account.cjs',
       'lib/preload-update-dialog.cjs',
       'lib/preload-welcome.cjs',
-      'renderer/**/*',
+      ...rendererFiles,
       'package.json',
       { from: buildPaths.dsh, to: 'dsh', filter: ['**/*'] },
       // electron-builder excludes a source directory's root node_modules.
       { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules', filter: ['**/*'] },
-      ...welcomeBrand === undefined ? [] : [{ from: welcomeBrand, to: 'renderer/assets/welcome-brand.svg' }],
     ],
     asarUnpack: unpack,
     extraResources: [
