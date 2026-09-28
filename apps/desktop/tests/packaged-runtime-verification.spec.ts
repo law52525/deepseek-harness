@@ -60,4 +60,36 @@ describe('packaged runtime verification', () => {
     await config.afterPack(CONTEXT as never)
     expect(verifyDesktopRuntime.mock.calls[0]?.[1]).toBe(productVersion)
   })
+
+  it('omits product identity extras when they are not configured', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const config = createElectronBuilderConfig(ENVIRONMENT, 'win32', 'x64')
+    expect(config.extraMetadata).not.toHaveProperty('version')
+    expect(config.extraMetadata).not.toHaveProperty('name')
+    expect(config.extraMetadata).not.toHaveProperty('dshDesktopProfileName')
+    expect(config.extraMetadata).not.toHaveProperty('dshDesktopExtraBundles')
+    expect(config.appId).toBe(ENVIRONMENT.DSH_DESKTOP_APP_ID)
+  })
+
+  it('publishes a product version override without changing the bundled runtime version', async () => {
+    const declaredVersion = (JSON.parse(
+      await import('node:fs/promises').then(async fs => fs.readFile(new URL('../package.json', import.meta.url), 'utf8')),
+    ) as { version: string }).version
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    verifyDesktopRuntime.mockClear()
+    const config = createElectronBuilderConfig(
+      { ...ENVIRONMENT, DSH_DESKTOP_PRODUCT_VERSION: '3.0.0', DSH_DESKTOP_PACKAGE_NAME: 'product-harness',
+        DSH_DESKTOP_PROFILE_NAME: 'product-desktop', DSH_DESKTOP_EXTRA_BUNDLES: 'extra-bundle',
+        DSH_DESKTOP_PRODUCT_APP_ID: 'com.example.product' }, 'win32', 'x64')
+    expect(config.appId).toBe('com.example.product')
+    expect(config.extraMetadata).toMatchObject({
+      version: '3.0.0',
+      name: 'product-harness',
+      dshDesktopProfileName: 'product-desktop',
+      dshDesktopExtraBundles: ['extra-bundle'],
+      dshDesktopAppId: 'com.example.product',
+    })
+    await config.afterPack(CONTEXT as never)
+    expect(verifyDesktopRuntime.mock.calls[0]?.[1]).toBe(declaredVersion)
+  })
 })

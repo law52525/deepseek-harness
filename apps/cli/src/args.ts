@@ -81,8 +81,12 @@ function selectProfile(value: string, previous?: string): string {
 }
 
 function rejectElectronProfile(program: Command, profile: string): void {
-  if (profile.toLowerCase() === 'desktop') {
-    program.error('error: profile "desktop" is managed exclusively by the Electron application')
+  const names = new Set(['desktop'])
+  // Must match apps/desktop/src/product-config.ts DESKTOP_PROFILE_NAME_ENV.
+  const extra = process.env.DSH_DESKTOP_PROFILE_NAME?.trim()
+  if (extra !== undefined && extra !== '') names.add(extra.toLowerCase())
+  if (names.has(profile.toLowerCase())) {
+    program.error(`error: profile "${profile}" is managed exclusively by the Electron application`)
   }
 }
 

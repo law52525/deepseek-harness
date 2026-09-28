@@ -18,7 +18,10 @@ function exitCode(argv: string[]): number {
   }
 }
 
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+})
 
 describe('parseDshArgs', () => {
   it('routes profile boots and shorthand, handing the rest to the app', () => {
@@ -212,6 +215,14 @@ describe('parseDshArgs', () => {
     expect(exitCode(['plugin', '--profile', 'desktop', 'add', 'x'])).toBe(1)
     expect(exitCode(['plugin', '--profile', 'Desktop', 'add', 'x'])).toBe(1)
     expect(exitCode(['--from-default-profile', 'web', 'plugin', '--profile', 'x', 'add', 'y'])).toBe(1)
+  })
+
+  it('rejects a configured Electron profile name and still rejects desktop', () => {
+    vi.stubEnv('DSH_DESKTOP_PROFILE_NAME', 'product-desktop')
+    expect(exitCode(['--profile', 'product-desktop'])).toBe(1)
+    expect(exitCode(['plugin', '--profile', 'product-desktop', 'add', 'x'])).toBe(1)
+    expect(exitCode(['--profile', 'desktop'])).toBe(1)
+    expect(parse(['--profile', 'tui'])).toMatchObject({ profile: 'tui' })
   })
 
   it('keeps its own help for an invocation with no app to hand it to', () => {

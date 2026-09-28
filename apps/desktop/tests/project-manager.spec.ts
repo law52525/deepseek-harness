@@ -39,6 +39,7 @@ function setup(): { root: string; manager: DesktopProjectManager } {
   return { root, manager: new DesktopProjectManager(resolveDesktopPaths(join(root, '.dsh')), { dsh }) }
 }
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -124,6 +125,19 @@ describe('desktop external plugin profile', () => {
     expect(manifest.dsh.profile.bundles).toContain('@deepseek-ai/dsh-web-app')
     await manager.applyRelease()
     expect(readFileSync(patch, 'utf8')).toContain('[]')
+  })
+
+  it('keeps extra product bundles when disabling third-party plugins', async () => {
+    vi.stubEnv('DSH_DESKTOP_EXTRA_BUNDLES', 'extra-bundle')
+    const { manager } = setup()
+    await manager.applyRelease()
+    seedPlugin(manager)
+    await manager.disableAllPlugins()
+    const manifest = JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    expect(manifest.dsh.profile.bundles).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'extra-bundle'])
+    expect(manifest.dsh.profile.bundles).not.toContain('plugin')
   })
 
   it('needs no runtime or package manifest when no plugins have been installed', async () => {
