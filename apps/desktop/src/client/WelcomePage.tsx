@@ -16,6 +16,7 @@ type Page = 'entry' | 'key' | 'account'
  */
 export function Welcome({ api }: { api: WelcomeApi }) {
   const { messages: m } = api
+  const allowApiKey = api.allowApiKey !== false
   const [expiryNotice, setExpiryNotice] = useState(false)
   const [page, setPage] = useState<Page>('entry')
   const pageRef = useRef<Page>('entry')
@@ -199,14 +200,14 @@ export function Welcome({ api }: { api: WelcomeApi }) {
           <StateDot state="ongoing" size={16} className="welcome-loading" />
         </button>
         <button id="auth-retry" className="primary" type="button" hidden={!failed} onClick={() => { void start() }}>{m.welcomeAuthRetry}</button>
-        <button id="auth-api-key" className="secondary" type="button" hidden={!failed} onClick={() => { navigate('key') }}>{m.welcomeApiKey}</button>
+        <button id="auth-api-key" className="secondary" type="button" hidden={!failed || !allowApiKey} onClick={() => { navigate('key') }}>{m.welcomeApiKey}</button>
         <button id="auth-cancel" className="secondary" type="button" hidden={failed}
           disabled={cancelling || phase === 'committing' || phase === 'succeeded' || (phase === 'initializing' && !attempt?.id)}
           onClick={() => { void cancel() }}>{m.welcomeAuthCancel}</button>
       </div>
       <div id="entry-actions" className="actions" hidden={page !== 'entry'}>
         <button id="sign-in" className="primary" type="button" onClick={() => { void start() }}>{m.welcomeSignIn}</button>
-        <button ref={keyButton} id="api-key" className="secondary" type="button" onClick={() => { navigate('key') }}>{m.welcomeApiKey}</button>
+        <button ref={keyButton} id="api-key" className="secondary" type="button" hidden={!allowApiKey} onClick={() => { navigate('key') }}>{m.welcomeApiKey}</button>
       </div>
       <div id="key-actions" className="actions" hidden={page !== 'key'}>
         <button id="save-key" className="primary" type="submit" form="key-form" disabled={busy || draft.trim() === ''}>{m.welcomeKeySave}</button>

@@ -30,6 +30,19 @@ export const DESKTOP_ARTIFACT_PREFIX_ENV = 'DSH_DESKTOP_ARTIFACT_PREFIX'
 /** Environment variable that points at derived brand resources (icons, welcome SVG). */
 export const DESKTOP_BRAND_RESOURCES_ENV = 'DSH_DESKTOP_BRAND_RESOURCES'
 
+/** Environment variable that enables in-app authorization windows (JSON object). */
+export const DESKTOP_IN_APP_AUTH_ENV = 'DSH_DESKTOP_IN_APP_AUTH'
+
+/** Environment variable that hides the welcome API Key entry when set to `0`. */
+export const DESKTOP_WELCOME_API_KEY_ENV = 'DSH_DESKTOP_WELCOME_API_KEY'
+
+/** Build-time allow-list that opens authorization in an embedded window. */
+export interface DesktopInAppAuthConfig {
+  readonly origins: readonly string[]
+  readonly callbackPrefix: string
+  readonly forwardPath: string
+}
+
 /** Profile directory name when no override is configured. */
 export const DEFAULT_DESKTOP_PROFILE_NAME = 'desktop'
 
@@ -166,6 +179,83 @@ export function resolveDesktopBrandResources(env: NodeJS.ProcessEnv = process.en
   return trimmedEnv(env, DESKTOP_BRAND_RESOURCES_ENV)
 }
 
+function httpsOrigin(value: string): string | undefined {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' || url.username || url.password) return undefined
+    return url.origin
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Parse the in-app authorization allow-list. Unset or empty is official
+ * `shell.openExternal` behavior. Malformed JSON or an invalid shape fails closed.
+ * @param env - Process environment.
+ * @returns Configured allow-list, or `undefined` when the product uses the system browser.
+ */
+export function resolveDesktopInAppAuth(env: NodeJS.ProcessEnv = process.env): DesktopInAppAuthConfig | undefined {
+  const raw = trimmedEnv(env, DESKTOP_IN_APP_AUTH_ENV)
+  if (raw === undefined) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw) as unknown
+  } catch {
+    throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} must be JSON`)
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} must be an object`)
+  }
+  const record = parsed as { origins?: unknown; callbackPrefix?: unknown; forwardPath?: unknown }
+  if (!Array.isArray(record.origins) || record.origins.length === 0
+    || typeof record.callbackPrefix !== 'string' || typeof record.forwardPath !== 'string') {
+    throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} must include origins, callbackPrefix, and forwardPath`)
+  }
+  const origins: string[] = []
+  const seen = new Set<string>()
+  for (const item of record.origins) {
+    if (typeof item !== 'string') {
+      throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} origins must be https origins`)
+    }
+    const origin = httpsOrigin(item)
+    if (origin === undefined) {
+      throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} origins must be https origins`)
+    }
+    if (seen.has(origin)) continue
+    seen.add(origin)
+    origins.push(origin)
+  }
+  const callbackPrefix = record.callbackPrefix.trim()
+  const forwardPath = record.forwardPath.trim()
+  if (httpsOrigin(callbackPrefix) === undefined && !callbackPrefix.startsWith('https://')) {
+    throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} callbackPrefix must be an https URL prefix`)
+  }
+  try {
+    const prefix = new URL(callbackPrefix)
+    if (prefix.protocol !== 'https:' || prefix.username || prefix.password) {
+      throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} callbackPrefix must be an https URL prefix`)
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith(DESKTOP_IN_APP_AUTH_ENV)) throw error
+    throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} callbackPrefix must be an https URL prefix`)
+  }
+  if (!forwardPath.startsWith('/') || forwardPath.includes('?') || forwardPath.includes('#')) {
+    throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} forwardPath must be an absolute pathname`)
+  }
+  return { origins, callbackPrefix, forwardPath }
+}
+
+/**
+ * Whether the welcome window offers the API Key page. Unset is official (shown).
+ * Packaged product builds set `0` so only account sign-in remains.
+ * @param env - Process environment.
+ * @returns `false` only when the build-time switch is exactly `0`.
+ */
+export function resolveDesktopWelcomeApiKeyEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return trimmedEnv(env, DESKTOP_WELCOME_API_KEY_ENV) !== '0'
+}
+
 /**
  * Whether `url` is this product's `open` deep link (`<scheme>://open` with optional trailing slash).
  * @param url - Incoming custom-protocol URL.
@@ -178,9 +268,10 @@ export function isDesktopOpenUrl(url: string, scheme: string = resolveDesktopPro
 
 /**
  * Replace process env with packaged extraMetadata. Packaged identity is immutable:
- * extra bundles, profile name, product version, product name, and protocol scheme
- * come only from the baked manifest. Unpackaged development never calls this, so
- * the live environment still applies.
+ * extra bundles, profile name, product version, product name, protocol scheme,
+ * in-app authorization, and welcome API Key switch come only from the baked
+ * manifest. Unpackaged development never calls this, so the live environment
+ * still applies.
  * @param manifest - Packaged application `package.json`.
  * @param env - Process environment to update.
  */
@@ -199,4 +290,14 @@ export function applyPackagedProductConfig(
   env[DESKTOP_PROTOCOL_SCHEME_ENV] = typeof manifest.dshDesktopProtocolScheme === 'string'
     ? manifest.dshDesktopProtocolScheme.trim()
     : ''
+  env[DESKTOP_IN_APP_AUTH_ENV] = inAppAuthManifestValue(manifest.dshDesktopInAppAuth)
+  env[DESKTOP_WELCOME_API_KEY_ENV] = typeof manifest.dshDesktopWelcomeApiKey === 'string'
+    ? manifest.dshDesktopWelcomeApiKey.trim()
+    : ''
+}
+
+function inAppAuthManifestValue(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'object' && value !== null) return JSON.stringify(value)
+  return ''
 }

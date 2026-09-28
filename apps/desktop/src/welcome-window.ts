@@ -13,7 +13,11 @@ import { WELCOME_IPC, type WelcomeOperations } from './welcome-api.ts'
  * @param locale - shell-owned localized copy.
  * @returns sandboxed window options with a locale-only preload.
  */
-export function welcomeWindowOptions(platform: NodeJS.Platform, locale: DesktopLocale): BrowserWindowConstructorOptions {
+export function welcomeWindowOptions(
+  platform: NodeJS.Platform,
+  locale: DesktopLocale,
+  allowApiKey = true,
+): BrowserWindowConstructorOptions {
   return {
     width: 600,
     height: 700,
@@ -41,6 +45,7 @@ export function welcomeWindowOptions(platform: NodeJS.Platform, locale: DesktopL
       additionalArguments: [
         `--dsh-welcome-locale=${locale.id}`,
         `--dsh-welcome-product=${locale.messages.aboutProduct}`,
+        ...allowApiKey ? [] : ['--dsh-welcome-api-key=0'],
       ],
       nodeIntegration: false,
       contextIsolation: true,
@@ -57,10 +62,15 @@ let disposeActiveHandlers: (() => void) | undefined
  * Replaces IPC ownership immediately; the caller closes the previous native window.
  * @param locale - shell-owned localized copy.
  * @param operations - credential write and this-launch-only skip actions.
+ * @param allowApiKey - whether the API Key welcome page is offered.
  * @returns the visible window; a failed load destroys it before rejecting.
  */
-export async function openWelcomeWindow(locale: DesktopLocale, operations: WelcomeOperations): Promise<BrowserWindow> {
-  const window = new BrowserWindow(welcomeWindowOptions(process.platform, locale))
+export async function openWelcomeWindow(
+  locale: DesktopLocale,
+  operations: WelcomeOperations,
+  allowApiKey = true,
+): Promise<BrowserWindow> {
+  const window = new BrowserWindow(welcomeWindowOptions(process.platform, locale, allowApiKey))
   disposeActiveHandlers?.()
   let active = true
   const disposeHandlers = (): void => {
@@ -110,7 +120,6 @@ export async function openWelcomeWindow(locale: DesktopLocale, operations: Welco
     if (!window.isDestroyed()) window.destroy()
     throw error
   }
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Another window can replace ownership during loadFile.
-  if (active && !window.isDestroyed()) window.show()
+  if (!window.isDestroyed() && active) window.show()
   return window
 }
