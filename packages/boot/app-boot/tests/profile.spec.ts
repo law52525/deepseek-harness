@@ -22,6 +22,9 @@ import {
   PROFILE_COMPATIBILITY_FILENAME,
   PROFILE_PATCH_FILENAME,
   PROFILE_TEMPLATES,
+  DESKTOP_MANAGED_PROFILE_MARK,
+  ensureDesktopManagedProfileMark,
+  isDesktopManagedProfileManifest,
   readProfileManifest,
   readProfilePatches,
   removeLinkProjections,
@@ -232,6 +235,29 @@ describe('manifest round-trip', () => {
     writeFileSync(join(dir, 'package.json'), '[]')
     expect(() => readProfileManifest('t', dir)).toThrow('must hold a JSON object')
     expect(() => readProfileManifest('t', join(dir, 'nope'))).toThrow('failed to read profile manifest')
+  })
+})
+
+describe('desktop-managed profile mark', () => {
+  it('writes the mark once and leaves unreadable files unchanged', () => {
+    const dir = tmp()
+    expect(isDesktopManagedProfileManifest({ managedBy: DESKTOP_MANAGED_PROFILE_MARK.value })).toBe(true)
+    expect(isDesktopManagedProfileManifest({ managedBy: 'other' })).toBe(false)
+    ensureDesktopManagedProfileMark(dir)
+    expect(existsSync(join(dir, 'package.json'))).toBe(false)
+    writeProfileManifest(dir, { name: 'p', dependencies: { plugin: '1.0.0' } })
+    ensureDesktopManagedProfileMark(dir)
+    expect(readProfileManifest('t', dir)).toMatchObject({
+      name: 'p',
+      dependencies: { plugin: '1.0.0' },
+      managedBy: 'desktop-app',
+    })
+    const marked = readFileSync(join(dir, 'package.json'), 'utf8')
+    ensureDesktopManagedProfileMark(dir)
+    expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(marked)
+    writeFileSync(join(dir, 'package.json'), '{broken')
+    ensureDesktopManagedProfileMark(dir)
+    expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe('{broken')
   })
 })
 

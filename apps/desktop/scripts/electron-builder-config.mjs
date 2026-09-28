@@ -21,7 +21,7 @@ import {
 } from './windows-sign.mjs'
 import { resolveDesktopAutoUpdateConfig } from './desktop-auto-update-environment.mjs'
 import { resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
-import { resolveDesktopBuildVersion } from './desktop-build-version.mjs'
+import { resolveDesktopBuildVersion, resolveDesktopProductVersion } from './desktop-build-version.mjs'
 import { resolveDesktopPolicyEnvironment } from './desktop-policy-environment.mjs'
 import { desktopTargetBuildPaths, resolveDesktopBuildTarget } from './desktop-build-paths.mjs'
 import { installWindowsDirectoryInstaller } from './windows-directory-installer.mjs'
@@ -33,6 +33,24 @@ import {
   verifyMacOSAppUpdateConfig,
   writeMacOSAppUpdateConfig,
 } from './macos-app-update-config.mjs'
+
+const PRODUCT_APP_ID_ENV = 'DSH_DESKTOP_PRODUCT_APP_ID'
+const PACKAGE_NAME_ENV = 'DSH_DESKTOP_PACKAGE_NAME'
+const PROFILE_NAME_ENV = 'DSH_DESKTOP_PROFILE_NAME'
+const EXTRA_BUNDLES_ENV = 'DSH_DESKTOP_EXTRA_BUNDLES'
+
+function commaSeparatedNames(value) {
+  if (value === undefined) return []
+  const names = []
+  const seen = new Set()
+  for (const part of value.split(',')) {
+    const name = part.trim()
+    if (name === '' || seen.has(name)) continue
+    seen.add(name)
+    names.push(name)
+  }
+  return names
+}
 
 /**
  * Create electron-builder configuration from one release environment.
@@ -50,7 +68,11 @@ export function createElectronBuilderConfig(
   preparedRuntime = undefined,
   preparedRuntimeVersion = undefined,
 ) {
-  const appId = resolveDesktopAppId(env)
+  const productAppId = env[PRODUCT_APP_ID_ENV]?.trim()
+  const appId = resolveDesktopAppId({
+    ...env,
+    ...productAppId === undefined || productAppId === '' ? {} : { DSH_DESKTOP_APP_ID: productAppId },
+  })
   const policy = resolveDesktopPolicyEnvironment(env)
   const targetPlatform = env.DSH_DESKTOP_TARGET_PLATFORM
   const resolvedPlatform = targetPlatform ?? hostPlatform
@@ -94,16 +116,25 @@ export function createElectronBuilderConfig(
   if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
   // electron-builder merges extraMetadata into the packaged manifest, so a build version here reaches
   // the artifact names, the update feed, and the installed app.getVersion() the updater compares against.
-  const productVersion = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')).version
+  const declaredVersion = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')).version
+  const productVersion = resolveDesktopProductVersion(env, declaredVersion)
   const buildVersion = resolveDesktopBuildVersion(env, productVersion)
   const packaged = resolveDesktopBuildCommit(env)
+  const packageName = env[PACKAGE_NAME_ENV]?.trim()
+  const profileName = env[PROFILE_NAME_ENV]?.trim()
+  const extraBundles = commaSeparatedNames(env[EXTRA_BUNDLES_ENV])
   return {
     appId,
     protocols: [{ name: 'DeepSeek Harness', schemes: ['dsh'] }],
     extraMetadata: {
       dshDesktopAppId: appId,
       dshMandatoryUpdatePolicy: policy,
-      ...buildVersion === productVersion ? {} : { version: buildVersion },
+      ...buildVersion === declaredVersion ? {} : { version: buildVersion },
+      ...packageName === undefined || packageName === '' ? {} : { name: packageName },
+      ...profileName === undefined || profileName === '' || profileName === 'desktop'
+        ? {}
+        : { dshDesktopProfileName: profileName },
+      ...extraBundles.length === 0 ? {} : { dshDesktopExtraBundles: extraBundles },
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
     },
     productName: 'DeepSeek Harness',
@@ -186,10 +217,9 @@ export function createElectronBuilderConfig(
         await writeMacOSAppUpdateConfig(resourcesDir, resolveMacOSAppUpdateFeed(context.packager.config.publish),
           context.packager.appInfo.updaterCacheDirName)
       }
-      // The bundled runtime declares whichever version prepared it: the product version for an ordinary
-      // release, and a rewritten one for installed-update qualification.
+      // The bundled runtime declares the dsh version, not the published product version.
       await verifyDesktopRuntime(buildPaths.dsh,
-        preparedRuntimeVersion ?? productVersion, { platform: resolvedPlatform, arch: resolvedArch })
+        preparedRuntimeVersion ?? declaredVersion, { platform: resolvedPlatform, arch: resolvedArch })
       // Unsigned Windows builds skip electron-builder's afterSign hook.
       if (packagesWindows && unsigned) await verifyWindowsAsarUnpack(buildPaths.dsh, resourcesDir, windowsCode)
     },

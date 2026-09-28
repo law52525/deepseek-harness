@@ -20,10 +20,12 @@ import {
   verifyDesktopCorePackageSet,
 } from './core-package-set.ts'
 import type { DesktopPaths } from './paths.ts'
+import { resolveDesktopExtraBundles } from './product-config.ts'
 import type { DesktopRelease } from './release.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
 import {
-  initProfile, PROFILE_TEMPLATES, removeLinkProjections, sanitizeProfile, type ProfileTemplate,
+  initProfile, PROFILE_TEMPLATES, removeLinkProjections, sanitizeProfile,
+  ensureDesktopManagedProfileMark, type ProfileTemplate,
 } from '@deepseek-ai/dsh-app-boot'
 
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
@@ -31,6 +33,17 @@ const DSH_PACKAGE = '@deepseek-ai/dsh'
 const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
 const WEB_PROFILE = PROFILE_TEMPLATES.web as ProfileTemplate
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\n'
+
+/**
+ * Product bundles = shipped web profile plus extra bundles written at packaging time.
+ * Packaged Electron overwrites process env from extraMetadata before this runs;
+ * unpackaged development still reads the live environment.
+ * @param extra - Extra bundle names; defaults to the packaging configuration.
+ * @returns Bundle names used to create and recover the desktop profile.
+ */
+export function resolveProductBundles(extra: readonly string[] = resolveDesktopExtraBundles()): string[] {
+  return [...WEB_PROFILE.bundles, ...extra]
+}
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`, { mode: 0o600 })
 }
@@ -70,11 +83,15 @@ export class DesktopProjectManager {
 
   /**
    * Back up the profile patch and disable third-party bundles without loading application resources.
-   * The caller must stop the Host first.
+   * The caller must stop the Host first. Recovery keeps {@link ensureDesktopManagedProfileMark}.
    * @returns Backup path after the locked profile write, or undefined if the patch was absent.
    */
   async disableAllPlugins(): Promise<string | undefined> {
-    return this.withLock(() => sanitizeProfile('dsh', this.paths.profile, WEB_PROFILE.bundles))
+    return this.withLock(() => {
+      const backup = sanitizeProfile('dsh', this.paths.profile, resolveProductBundles())
+      ensureDesktopManagedProfileMark(this.paths.profile)
+      return backup
+    })
   }
 
   /**
@@ -139,7 +156,7 @@ export function createRuntimeProjectMetadata(projectDir: string, release: Deskto
     private: true,
     version: '0.0.0',
     dependencies: desktopCorePackageOverrides(packageSet),
-    dsh: { profile: { bundles: [...WEB_PROFILE.bundles] } },
+    dsh: { profile: { bundles: resolveProductBundles() } },
   }
   writeJson(join(projectDir, 'package.json'), manifest)
   writeFileSync(
@@ -164,7 +181,7 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
       [DSH_PACKAGE]: release.version,
       [DESKTOP_HOST_PACKAGE]: release.version,
     },
-    dsh: { profile: { bundles: [...WEB_PROFILE.bundles] } },
+    dsh: { profile: { bundles: resolveProductBundles() } },
   }
   writeJson(join(projectDir, 'package.json'), manifest)
   writeFileSync(join(projectDir, 'pnpm-workspace.yaml'), workspaceFile(), { mode: 0o600 })
@@ -172,5 +189,6 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
 
 /** Create the first external plugin profile without running a package manager. */
 export function createPluginProfile(projectDir: string): void {
-  initProfile(projectDir, WEB_PROFILE.bundles)
+  initProfile(projectDir, resolveProductBundles())
+  ensureDesktopManagedProfileMark(projectDir)
 }

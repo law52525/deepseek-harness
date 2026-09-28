@@ -25,6 +25,9 @@ import { parse } from 'semver'
 /** Environment variable that carries the build version through one packaging and upload run. */
 export const DESKTOP_BUILD_VERSION_ENV = 'DSH_DESKTOP_BUILD_VERSION'
 
+/** Environment variable that publishes a product version distinct from the bundled dsh version. */
+export const DESKTOP_PRODUCT_VERSION_ENV = 'DSH_DESKTOP_PRODUCT_VERSION'
+
 /** Prerelease field that opens a test build's suffix on a stable product version. */
 const STABLE_TEST_FIELD = 'test'
 
@@ -74,6 +77,21 @@ export function validateDesktopBuildVersion(buildVersion, productVersion) {
       desktopBuildVersionPrefix(productVersion)}<date>.<sequence>`)
   }
   return build.version
+}
+
+/**
+ * Resolve the product version a build publishes.
+ * Unset, this is the version `apps/desktop/package.json` declares (the bundled dsh version).
+ * Set, electron-builder extraMetadata.version uses the override and skips "must extend dsh version".
+ * Runtime descriptor / package-set checks still use the declared dsh version.
+ * @param {NodeJS.ProcessEnv} env - Packaging environment.
+ * @param {string} declaredVersion - Version the desktop and dsh manifests declare.
+ * @returns {string} Product version the artifacts publish.
+ */
+export function resolveDesktopProductVersion(env, declaredVersion) {
+  const override = env[DESKTOP_PRODUCT_VERSION_ENV]?.trim()
+  if (override === undefined || override === '') return declaredVersion
+  return parseVersion(override, 'product version override').version
 }
 
 /**

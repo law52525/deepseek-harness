@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   DESKTOP_BUILD_VERSION_ENV,
+  DESKTOP_PRODUCT_VERSION_ENV,
   desktopBuildVersionPrefix,
   resolveDesktopBuildVersion,
+  resolveDesktopProductVersion,
   validateDesktopBuildVersion,
 } from '../scripts/desktop-build-version.mjs'
 
@@ -62,4 +64,12 @@ describe('desktop build version', () => {
     'opens %s build versions with %s', (productVersion, prefix) => {
       expect(desktopBuildVersionPrefix(productVersion)).toBe(prefix)
     })
+
+  it('publishes a product version override without extending the declared dsh version', () => {
+    expect(resolveDesktopProductVersion({}, PRERELEASE)).toBe(PRERELEASE)
+    expect(resolveDesktopProductVersion({ [DESKTOP_PRODUCT_VERSION_ENV]: '3.0.0' }, PRERELEASE)).toBe('3.0.0')
+    expect(resolveDesktopBuildVersion({ [DESKTOP_PRODUCT_VERSION_ENV]: '3.0.0' }, '3.0.0')).toBe('3.0.0')
+    expect(validateDesktopBuildVersion('3.0.0-test.20260921.1', '3.0.0')).toBe('3.0.0-test.20260921.1')
+    expect(() => validateDesktopBuildVersion('3.0.0', PRERELEASE)).toThrow(/must extend product version/u)
+  })
 })

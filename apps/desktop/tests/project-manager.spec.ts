@@ -39,6 +39,7 @@ function setup(): { root: string; manager: DesktopProjectManager } {
   return { root, manager: new DesktopProjectManager(resolveDesktopPaths(join(root, '.dsh')), { dsh }) }
 }
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -126,6 +127,49 @@ describe('desktop external plugin profile', () => {
     expect(readFileSync(patch, 'utf8')).toContain('[]')
   })
 
+  it('keeps extra product bundles when disabling third-party plugins', async () => {
+    vi.stubEnv('DSH_DESKTOP_EXTRA_BUNDLES', 'extra-bundle')
+    const { manager } = setup()
+    await manager.applyRelease()
+    seedPlugin(manager)
+    await manager.disableAllPlugins()
+    const manifest = JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8')) as {
+      managedBy?: string
+      dsh: { profile: { bundles: string[] } }
+    }
+    expect(manifest.dsh.profile.bundles).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'extra-bundle'])
+    expect(manifest.dsh.profile.bundles).not.toContain('plugin')
+    expect(manifest.managedBy).toBe('desktop-app')
+  })
+
+  it('backfills the desktop management mark on an existing profile', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    const path = join(manager.paths.profile, 'package.json')
+    const manifest = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+    delete manifest.managedBy
+    writeFileSync(path, `${JSON.stringify(manifest, undefined, 2)}\n`)
+    await manager.applyRelease()
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toMatchObject({ managedBy: 'desktop-app' })
+  })
+
+  it('restores the desktop management mark during native recovery', async () => {
+    const { manager } = setup()
+    await manager.applyRelease()
+    seedPlugin(manager)
+    const path = join(manager.paths.profile, 'package.json')
+    const manifest = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+    delete manifest.managedBy
+    writeFileSync(path, `${JSON.stringify(manifest, undefined, 2)}\n`)
+    await manager.disableAllPlugins()
+    const recovered = JSON.parse(readFileSync(path, 'utf8')) as {
+      managedBy?: string
+      dsh: { profile: { bundles: string[] } }
+    }
+    expect(recovered.managedBy).toBe('desktop-app')
+    expect(recovered.dsh.profile.bundles).not.toContain('plugin')
+  })
+
   it('needs no runtime or package manifest when no plugins have been installed', async () => {
     const { manager } = setup()
     await expect(manager.disableAllPlugins()).resolves.toBeUndefined()
@@ -191,7 +235,10 @@ describe('desktop external plugin profile', () => {
     await expect(manager.applyRelease()).resolves.toBeUndefined()
     await expect(manager.applyRelease()).resolves.toBeUndefined()
     expect(plugins(manager)).toEqual([])
-    expect(JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8'))).toMatchObject({ dependencies: {} })
+    expect(JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8'))).toMatchObject({
+      dependencies: {},
+      managedBy: 'desktop-app',
+    })
   })
 
   it.skipIf(process.platform !== 'win32')('reuses the profile when the launch path changes only Windows letter casing', async () => {

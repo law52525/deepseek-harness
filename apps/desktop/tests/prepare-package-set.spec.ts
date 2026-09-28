@@ -63,6 +63,41 @@ describe('desktop package-set selection', () => {
     ]))).toThrow(/omit @deepseek-ai\/dsh-desktop-host/u)
   })
 
+  it('leaves extra roots out of the closure when they are not configured', () => {
+    const available = new Map<string, PackedDesktopPackage>([
+      ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
+      ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host')],
+      ['extra-root', packed('extra-root')],
+    ])
+    expect(selectDesktopPackageClosure(available).map(entry => entry.manifest.name)).toEqual([
+      '@deepseek-ai/dsh',
+      '@deepseek-ai/dsh-desktop-host',
+    ])
+  })
+
+  it('visits extra roots when DSH_DESKTOP_EXTRA_ROOT_PACKAGES is set', () => {
+    vi.stubEnv('DSH_DESKTOP_EXTRA_ROOT_PACKAGES', 'extra-root')
+    const available = new Map<string, PackedDesktopPackage>([
+      ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
+      ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host')],
+      ['extra-root', packed('extra-root', { dependencies: { 'extra-dep': '1.0.0' } })],
+      ['extra-dep', packed('extra-dep')],
+    ])
+    expect(selectDesktopPackageClosure(available).map(entry => entry.manifest.name)).toEqual([
+      '@deepseek-ai/dsh',
+      '@deepseek-ai/dsh-desktop-host',
+      'extra-dep',
+      'extra-root',
+    ])
+  })
+
+  it('rejects a configured extra root missing from packed inputs', () => {
+    expect(() => selectDesktopPackageClosure(new Map([
+      ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
+      ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host')],
+    ]), ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', 'missing-root'])).toThrow(/omit missing-root/u)
+  })
+
   it('leaves independently published Office packages to npm resolution', () => {
     const available = new Map<string, PackedDesktopPackage>([
       ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh', {
