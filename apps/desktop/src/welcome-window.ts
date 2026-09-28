@@ -38,7 +38,10 @@ export function welcomeWindowOptions(platform: NodeJS.Platform, locale: DesktopL
     } as const : {}),
     webPreferences: {
       preload: fileURLToPath(new URL('./preload-welcome.cjs', import.meta.url)),
-      additionalArguments: [`--dsh-welcome-locale=${locale.id}`],
+      additionalArguments: [
+        `--dsh-welcome-locale=${locale.id}`,
+        `--dsh-welcome-product=${locale.messages.aboutProduct}`,
+      ],
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,

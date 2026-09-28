@@ -1,9 +1,16 @@
 /** Typed English and Chinese copy owned by the Electron shell. */
 
-import {
-  DEFAULT_DESKTOP_PRODUCT_NAME,
-  resolveDesktopProductName,
-} from './product-config.ts'
+type LocaleEnv = { readonly DSH_DESKTOP_PRODUCT_NAME?: string }
+
+function localeProductName(env?: LocaleEnv): string {
+  const explicit = env?.DSH_DESKTOP_PRODUCT_NAME?.trim()
+  if (explicit !== undefined && explicit !== '') return explicit
+  const bundled = process.env.DSH_BUNDLE_PRODUCT_NAME
+  if (bundled !== undefined && bundled !== '') return bundled
+  const live = process.env.DSH_DESKTOP_PRODUCT_NAME?.trim()
+  if (live !== undefined && live !== '') return live
+  return 'DeepSeek Harness'
+}
 
 export const en = {
   application: 'Application',
@@ -65,7 +72,7 @@ export const en = {
   welcomeSignIn: 'Sign in',
   welcomeApiKey: 'Add API Key',
   welcomeKeyTitle: 'Add an API key to get started',
-  welcomeKeyDescription: 'Configure official DeepSeek models to start using Harness',
+  welcomeKeyDescription: 'Configure official models to start using the app',
   welcomeKeyPlaceholder: 'Enter API key',
   welcomeKeySave: 'Save and continue',
   welcomeKeyLater: 'Set up later',
@@ -209,7 +216,7 @@ export const zh = {
   welcomeSignIn: '登录',
   welcomeApiKey: '添加 API Key',
   welcomeKeyTitle: '添加一个 API Key 开始使用',
-  welcomeKeyDescription: '配置 DeepSeek 官方模型，即可开始使用',
+  welcomeKeyDescription: '配置官方模型，即可开始使用',
   welcomeKeyPlaceholder: '输入 API 密钥',
   welcomeKeySave: '保存并继续',
   welcomeKeyLater: '稍后配置',
@@ -296,29 +303,20 @@ export interface DesktopLocale {
   readonly messages: DesktopMessages
 }
 
-const BRANDED_EN: Partial<DesktopMessages> = {
-  welcomeKeyDescription: 'Configure official models to start using the app',
-}
-
-const BRANDED_ZH: Partial<DesktopMessages> = {
-  welcomeKeyDescription: '配置官方模型，即可开始使用',
-}
-
-function brandMessages(messages: DesktopMessages, extra: Partial<DesktopMessages>, product: string): DesktopMessages {
+function brandMessages(messages: DesktopMessages, product: string): DesktopMessages {
   const branded = { ...messages }
   for (const key of Object.keys(messages) as (keyof DesktopMessages)[]) {
     branded[key] = messages[key].split('{product}').join(product)
   }
-  if (product === DEFAULT_DESKTOP_PRODUCT_NAME) return branded
-  return { ...branded, ...extra }
+  return branded
 }
 
 /** Resolve Electron's locale to one shipped Desktop dictionary. */
-export function resolveDesktopLocale(locale: string, env: NodeJS.ProcessEnv = process.env): DesktopLocale {
-  const product = resolveDesktopProductName(env)
+export function resolveDesktopLocale(locale: string, env?: LocaleEnv): DesktopLocale {
+  const product = localeProductName(env)
   return locale.toLowerCase().startsWith('zh')
-    ? { id: 'zh-CN', messages: brandMessages(zh, BRANDED_ZH, product) }
-    : { id: 'en', messages: brandMessages(en, BRANDED_EN, product) }
+    ? { id: 'zh-CN', messages: brandMessages(zh, product) }
+    : { id: 'en', messages: brandMessages(en, product) }
 }
 
 /**

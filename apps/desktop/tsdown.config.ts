@@ -60,7 +60,10 @@ export default defineConfig([
         }],
         root: fileURLToPath(new URL('.', import.meta.url)),
         esbuild: { jsx: 'automatic' },
-        define: { 'process.env.NODE_ENV': JSON.stringify('production') },
+        define: {
+          'process.env.NODE_ENV': JSON.stringify('production'),
+          ...brandedIdentityDefine,
+        },
         build: {
           outDir: 'lib/welcome',
           emptyOutDir: true,
@@ -87,6 +90,7 @@ export default defineConfig([
     // Sandboxed Electron preloads run as CommonJS even though the application package is ESM.
     entry: { [name]: `lib/types/${name}.js` },
     plugins: [packagedImportsPlugin(preloadImports)],
+    define: brandedIdentityDefine,
     outDir: 'lib',
     format: 'cjs' as const,
     codeSplitting: false,
