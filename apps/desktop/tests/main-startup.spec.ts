@@ -855,7 +855,7 @@ describe('desktop main startup', () => {
       .find(items => items.some(item => item.role === 'editMenu'))
     if (template === undefined) throw new Error('application menu missing')
     expect(template.map(describeItem)).toEqual(platform === 'darwin'
-      ? ['Desktop test', en.fileMenu, 'editMenu', 'windowMenu']
+      ? [officialEn.aboutProduct, en.fileMenu, 'editMenu', 'windowMenu']
       : ['Application', 'editMenu'])
     const application = template[0]!.submenu as MenuItemConstructorOptions[]
     expect(application.filter(item => item.visible !== false).map(describeItem)).toEqual(platform === 'darwin'
@@ -877,7 +877,28 @@ describe('desktop main startup', () => {
         item.role === 'hide' || item.role === 'hideOthers' || item.role === 'unhide' || item.role === 'quit')
       await expect(JSON.stringify(commands, null, 2) + '\n')
         .toMatchFileSnapshot(`./expected/application-menu-${locale}.json`)
+      const template = harness.menu.buildFromTemplate.mock.calls
+        .map(call => call[0])
+        .find(items => items.some(item => item.role === 'editMenu'))
+      expect(template?.[0]?.label).toBe(officialEn.aboutProduct)
       expect(harness.app.name).toBe('@deepseek-ai/dsh-desktop')
+    } finally { harness.app.name = originalName }
+  })
+
+  it('labels the macOS application menu with the configured product name without renaming app.name', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    vi.stubEnv('DSH_DESKTOP_PRODUCT_NAME', 'Wandox Work')
+    const originalName = harness.app.name
+    harness.app.name = 'wandox-harness'
+    try {
+      await import('../src/main.ts')
+      await harness.preparing.promise
+      const template = harness.menu.buildFromTemplate.mock.calls
+        .map(call => call[0])
+        .find(items => items.some(item => item.role === 'editMenu'))
+      expect(template?.[0]?.label).toBe('Wandox Work')
+      expect(template?.[0]?.label).not.toBe(harness.app.name)
+      expect(harness.app.name).toBe('wandox-harness')
     } finally { harness.app.name = originalName }
   })
 

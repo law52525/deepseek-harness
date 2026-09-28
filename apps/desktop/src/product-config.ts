@@ -112,6 +112,23 @@ export function resolveDesktopProductName(env: NodeJS.ProcessEnv = process.env):
 }
 
 /**
+ * Top-level application-menu label. Darwin uses the product display name so
+ * `Menu.getApplicationMenu()` matches CFBundleName / about copy. Other
+ * platforms keep the generic locale "Application" string. Never pass
+ * `app.getName()`: that is the packaged npm name and owns userData.
+ * @param platform - Host platform.
+ * @param productName - `resolveDesktopProductName()` (same source as about).
+ * @param genericApplicationLabel - Non-Darwin locale `application` string.
+ */
+export function desktopApplicationMenuTopLevelLabel(
+  platform: NodeJS.Platform,
+  productName: string,
+  genericApplicationLabel: string,
+): string {
+  return platform === 'darwin' ? productName : genericApplicationLabel
+}
+
+/**
  * Resolve the custom URL scheme registered with the OS.
  * @param env - Process environment.
  * @returns Configured scheme, or `dsh` when unset.

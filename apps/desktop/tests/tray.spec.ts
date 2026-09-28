@@ -27,12 +27,15 @@ vi.mock('electron', () => ({
 
 afterEach(() => { native.trays.length = 0; native.menus.length = 0; vi.clearAllMocks() })
 
-function setup(locale = 'en') {
-  let current = resolveDesktopLocale(locale)
+function setup(locale = 'en', env?: { DSH_DESKTOP_PRODUCT_NAME?: string }) {
+  let current = resolveDesktopLocale(locale, env)
   const open = vi.fn()
   const quit = vi.fn()
   const tray = new DesktopTray({ iconPath: 'C:/app/resources/tray.ico', locale: () => current, open, quit })
-  return { tray, open, quit, native: native.trays[0]!, setLocale: (next: string) => { current = resolveDesktopLocale(next) } }
+  return {
+    tray, open, quit, native: native.trays[0]!,
+    setLocale: (next: string) => { current = resolveDesktopLocale(next, env) },
+  }
 }
 
 function labels(menu: MenuItemConstructorOptions[]): (string | undefined)[] {
@@ -46,6 +49,12 @@ it('shows the application icon with its name as the tooltip and an Open / Quit m
   expect(f.native.setToolTip).toHaveBeenCalledWith('DeepSeek Harness')
   expect(labels(native.menus[0]!)).toEqual(['Open DeepSeek Harness', 'separator', 'Quit DeepSeek Harness'])
   expect(f.native.setContextMenu).toHaveBeenCalledWith({ template: native.menus[0] })
+})
+
+it('tooltips the configured product display name, not an Electron app name', () => {
+  const f = setup('en', { DSH_DESKTOP_PRODUCT_NAME: 'Wandox Work' })
+  expect(f.native.setToolTip).toHaveBeenCalledWith('Wandox Work')
+  expect(labels(native.menus[0]!)).toEqual(['Open Wandox Work', 'separator', 'Quit Wandox Work'])
 })
 
 it('opens the window on a single click and routes menu entries to the open and quit actions', () => {

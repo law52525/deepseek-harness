@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { resolveDesktopLocale } from '../src/locale.ts'
-import { resolveDesktopProductName } from '../src/product-config.ts'
+import { desktopApplicationMenuTopLevelLabel, resolveDesktopProductName } from '../src/product-config.ts'
 
 const PRODUCT = 'Wandox Work'
 const env = { DSH_DESKTOP_PRODUCT_NAME: PRODUCT }
@@ -27,6 +27,15 @@ describe('D-19 branded menu / about / quit copy', () => {
     expect(zh.aboutMenu).toBe('关于 Wandox Work')
     expect(en.aboutVersion.replace('{version}', '3.0.0')).toBe('Version V3.0.0')
     expect(zh.aboutVersion.replace('{version}', '3.0.0')).toBe('版本 V3.0.0')
+  })
+
+  it('uses the product display name as the Darwin application-menu top-level label', () => {
+    expect(desktopApplicationMenuTopLevelLabel('darwin', resolveDesktopProductName({}), 'Application'))
+      .toBe('DeepSeek Harness')
+    expect(desktopApplicationMenuTopLevelLabel('linux', resolveDesktopProductName(env), 'Application'))
+      .toBe('Application')
+    expect(desktopApplicationMenuTopLevelLabel('darwin', resolveDesktopProductName(env), 'Application'))
+      .toBe('Wandox Work')
   })
 
   it('renders the quit confirmation title and body', () => {

@@ -25,6 +25,7 @@ import {
 import { resolveDesktopPaths } from './paths.ts'
 import {
   applyPackagedProductConfig,
+  desktopApplicationMenuTopLevelLabel,
   isDesktopOpenUrl,
   resolveDesktopProductName,
   resolveDesktopProtocolScheme,
@@ -907,6 +908,7 @@ async function main(): Promise<void> {
   // A custom application menu replaces Electron's default menu, so macOS needs
   // its standard menus and application hide commands declared explicitly.
   // Keep app.name stable: Electron derives its default userData directory from it.
+  // The Darwin top-level label is the product display name, not app.name.
   const darwin = process.platform === 'darwin'
   const platformMenus = (): MenuItemConstructorOptions[] => darwin
     ? [shortcuts.fileMenu(currentDesktopLocale().messages), { role: 'editMenu' }, { role: 'windowMenu' }]
@@ -945,7 +947,9 @@ async function main(): Promise<void> {
   ]
   const refreshApplicationMenu = (): void => {
     Menu.setApplicationMenu(Menu.buildFromTemplate(process.platform === 'win32' ? devToolsItems : [{
-      label: darwin ? app.name : currentDesktopLocale().messages.application,
+      label: desktopApplicationMenuTopLevelLabel(
+        process.platform, resolveDesktopProductName(), currentDesktopLocale().messages.application,
+      ),
       submenu: [...applicationItems(), ...devToolsItems],
     }, ...platformMenus()]))
     tray?.relabel()

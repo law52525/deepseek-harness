@@ -17,6 +17,7 @@ import {
   resolveDesktopProductName,
   resolveDesktopProfileName,
   resolveDesktopProtocolScheme,
+  desktopApplicationMenuTopLevelLabel,
 } from '../src/product-config.ts'
 
 const BAKED = {
@@ -101,6 +102,18 @@ describe('desktop product configuration', () => {
     expect(isDesktopOpenUrl('dsh://open')).toBe(true)
     expect(isDesktopOpenUrl('dsh://open/')).toBe(true)
     expect(isDesktopOpenUrl('wandox://open')).toBe(false)
+  })
+
+  it('uses the product display name as the Darwin application-menu top-level label', () => {
+    const official = resolveDesktopProductName({})
+    expect(official).toBe(DEFAULT_DESKTOP_PRODUCT_NAME)
+    expect(desktopApplicationMenuTopLevelLabel('darwin', official, 'Application')).toBe(DEFAULT_DESKTOP_PRODUCT_NAME)
+    expect(desktopApplicationMenuTopLevelLabel('linux', official, 'Application')).toBe('Application')
+    expect(desktopApplicationMenuTopLevelLabel('win32', official, 'Application')).toBe('Application')
+    const branded = resolveDesktopProductName({ [DESKTOP_PRODUCT_NAME_ENV]: 'Wandox Work' })
+    expect(desktopApplicationMenuTopLevelLabel('darwin', branded, 'Application')).toBe('Wandox Work')
+    expect(desktopApplicationMenuTopLevelLabel('darwin', branded, 'Application'))
+      .not.toBe('wandox-harness')
   })
 
   it('relocates product name, protocol, and artifact prefix from env', () => {
