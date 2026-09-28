@@ -108,6 +108,9 @@ describe('client build environment', () => {
       DSH_CLIENT_TITLE: 'Wandox Work',
       DSH_CLIENT_VERSION: '1.2.3',
     })
+    const fromRepository = repositoryClientBuildEnvironment(root, env)
+    expect(fromRepository.DSH_CLIENT_TITLE).toBe('Local title')
+    expect(resolveClientBuildEnvironment({ ...env, ...fromRepository }, 'official').DSH_CLIENT_TITLE).toBe('Wandox Work')
   })
 
   it('inherits public values by default and isolates an explicit official profile', () => {
