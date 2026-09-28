@@ -35,7 +35,8 @@ const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\n'
 
 /**
  * Product bundles = shipped web profile plus extra bundles written at packaging time.
- * Extra names come from the process environment, which packaged Electron hydrates from extraMetadata.
+ * Packaged Electron overwrites process env from extraMetadata before this runs;
+ * unpackaged development still reads the live environment.
  * @param extra - Extra bundle names; defaults to the packaging configuration.
  * @returns Bundle names used to create and recover the desktop profile.
  */

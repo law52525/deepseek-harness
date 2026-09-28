@@ -6,6 +6,9 @@ export const DESKTOP_PROFILE_NAME_ENV = 'DSH_DESKTOP_PROFILE_NAME'
 /** Environment variable that lists extra product bundles, comma-separated. */
 export const DESKTOP_EXTRA_BUNDLES_ENV = 'DSH_DESKTOP_EXTRA_BUNDLES'
 
+/** Environment variable that publishes a product version distinct from the bundled dsh version. */
+export const DESKTOP_PRODUCT_VERSION_ENV = 'DSH_DESKTOP_PRODUCT_VERSION'
+
 /** Environment variable that overrides the packaged npm package name (userData). */
 export const DESKTOP_PACKAGE_NAME_ENV = 'DSH_DESKTOP_PACKAGE_NAME'
 
@@ -47,7 +50,8 @@ export function resolveDesktopProfileName(env: NodeJS.ProcessEnv = process.env):
 }
 
 /**
- * Resolve extra product bundles baked in at packaging time.
+ * Resolve extra product bundles from the process environment.
+ * Packaged Electron overwrites this env from extraMetadata before calling; unpackaged reads the live env.
  * @param env - Process environment.
  * @returns Extra bundle package names; empty when unset.
  */
@@ -55,9 +59,17 @@ export function resolveDesktopExtraBundles(env: NodeJS.ProcessEnv = process.env)
   return parseCommaSeparatedNames(env[DESKTOP_EXTRA_BUNDLES_ENV])
 }
 
+function extraBundleNames(manifest: Readonly<Record<string, unknown>>): string[] {
+  if (!Array.isArray(manifest.dshDesktopExtraBundles)) return []
+  return manifest.dshDesktopExtraBundles.filter(
+    (item): item is string => typeof item === 'string' && item.trim() !== '',
+  ).map(item => item.trim())
+}
+
 /**
- * Copy packaged extraMetadata into the process environment when the caller has not set it.
- * Packaged identity is immutable; a live environment variable still wins so tests can override.
+ * Replace process env with packaged extraMetadata. Packaged identity is immutable:
+ * extra bundles, profile name, and product version come only from the baked manifest.
+ * Unpackaged development never calls this, so the live environment still applies.
  * @param manifest - Packaged application `package.json`.
  * @param env - Process environment to update.
  */
@@ -65,13 +77,9 @@ export function applyPackagedProductConfig(
   manifest: Readonly<Record<string, unknown>>,
   env: NodeJS.ProcessEnv = process.env,
 ): void {
-  if (typeof manifest.dshDesktopProfileName === 'string' && manifest.dshDesktopProfileName.trim() !== '') {
-    env[DESKTOP_PROFILE_NAME_ENV] ??= manifest.dshDesktopProfileName.trim()
-  }
-  if (Array.isArray(manifest.dshDesktopExtraBundles)) {
-    const names = manifest.dshDesktopExtraBundles.filter(
-      (item): item is string => typeof item === 'string' && item.trim() !== '',
-    )
-    if (names.length > 0) env[DESKTOP_EXTRA_BUNDLES_ENV] ??= names.join(',')
-  }
+  env[DESKTOP_PROFILE_NAME_ENV] = typeof manifest.dshDesktopProfileName === 'string'
+    ? manifest.dshDesktopProfileName.trim()
+    : ''
+  env[DESKTOP_EXTRA_BUNDLES_ENV] = extraBundleNames(manifest).join(',')
+  env[DESKTOP_PRODUCT_VERSION_ENV] = typeof manifest.version === 'string' ? manifest.version.trim() : ''
 }

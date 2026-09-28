@@ -63,8 +63,9 @@ let stopForRecovery = async (): Promise<void> => {}
 let shuttingDown = false
 
 /**
- * Copy packaged extraMetadata into env so profile paths and product bundles match the signed identity.
- * Unpackaged development and tests keep env defaults (official `desktop` / web bundles).
+ * Copy packaged extraMetadata into env, overwriting process env so profile paths,
+ * extra bundles, and product version match the signed identity. Unpackaged
+ * development never hydrates, so the live environment still applies.
  */
 function hydratePackagedProductConfig(): void {
   if (!app.isPackaged) return
