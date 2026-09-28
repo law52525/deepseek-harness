@@ -30,11 +30,18 @@ describe('desktop locale dictionaries', () => {
     const env = { DSH_DESKTOP_PRODUCT_NAME: 'Wandox Work' }
     const branded = resolveDesktopLocale('en', env).messages
     expect(branded.aboutProduct).toBe('Wandox Work')
+    expect(branded.aboutMenu).toBe('About Wandox Work')
+    expect(branded.hideApplication).toBe('Hide Wandox Work')
+    expect(branded.quitApplication).toBe('Quit Wandox Work')
     expect(branded.quitTitle).toBe('Quit Wandox Work?')
     expect(branded.welcomeKeyDescription).toBe('Configure official models to start using the app')
     expect(branded.aboutProduct).not.toContain('DeepSeek')
     const brandedZh = resolveDesktopLocale('zh', env).messages
     expect(brandedZh.aboutProduct).toBe('Wandox Work')
+    expect(brandedZh.aboutMenu).toBe('关于 Wandox Work')
+    expect(brandedZh.hideApplication).toBe('隐藏 Wandox Work')
+    expect(brandedZh.quitApplication).toBe('退出 Wandox Work')
+    expect(brandedZh.quitTitle).toBe('退出 Wandox Work？')
     expect(brandedZh.welcomeKeyDescription).toBe('配置官方模型，即可开始使用')
   })
 })
