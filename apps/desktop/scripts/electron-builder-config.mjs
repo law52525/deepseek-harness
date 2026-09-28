@@ -1,8 +1,8 @@
 import { officePackageDirectories } from '../../../scripts/libreoffice-packages.mjs'
 import { X509Certificate } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { basename, dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -38,6 +38,15 @@ const PRODUCT_APP_ID_ENV = 'DSH_DESKTOP_PRODUCT_APP_ID'
 const PACKAGE_NAME_ENV = 'DSH_DESKTOP_PACKAGE_NAME'
 const PROFILE_NAME_ENV = 'DSH_DESKTOP_PROFILE_NAME'
 const EXTRA_BUNDLES_ENV = 'DSH_DESKTOP_EXTRA_BUNDLES'
+const PRODUCT_NAME_ENV = 'DSH_DESKTOP_PRODUCT_NAME'
+const PROTOCOL_SCHEME_ENV = 'DSH_DESKTOP_PROTOCOL_SCHEME'
+const ARTIFACT_PREFIX_ENV = 'DSH_DESKTOP_ARTIFACT_PREFIX'
+const BRAND_RESOURCES_ENV = 'DSH_DESKTOP_BRAND_RESOURCES'
+const DEFAULT_PRODUCT_NAME = 'DeepSeek Harness'
+const DEFAULT_PROTOCOL_SCHEME = 'dsh'
+const DEFAULT_ARTIFACT_PREFIX = 'deepseek-harness'
+const ARTIFACT_PREFIX_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const PROTOCOL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*$/
 
 function commaSeparatedNames(value) {
   if (value === undefined) return []
@@ -50,6 +59,40 @@ function commaSeparatedNames(value) {
     names.push(name)
   }
   return names
+}
+
+function trimmed(env, name) {
+  const value = env[name]?.trim()
+  return value === undefined || value === '' ? undefined : value
+}
+
+function resolveProductName(env) {
+  return trimmed(env, PRODUCT_NAME_ENV) ?? DEFAULT_PRODUCT_NAME
+}
+
+function resolveProtocolScheme(env) {
+  const value = trimmed(env, PROTOCOL_SCHEME_ENV)
+  if (value === undefined) return DEFAULT_PROTOCOL_SCHEME
+  if (!PROTOCOL_SCHEME_PATTERN.test(value)) {
+    throw new Error(`desktop package: ${PROTOCOL_SCHEME_ENV} must be a lowercase URI scheme`)
+  }
+  return value
+}
+
+function resolveArtifactPrefix(env) {
+  const value = trimmed(env, ARTIFACT_PREFIX_ENV)
+  if (value === undefined) return DEFAULT_ARTIFACT_PREFIX
+  if (!ARTIFACT_PREFIX_PATTERN.test(value)) {
+    throw new Error(`desktop package: ${ARTIFACT_PREFIX_ENV} must be a file-name token`)
+  }
+  return value
+}
+
+function resourcePath(env, official, name) {
+  const brand = trimmed(env, BRAND_RESOURCES_ENV)
+  return brand === undefined
+    ? fileURLToPath(new URL(`../resources/${official}`, import.meta.url))
+    : join(brand, name)
 }
 
 /**
@@ -123,9 +166,28 @@ export function createElectronBuilderConfig(
   const packageName = env[PACKAGE_NAME_ENV]?.trim()
   const profileName = env[PROFILE_NAME_ENV]?.trim()
   const extraBundles = commaSeparatedNames(env[EXTRA_BUNDLES_ENV])
+  const productName = resolveProductName(env)
+  const protocolScheme = resolveProtocolScheme(env)
+  const artifactPrefix = resolveArtifactPrefix(env)
+  const iconMacos = resourcePath(env, 'icon-macos.png', 'icon-macos.png')
+  const iconWindows = resourcePath(env, 'icon-windows.png', 'icon-windows.png')
+  const trayWindows = resourcePath(env, 'tray-windows.ico', 'tray-windows.ico')
+  const welcomeBrand = trimmed(env, BRAND_RESOURCES_ENV) === undefined
+    ? undefined
+    : join(trimmed(env, BRAND_RESOURCES_ENV), 'welcome-brand.svg')
+  const rendererFiles = welcomeBrand === undefined
+    ? ['renderer/**/*']
+    : [
+      { from: 'renderer', to: 'renderer', filter: ['**/*', '!assets/welcome-brand.svg'] },
+      // `files` FileSet `from` is a directory; mapping a single file path is ignored.
+      { from: dirname(welcomeBrand), to: 'renderer/assets', filter: [basename(welcomeBrand)] },
+    ]
+  const installerSidebar = trimmed(env, BRAND_RESOURCES_ENV) === undefined
+    ? join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp')
+    : join(trimmed(env, BRAND_RESOURCES_ENV), 'uninstaller-sidebar.bmp')
   return {
     appId,
-    protocols: [{ name: 'DeepSeek Harness', schemes: ['dsh'] }],
+    protocols: [{ name: productName, schemes: [protocolScheme] }],
     extraMetadata: {
       dshDesktopAppId: appId,
       dshMandatoryUpdatePolicy: policy,
@@ -135,11 +197,13 @@ export function createElectronBuilderConfig(
         ? {}
         : { dshDesktopProfileName: profileName },
       ...extraBundles.length === 0 ? {} : { dshDesktopExtraBundles: extraBundles },
+      ...productName === DEFAULT_PRODUCT_NAME ? {} : { dshDesktopProductName: productName },
+      ...protocolScheme === DEFAULT_PROTOCOL_SCHEME ? {} : { dshDesktopProtocolScheme: protocolScheme },
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
     },
-    productName: 'DeepSeek Harness',
+    productName,
     // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact.
-    artifactName: `deepseek-harness-\${version}-\${os}-\${arch}${unsigned ? '-unsigned' : ''}.\${ext}`,
+    artifactName: `${artifactPrefix}-\${version}-\${os}-\${arch}${unsigned ? '-unsigned' : ''}.\${ext}`,
     directories: { output: unsigned ? buildPaths.unsignedArtifacts : buildPaths.artifacts },
     asar: true,
     electronDist: buildPaths.electron,
@@ -151,6 +215,13 @@ export function createElectronBuilderConfig(
         '-OutputDirectory', join(buildPaths.root, 'installer-ui')], {
         env: scrubWindowsSigningEnvironment(env), windowsHide: true,
       })
+      if (productName !== DEFAULT_PRODUCT_NAME) {
+        const source = readFileSync(fileURLToPath(new URL('../installer/strings.nsh', import.meta.url)), 'utf8')
+        writeFileSync(
+          join(buildPaths.root, 'installer-ui', 'strings.nsh'),
+          source.split(DEFAULT_PRODUCT_NAME).join(productName),
+        )
+      }
       if (windowsSigner !== undefined) {
         await windowsSigner({ path: join(buildPaths.root, 'installer-ui', 'window-frame.dll'), hash: 'sha256', isNest: false })
       }
@@ -165,7 +236,7 @@ export function createElectronBuilderConfig(
       'lib/preload-platform-account.cjs',
       'lib/preload-update-dialog.cjs',
       'lib/preload-welcome.cjs',
-      'renderer/**/*',
+      ...rendererFiles,
       'package.json',
       { from: buildPaths.dsh, to: 'dsh', filter: ['**/*'] },
       // electron-builder excludes a source directory's root node_modules.
@@ -174,19 +245,21 @@ export function createElectronBuilderConfig(
     asarUnpack: unpack,
     extraResources: [
       { from: buildPaths.runtime, to: 'runtime' },
-      { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
+      { from: iconWindows, to: 'icon.png' },
       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
-      ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
+      ...(packagesWindows ? [{ from: trayWindows, to: 'tray.ico' }] : []),
     ],
     mac: {
-      icon: fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url)),
+      icon: iconMacos,
       category: 'public.app-category.developer-tools',
-      // macOS matches the application locale against this bundle, not Electron Framework resources.
-      extendInfo: { CFBundleLocalizations: ['en', 'zh_CN'] },
       identity: macOSSigning?.signingIdentity,
       forceCodeSigning: true,
       hardenedRuntime: true,
-      extendInfo: { NSMicrophoneUsageDescription: 'DeepSeek Harness uses your microphone to transcribe speech into message drafts.' },
+      // macOS matches the application locale against this bundle, not Electron Framework resources.
+      extendInfo: {
+        CFBundleLocalizations: ['en', 'zh_CN'],
+        NSMicrophoneUsageDescription: `${productName} uses your microphone to transcribe speech into message drafts.`,
+      },
       // ASAR-unpacked native runtime files are pre-signed; PAK resources are sealed by their enclosing bundle.
       signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
       notarize: true,
@@ -249,7 +322,7 @@ export function createElectronBuilderConfig(
       )
     },
     win: {
-      icon: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)),
+      icon: iconWindows,
       forceCodeSigning: !unsigned,
       signtoolOptions: {
         sign: windowsSigner,
@@ -263,8 +336,8 @@ export function createElectronBuilderConfig(
       target: ['AppImage'],
     },
     nsis: {
-      installerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
-      uninstallerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
+      installerSidebar,
+      uninstallerSidebar: installerSidebar,
       include: fileURLToPath(new URL('./installer.nsh', import.meta.url)),
       oneClick: false,
       perMachine: false,

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,7 +30,27 @@ function clientDocumentTitle(): Plugin {
   }
 }
 
-/** Keep the redistribution license beside the bundled brand font. */
+/** Project the public build title into the PWA name copied from public/. */
+function clientManifestBrand(): Plugin {
+  const title = process.env.DSH_CLIENT_TITLE ?? DEFAULT_CLIENT_TITLE
+  const short = title === 'DeepSeek Harness' ? 'DSH' : title.split(/\s+/u)[0] ?? title
+  let outputDirectory = ''
+  return {
+    name: 'dsh-client-manifest-brand',
+    configResolved(config) {
+      outputDirectory = resolve(config.root, config.build.outDir)
+    },
+    async closeBundle() {
+      const path = resolve(outputDirectory, 'manifest.webmanifest')
+      if (!existsSync(path)) return
+      const manifest = JSON.parse(await readFile(path, 'utf8')) as { name?: string; short_name?: string }
+      if (manifest.name === title && manifest.short_name === short) return
+      manifest.name = title
+      manifest.short_name = short
+      await writeFile(path, `${JSON.stringify(manifest, undefined, 2)}\n`)
+    },
+  }
+}
 function brandFontLicense(): Plugin {
   return {
     name: 'dsh-brand-font-license',
@@ -170,7 +191,7 @@ export default defineConfig({
   // directory, and the served index resolves identically from the site root.
   base: './',
   plugins: [
-    rejectStandaloneServe(), clientDocumentTitle(), brandFontLicense(), react(), emitPreviewPage(),
+    rejectStandaloneServe(), clientDocumentTitle(), clientManifestBrand(), brandFontLicense(), react(), emitPreviewPage(),
     productWebBundleIsolation(src('../..'), src('.')),
   ],
   build: {

@@ -9,9 +9,11 @@ import type { MenuItemConstructorOptions, MessageBoxOptions } from 'electron'
 import { DESKTOP_IPC, type DesktopUpdateState } from '../src/ipc.ts'
 import { MANDATORY_IPC } from '../src/mandatory-update-ipc.ts'
 import { DesktopHostFatalError, DesktopHostUncleanExitError } from '../src/host-process.ts'
-import { en } from '../src/locale.ts'
+import { en, resolveDesktopLocale } from '../src/locale.ts'
 import { DesktopUpdatePreparationError } from '../src/update-error.ts'
 import { writeCrashReport } from '../src/crash-report.ts'
+
+const officialEn = resolveDesktopLocale('en').messages
 
 type InvokeEvent = { sender?: unknown; senderFrame: { url: string } }
 type InvokeHandler = (event: InvokeEvent, ...args: unknown[]) => unknown
@@ -381,7 +383,7 @@ beforeEach(() => {
   onTestFinished(() => { rmSync(userData, { recursive: true, force: true }) })
   harness.app.getPath.mockImplementation(name => name === 'userData' ? userData : `desktop-test-${name}`)
   harness.dialog.showMessageBox.mockImplementation((options: { title?: string }) => {
-    if (options.title !== en.startupFailed) return Promise.resolve({ response: 1 })
+    if (options.title !== officialEn.startupFailed) return Promise.resolve({ response: 1 })
     harness.dialogShown.resolve()
     return new Promise(() => {})
   })
@@ -853,7 +855,7 @@ describe('desktop main startup', () => {
       .find(items => items.some(item => item.role === 'editMenu'))
     if (template === undefined) throw new Error('application menu missing')
     expect(template.map(describeItem)).toEqual(platform === 'darwin'
-      ? ['Desktop test', en.fileMenu, 'editMenu', 'windowMenu']
+      ? [officialEn.aboutProduct, en.fileMenu, 'editMenu', 'windowMenu']
       : ['Application', 'editMenu'])
     const application = template[0]!.submenu as MenuItemConstructorOptions[]
     expect(application.filter(item => item.visible !== false).map(describeItem)).toEqual(platform === 'darwin'
@@ -875,7 +877,28 @@ describe('desktop main startup', () => {
         item.role === 'hide' || item.role === 'hideOthers' || item.role === 'unhide' || item.role === 'quit')
       await expect(JSON.stringify(commands, null, 2) + '\n')
         .toMatchFileSnapshot(`./expected/application-menu-${locale}.json`)
+      const template = harness.menu.buildFromTemplate.mock.calls
+        .map(call => call[0])
+        .find(items => items.some(item => item.role === 'editMenu'))
+      expect(template?.[0]?.label).toBe(officialEn.aboutProduct)
       expect(harness.app.name).toBe('@deepseek-ai/dsh-desktop')
+    } finally { harness.app.name = originalName }
+  })
+
+  it('labels the macOS application menu with the configured product name without renaming app.name', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    vi.stubEnv('DSH_DESKTOP_PRODUCT_NAME', 'Wandox Work')
+    const originalName = harness.app.name
+    harness.app.name = 'wandox-harness'
+    try {
+      await import('../src/main.ts')
+      await harness.preparing.promise
+      const template = harness.menu.buildFromTemplate.mock.calls
+        .map(call => call[0])
+        .find(items => items.some(item => item.role === 'editMenu'))
+      expect(template?.[0]?.label).toBe('Wandox Work')
+      expect(template?.[0]?.label).not.toBe(harness.app.name)
+      expect(harness.app.name).toBe('wandox-harness')
     } finally { harness.app.name = originalName }
   })
 
@@ -1211,7 +1234,7 @@ describe('desktop main startup', () => {
     harness.app.quit()
     await vi.advanceTimersByTimeAsync(0)
     expect(harness.dialog.showMessageBox).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      message: en.quitTitle, detail: en.quitActiveAndScheduledTasks, buttons: [en.quit, en.cancel], defaultId: 0, cancelId: 1,
+      message: officialEn.quitTitle, detail: en.quitActiveAndScheduledTasks, buttons: [en.quit, en.cancel], defaultId: 0, cancelId: 1,
     }))
     expect(window.hide).not.toHaveBeenCalled()
     expect(host.stop).not.toHaveBeenCalled()

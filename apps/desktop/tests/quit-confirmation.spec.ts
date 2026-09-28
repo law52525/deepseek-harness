@@ -6,13 +6,18 @@ import { DesktopQuitConfirmation, resolveDesktopQuitPrompt } from '../src/quit-c
 
 afterEach(() => { vi.restoreAllMocks() })
 
-function setup(platform: NodeJS.Platform, inspect: () => Promise<DesktopQuitInspection> | undefined, locale = 'zh') {
+function setup(
+  platform: NodeJS.Platform,
+  inspect: () => Promise<DesktopQuitInspection> | undefined,
+  locale = 'zh',
+  env?: { readonly DSH_DESKTOP_PRODUCT_NAME?: string },
+) {
   const shown: MessageBoxOptions[] = []
   let answer: MessageBoxReturnValue = { response: 0, checkboxChecked: false }
   const focus = vi.fn()
   const icon: NativeImage = { isEmpty: () => false } as never
   const confirmation = new DesktopQuitConfirmation({
-    locale: () => resolveDesktopLocale(locale), inspect, focus, platform, icon,
+    locale: () => resolveDesktopLocale(locale, env), inspect, focus, platform, icon,
     show: async (options) => { shown.push(options); return answer },
   })
   return { confirmation, shown, focus, icon, answer: (value: number) => { answer = { response: value, checkboxChecked: false } } }
@@ -55,6 +60,31 @@ describe('DesktopQuitConfirmation', () => {
     expect(await f.confirmation.confirm()).toBe(false)
     expect(f.shown).toEqual([{
       type: 'none', icon: f.icon, title: 'DeepSeek Harness', message: 'Quit DeepSeek Harness?',
+      detail: 'Scheduled tasks will not run while the app is closed.',
+      buttons: ['Quit', 'Cancel'], defaultId: 0, cancelId: 1, noLink: true,
+    }])
+  })
+
+  it('renders Wandox Work in the macOS quit confirmation title and message', async () => {
+    const f = setup('darwin', async () => ({ activeTasks: true, scheduledTasks: true }), 'zh', {
+      DSH_DESKTOP_PRODUCT_NAME: 'Wandox Work',
+    })
+    expect(await f.confirmation.confirm()).toBe(true)
+    expect(f.shown).toEqual([{
+      type: 'warning', title: 'Wandox Work', message: '退出 Wandox Work？',
+      detail: '当前正在运行的任务将会中断，且应用关闭期间，定时任务不会运行',
+      buttons: ['退出', '取消'], defaultId: 0, cancelId: 1, noLink: true,
+    }])
+  })
+
+  it('renders Wandox Work in the Windows quit confirmation title and message', async () => {
+    const f = setup('win32', async () => ({ activeTasks: false, scheduledTasks: true }), 'en', {
+      DSH_DESKTOP_PRODUCT_NAME: 'Wandox Work',
+    })
+    f.answer(1)
+    expect(await f.confirmation.confirm()).toBe(false)
+    expect(f.shown).toEqual([{
+      type: 'none', icon: f.icon, title: 'Wandox Work', message: 'Quit Wandox Work?',
       detail: 'Scheduled tasks will not run while the app is closed.',
       buttons: ['Quit', 'Cancel'], defaultId: 0, cancelId: 1, noLink: true,
     }])

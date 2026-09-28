@@ -3,8 +3,9 @@ import type { AfterPackContext, BeforePackContext } from 'app-builder-lib'
 /** Electron-builder fields asserted by the Desktop release tests. */
 export interface DesktopElectronBuilderConfig {
   readonly appId: string
+  readonly productName: string
   readonly artifactName: string
-  readonly protocols: readonly [{ readonly name: 'DeepSeek Harness'; readonly schemes: readonly ['dsh'] }]
+  readonly protocols: readonly [{ readonly name: string; readonly schemes: readonly [string] }]
   readonly directories: {
     readonly output: string
   }
@@ -22,6 +23,8 @@ export interface DesktopElectronBuilderConfig {
     readonly name?: string
     readonly dshDesktopProfileName?: string
     readonly dshDesktopExtraBundles?: readonly string[]
+    readonly dshDesktopProductName?: string
+    readonly dshDesktopProtocolScheme?: string
   }
   readonly asarUnpack: readonly string[]
   readonly extraResources: readonly [
@@ -30,7 +33,11 @@ export interface DesktopElectronBuilderConfig {
     ...{ readonly from: string, readonly to: 'tray.ico' }[],
   ]
   readonly mac: {
-    readonly extendInfo: { readonly NSMicrophoneUsageDescription: string }
+    readonly icon?: string
+    readonly extendInfo: {
+      readonly NSMicrophoneUsageDescription: string
+      readonly CFBundleLocalizations: readonly string[]
+    }
     readonly identity: string | undefined
     readonly forceCodeSigning: boolean
     readonly notarize: boolean
