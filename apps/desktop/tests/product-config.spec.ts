@@ -3,11 +3,20 @@ import { resolveDesktopPaths } from '../src/paths.ts'
 import { resolveProductBundles } from '../src/project-manager.ts'
 import {
   applyPackagedProductConfig,
+  DEFAULT_DESKTOP_ARTIFACT_PREFIX,
+  DEFAULT_DESKTOP_PRODUCT_NAME,
+  DEFAULT_DESKTOP_PROTOCOL_SCHEME,
   DESKTOP_EXTRA_BUNDLES_ENV,
+  DESKTOP_PRODUCT_NAME_ENV,
   DESKTOP_PRODUCT_VERSION_ENV,
   DESKTOP_PROFILE_NAME_ENV,
+  DESKTOP_PROTOCOL_SCHEME_ENV,
+  isDesktopOpenUrl,
+  resolveDesktopArtifactPrefix,
   resolveDesktopExtraBundles,
+  resolveDesktopProductName,
   resolveDesktopProfileName,
+  resolveDesktopProtocolScheme,
 } from '../src/product-config.ts'
 
 const BAKED = {
@@ -77,9 +86,45 @@ describe('desktop product configuration', () => {
     expect(resolveDesktopExtraBundles(env)).toEqual([])
     expect(resolveDesktopProfileName(env)).toBe('desktop')
     expect(env[DESKTOP_PRODUCT_VERSION_ENV]).toBe('0.1.7-rc.2')
+    expect(resolveDesktopProductName(env)).toBe(DEFAULT_DESKTOP_PRODUCT_NAME)
+    expect(resolveDesktopProtocolScheme(env)).toBe(DEFAULT_DESKTOP_PROTOCOL_SCHEME)
     expect(resolveProductBundles(resolveDesktopExtraBundles(env))).toEqual([
       '@deepseek-ai/dsh-base',
       '@deepseek-ai/dsh-web-app',
     ])
+  })
+
+  it('defaults brand identity to official DeepSeek Harness values', () => {
+    expect(resolveDesktopProductName({})).toBe(DEFAULT_DESKTOP_PRODUCT_NAME)
+    expect(resolveDesktopProtocolScheme({})).toBe(DEFAULT_DESKTOP_PROTOCOL_SCHEME)
+    expect(resolveDesktopArtifactPrefix({})).toBe(DEFAULT_DESKTOP_ARTIFACT_PREFIX)
+    expect(isDesktopOpenUrl('dsh://open')).toBe(true)
+    expect(isDesktopOpenUrl('dsh://open/')).toBe(true)
+    expect(isDesktopOpenUrl('wandox://open')).toBe(false)
+  })
+
+  it('relocates product name, protocol, and artifact prefix from env', () => {
+    vi.stubEnv(DESKTOP_PRODUCT_NAME_ENV, 'Wandox Work')
+    vi.stubEnv(DESKTOP_PROTOCOL_SCHEME_ENV, 'wandox')
+    vi.stubEnv('DSH_DESKTOP_ARTIFACT_PREFIX', 'wandox-work')
+    expect(resolveDesktopProductName()).toBe('Wandox Work')
+    expect(resolveDesktopProtocolScheme()).toBe('wandox')
+    expect(resolveDesktopArtifactPrefix()).toBe('wandox-work')
+    expect(isDesktopOpenUrl('wandox://open', 'wandox')).toBe(true)
+    expect(isDesktopOpenUrl('dsh://open', 'wandox')).toBe(false)
+  })
+
+  it('packaged brand identity ignores a hijacked process env', () => {
+    const env: NodeJS.ProcessEnv = {
+      [DESKTOP_PRODUCT_NAME_ENV]: 'Hijacked',
+      [DESKTOP_PROTOCOL_SCHEME_ENV]: 'evil',
+    }
+    applyPackagedProductConfig({
+      dshDesktopProductName: 'Wandox Work',
+      dshDesktopProtocolScheme: 'wandox',
+      version: '3.0.0',
+    }, env)
+    expect(resolveDesktopProductName(env)).toBe('Wandox Work')
+    expect(resolveDesktopProtocolScheme(env)).toBe('wandox')
   })
 })

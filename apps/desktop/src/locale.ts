@@ -1,20 +1,25 @@
 /** Typed English and Chinese copy owned by the Electron shell. */
 
+import {
+  DEFAULT_DESKTOP_PRODUCT_NAME,
+  resolveDesktopProductName,
+} from './product-config.ts'
+
 export const en = {
   application: 'Application',
   fileMenu: 'File',
   closePage: 'Close Page or Window',
-  aboutMenu: 'About DeepSeek Harness',
-  aboutProduct: 'DeepSeek Harness',
+  aboutMenu: 'About {product}',
+  aboutProduct: '{product}',
   aboutVersion: 'Version V{version}',
-  hideApplication: 'Hide DeepSeek Harness',
+  hideApplication: 'Hide {product}',
   hideOtherApplications: 'Hide Others',
   showAllApplications: 'Show All',
-  quitApplication: 'Quit DeepSeek Harness',
-  openApplication: 'Open DeepSeek Harness',
+  quitApplication: 'Quit {product}',
+  openApplication: 'Open {product}',
   quit: 'Quit',
   cancel: 'Cancel',
-  quitTitle: 'Quit DeepSeek Harness?',
+  quitTitle: 'Quit {product}?',
   quitActiveTasks: 'Running tasks will be interrupted.',
   quitScheduledTasks: 'Scheduled tasks will not run while the app is closed.',
   quitActiveAndScheduledTasks: 'Running tasks will be interrupted, and scheduled tasks will not run while the app is closed.',
@@ -29,7 +34,7 @@ export const en = {
   copy: 'Copy',
   paste: 'Paste',
   selectAll: 'Select All',
-  startupFailed: 'DeepSeek Harness is unavailable',
+  startupFailed: '{product} is unavailable',
   fatalSummary: 'The application could not start or stopped unexpectedly.',
   startupAddressInUse: 'Another DSH instance (such as dsh web or the desktop app) is running. They cannot start at the same time. Quit the other running DSH instance, then restart.',
   diagnosticTruncated: '… Error details shortened.',
@@ -39,10 +44,10 @@ export const en = {
   restartApplication: 'Restart',
   recoveryOperationFailed: 'The recovery operation failed',
   disableThirdPartyPlugins: 'Disable third-party plugins, back up profile patch, and restart',
-  welcomeTitle: 'DeepSeek Harness',
-  welcomeBrand: 'DeepSeek Harness',
+  welcomeTitle: '{product}',
+  welcomeBrand: '{product}',
   welcomeTaglineBefore: 'Welcome to ',
-  welcomeTaglineBrand: 'DeepSeek Harness',
+  welcomeTaglineBrand: '{product}',
   welcomeTaglineAfter: '',
   welcomeDescription: 'Build potential. Explore intelligence.',
   welcomeAuthStarting: 'Opening sign in…',
@@ -85,7 +90,7 @@ export const en = {
   updateCurrent: 'No updates available. Current version: V{version}',
   updateChecking: 'Checking for updates…',
   updateDownload: 'Download update',
-  updateDownloadedTitle: 'DeepSeek Harness v{version} downloaded',
+  updateDownloadedTitle: '{product} v{version} downloaded',
   updateDownloadedDetail: 'The update package has downloaded. Select “Install and Restart” to restart the app and begin installation.',
   updateDownloadedTitleWindows: 'New version v{version} is ready',
   updateDownloadedDetailWindows: 'The app will close temporarily during the update and reopen automatically when it is complete.\n\nThe update may take some time. Please wait and do not launch the app again during installation.',
@@ -103,9 +108,9 @@ export const en = {
   updateTasksUnavailable: 'Task status is unavailable. Try updating again when the workspace is ready.',
   updateStopFailed: 'Tasks could not be stopped safely. The update was not installed. Please try again later.',
   updateTechnicalDetails: 'View technical details',
-  updateTitle: 'DeepSeek Harness Update',
+  updateTitle: '{product} Update',
   updateAvailable: 'An update is available',
-  updateDetail: 'DeepSeek Harness {version}\n\nDeepSeek Harness will restart to complete the update.',
+  updateDetail: '{product} {version}\n\n{product} will restart to complete the update.',
   installAndRestart: 'Install and Restart',
   later: 'Later',
   updateFailedTitle: 'Update Failed',
@@ -148,17 +153,17 @@ export const zh = {
   application: '应用',
   fileMenu: '文件',
   closePage: '关闭页面或窗口',
-  aboutMenu: '关于 DeepSeek Harness',
-  aboutProduct: 'DeepSeek Harness',
+  aboutMenu: '关于 {product}',
+  aboutProduct: '{product}',
   aboutVersion: '版本 V{version}',
-  hideApplication: '隐藏 DeepSeek Harness',
+  hideApplication: '隐藏 {product}',
   hideOtherApplications: '隐藏其他',
   showAllApplications: '显示全部',
-  quitApplication: '退出 DeepSeek Harness',
-  openApplication: '打开 DeepSeek Harness',
+  quitApplication: '退出 {product}',
+  openApplication: '打开 {product}',
   quit: '退出',
   cancel: '取消',
-  quitTitle: '退出 DeepSeek Harness？',
+  quitTitle: '退出 {product}？',
   quitActiveTasks: '当前正在运行的任务将会中断',
   quitScheduledTasks: '应用关闭期间，定时任务不会运行',
   quitActiveAndScheduledTasks: '当前正在运行的任务将会中断，且应用关闭期间，定时任务不会运行',
@@ -173,7 +178,7 @@ export const zh = {
   copy: '复制',
   paste: '粘贴',
   selectAll: '全选',
-  startupFailed: 'DeepSeek Harness 无法使用',
+  startupFailed: '{product} 无法使用',
   fatalSummary: '应用无法启动或已意外停止。',
   startupAddressInUse: '有其他正在运行的 DSH（如其他 dsh web、桌面端），无法同时启动，请退出其他正在运行的 DSH 后重启。',
   diagnosticTruncated: '… 错误详情已截短。',
@@ -183,10 +188,10 @@ export const zh = {
   restartApplication: '重启',
   recoveryOperationFailed: '恢复操作失败',
   disableThirdPartyPlugins: '禁用第三方插件、备份 profile patch 并重启',
-  welcomeTitle: 'DeepSeek Harness',
-  welcomeBrand: 'DeepSeek Harness',
+  welcomeTitle: '{product}',
+  welcomeBrand: '{product}',
   welcomeTaglineBefore: '欢迎使用 ',
-  welcomeTaglineBrand: 'DeepSeek Harness',
+  welcomeTaglineBrand: '{product}',
   welcomeTaglineAfter: '',
   welcomeDescription: '组装无限可能，共探智能上限',
   welcomeAuthStarting: '正在打开登录…',
@@ -229,7 +234,7 @@ export const zh = {
   updateCurrent: '当前暂无可用更新。当前版本：V{version}',
   updateChecking: '正在检查更新…',
   updateDownload: '下载更新',
-  updateDownloadedTitle: 'DeepSeek Harness v{version} 下载完成',
+  updateDownloadedTitle: '{product} v{version} 下载完成',
   updateDownloadedDetail: '安装包已下载完毕，点击“安装并重启”，即刻重启客户端，开始部署。',
   updateDownloadedTitleWindows: '新版本 v{version} 已准备就绪',
   updateDownloadedDetailWindows: '更新期间应用将暂时关闭，完成后会自动打开。\n\n更新可能需要一些时间，请耐心等待，期间请勿重复启动应用。',
@@ -247,9 +252,9 @@ export const zh = {
   updateTasksUnavailable: '无法确认任务状态，请在工作区就绪后重试更新。',
   updateStopFailed: '未能安全停止任务，更新未安装。请稍后重试。',
   updateTechnicalDetails: '查看技术详情',
-  updateTitle: 'DeepSeek Harness 更新',
+  updateTitle: '{product} 更新',
   updateAvailable: '发现可用更新',
-  updateDetail: 'DeepSeek Harness {version}\n\nDeepSeek Harness 将重启以完成更新。',
+  updateDetail: '{product} {version}\n\n{product} 将重启以完成更新。',
   installAndRestart: '安装并重启',
   later: '稍后',
   updateFailedTitle: '更新失败',
@@ -291,11 +296,29 @@ export interface DesktopLocale {
   readonly messages: DesktopMessages
 }
 
+const BRANDED_EN: Partial<DesktopMessages> = {
+  welcomeKeyDescription: 'Configure official models to start using the app',
+}
+
+const BRANDED_ZH: Partial<DesktopMessages> = {
+  welcomeKeyDescription: '配置官方模型，即可开始使用',
+}
+
+function brandMessages(messages: DesktopMessages, extra: Partial<DesktopMessages>, product: string): DesktopMessages {
+  const branded = { ...messages }
+  for (const key of Object.keys(messages) as (keyof DesktopMessages)[]) {
+    branded[key] = messages[key].split('{product}').join(product)
+  }
+  if (product === DEFAULT_DESKTOP_PRODUCT_NAME) return branded
+  return { ...branded, ...extra }
+}
+
 /** Resolve Electron's locale to one shipped Desktop dictionary. */
-export function resolveDesktopLocale(locale: string): DesktopLocale {
+export function resolveDesktopLocale(locale: string, env: NodeJS.ProcessEnv = process.env): DesktopLocale {
+  const product = resolveDesktopProductName(env)
   return locale.toLowerCase().startsWith('zh')
-    ? { id: 'zh-CN', messages: zh }
-    : { id: 'en', messages: en }
+    ? { id: 'zh-CN', messages: brandMessages(zh, BRANDED_ZH, product) }
+    : { id: 'en', messages: brandMessages(en, BRANDED_EN, product) }
 }
 
 /**
