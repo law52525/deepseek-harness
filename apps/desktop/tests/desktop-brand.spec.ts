@@ -56,7 +56,10 @@ describe('desktop brand identity in electron-builder config', () => {
     expect(config.extraMetadata.dshDesktopProtocolScheme).toBe('wandox')
     expect(String(config.mac.icon)).toBe(join(brand, 'icon-macos.png'))
     expect(config.files.some((entry: unknown) => typeof entry === 'object' && entry !== null
-      && 'to' in entry && (entry as { to: string }).to === 'renderer/assets/welcome-brand.svg')).toBe(true)
+      && 'from' in entry && (entry as { from: string }).from === brand
+      && 'to' in entry && (entry as { to: string }).to === 'renderer/assets'
+      && 'filter' in entry && Array.isArray((entry as { filter: string[] }).filter)
+      && (entry as { filter: string[] }).filter.includes('welcome-brand.svg'))).toBe(true)
     expect(config.files).not.toContain('renderer/**/*')
     expect(config.files.some((entry: unknown) => typeof entry === 'object' && entry !== null
       && 'filter' in entry && Array.isArray((entry as { filter: string[] }).filter)

@@ -2,7 +2,7 @@ import { officePackageDirectories } from '../../../scripts/libreoffice-packages.
 import { X509Certificate } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { basename, dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -179,7 +179,8 @@ export function createElectronBuilderConfig(
     ? ['renderer/**/*']
     : [
       { from: 'renderer', to: 'renderer', filter: ['**/*', '!assets/welcome-brand.svg'] },
-      { from: welcomeBrand, to: 'renderer/assets/welcome-brand.svg' },
+      // `files` FileSet `from` is a directory; mapping a single file path is ignored.
+      { from: dirname(welcomeBrand), to: 'renderer/assets', filter: [basename(welcomeBrand)] },
     ]
   const installerSidebar = trimmed(env, BRAND_RESOURCES_ENV) === undefined
     ? join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp')
