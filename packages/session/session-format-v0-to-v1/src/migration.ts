@@ -16,6 +16,11 @@ import type {
 } from '@deepseek-ai/dsh-session-format'
 import { isReleasedAssistantChunkRun } from './codec.ts'
 import {
+  V0_VACANT_TOOL_NAME_REWRITE,
+  rewriteReleasedVacantToolNameRun,
+  rewriteReleasedVacantToolNames,
+} from './empty-tool-name.ts'
+import {
   assertReleasedEventPayload,
   assertReleasedV1Header,
 } from './validation.ts'
@@ -61,7 +66,7 @@ class ReleasedV0ToV1Stage implements SessionFormatMigrationStage {
     context: SessionFormatMigrationContext,
   ): void {
     if (isReleasedAssistantChunkRun(run)) {
-      context.emitRun(run)
+      context.emitRun(rewriteReleasedVacantToolNameRun(run, V0_VACANT_TOOL_NAME_REWRITE))
       return
     }
     for (const event of run.expand()) this.transformEvent(event, context)
@@ -96,10 +101,11 @@ function normalizeReleasedV0Event(
   const retry = normalizeLegacyRetry(steering, sessionId, state.retryIds)
   const compaction = normalizeLegacyCompaction(retry, sessionId, state)
   const message = normalizeLegacyMessage(compaction, sessionId, state.messageIds)
-  if (message.type !== 'assistant/chunk') assertReleasedEventPayload(message, 0)
-  const messageId = eventMessageId(message)
-  if (messageId !== undefined) state.messageIds.set(message.seq, messageId)
-  return message
+  const rewritten = rewriteReleasedVacantToolNames(message, V0_VACANT_TOOL_NAME_REWRITE)
+  if (rewritten.type !== 'assistant/chunk') assertReleasedEventPayload(rewritten, 0)
+  const messageId = eventMessageId(rewritten)
+  if (messageId !== undefined) state.messageIds.set(rewritten.seq, messageId)
+  return rewritten
 }
 
 function normalizeLegacyCompactionType(event: SessionFormatEvent): SessionFormatEvent {

@@ -17,9 +17,12 @@ import type {
 } from '@deepseek-ai/dsh-session-format'
 import {
   RELEASED_V0_EVENT_DISPOSITIONS,
+  V1_VACANT_TOOL_NAME_REWRITE,
   assertReleasedEventPayload,
   assertReleasedV1Header,
   isReleasedAssistantChunkRun,
+  rewriteReleasedVacantToolNameRun,
+  rewriteReleasedVacantToolNames,
 } from '@deepseek-ai/dsh-session-format-v0-to-v1'
 import { assertReleasedV2Header } from './validation.ts'
 
@@ -97,11 +100,12 @@ class DecodedReleasedV1ToV2Stage extends TransformedReleasedV1ToV2Stage {
     event: SessionFormatEvent,
     context: SessionFormatMigrationContext,
   ): void {
-    if (event.type !== 'assistant/chunk'
-      && RELEASED_V0_EVENT_DISPOSITIONS[event.type] !== undefined) {
-      assertReleasedEventPayload(event, 1)
+    const rewritten = rewriteReleasedVacantToolNames(event, V1_VACANT_TOOL_NAME_REWRITE)
+    if (rewritten.type !== 'assistant/chunk'
+      && RELEASED_V0_EVENT_DISPOSITIONS[rewritten.type] !== undefined) {
+      assertReleasedEventPayload(rewritten, 1)
     }
-    super.transformEvent(event, context)
+    super.transformEvent(rewritten, context)
   }
 }
 
@@ -126,6 +130,7 @@ function transformReleasedEvent(
   event: SessionFormatEvent,
   context: SessionFormatMigrationContext,
 ): void {
+  event = rewriteReleasedVacantToolNames(event, V1_VACANT_TOOL_NAME_REWRITE)
   if (event.type === 'assistant/chunk') assertChunkEnvelope(event)
   if (RELEASED_V0_EVENT_DISPOSITIONS[event.type] === undefined) {
     throw refusal(`format v1 contains unknown event type ${JSON.stringify(event.type)} at seq ${event.seq}`)
@@ -191,6 +196,7 @@ function transformReleasedRun(
   run: SessionFormatEventRun,
   context: SessionFormatMigrationContext,
 ): void {
+  run = rewriteReleasedVacantToolNameRun(run, V1_VACANT_TOOL_NAME_REWRITE)
   if (!isReleasedAssistantChunkRun(run)) {
     for (const event of run.expand()) transformReleasedEvent(state, event, context)
     return

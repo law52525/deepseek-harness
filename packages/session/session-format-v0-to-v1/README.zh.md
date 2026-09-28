@@ -44,7 +44,7 @@ const targetInheritedEventCount = stage.finish(migrationContext)
 
 Alpha 迁移边会拒绝冻结清单之外的所有事件类型，包括带有 `ignorable: true` 标记的未知事件。它也会拒绝意外的 payload 成员。`tool/result.meta` 与嵌套 PTC `arguments` 是显式的不透明 JSON 字段；迁移会原样保留它们，不把其中的数字解释为会话序号。内容块中未知的 `type` 分支、消息来源中未知的 `kind` 分支、assistant 结束原因中未知的 `kind` 分支与 `turn/end` 原因中未知的 `kind` 分支保持 owner-opaque JSON，已知分支则接受结构校验。
 
-有限的历史规范化会把 `steering/message` 转换为 `user/message`、把 `compact/*` 事件重命名为 `compaction/*`、移除 `turn/start.trigger`、转换已停用的 `turn/end` reason、添加当前消息包装层，并为旧消息、retry chain 与压缩（compaction）组补充确定性 id，同时移除已停用且重复的 `request/header.header.messagePrefix`。已停用的 `request/header-delta`、`mode/set` 和 `request/header` fallback reason 会使迁移失败。除此之外，任何事件、引用、来源或 payload 事实都不得改变。
+有限的历史规范化会把 `steering/message` 转换为 `user/message`、把 `compact/*` 事件重命名为 `compaction/*`、移除 `turn/start.trigger`、转换已停用的 `turn/end` reason、添加当前消息包装层，并为旧消息、retry chain 与压缩（compaction）组补充确定性 id，同时移除已停用且重复的 `request/header.header.messagePrefix`。空白工具名（`''` 或仅空白）会在 `tool-call-delta`、`block-end` 的 tool-call 块、`assistant/message` 的 tool-call 内容、`tool/call` 以及打包的 `tool-call-chunks` 上改写为 `invalid_tool_call`；arguments、id 与非空白 name 保持不变。已停用的 `request/header-delta`、`mode/set` 和 `request/header` fallback reason 会使迁移失败。除此之外，任何事件、引用、来源或 payload 事实都不得改变。
 
 -----
 
@@ -63,6 +63,7 @@ Alpha 迁移边会拒绝冻结清单之外的所有事件类型，包括带有 `
 | [`src/payload-validation.ts`](src/payload-validation.ts) | 每种已发布 v0/v1 事件类型的冻结嵌套 payload 语义 |
 | [`src/relationships.ts`](src/relationships.ts) | 冻结的跨事件配对：轮次、步骤、工具开始与结果、重试、压缩、标题 |
 | [`src/migration.ts`](src/migration.ts) | 恒等迁移边与旧格式规范化 |
+| [`src/empty-tool-name.ts`](src/empty-tool-name.ts) | 空白历史工具名改写 |
 | [`src/validation.ts`](src/validation.ts) | 精确的源与目标校验 |
 
 </details>

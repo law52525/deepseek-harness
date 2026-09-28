@@ -275,6 +275,73 @@ describe('first-party Session format catalog', () => {
       events: [{ type: 'feedback/record', seq: 0 }],
     })
   })
+
+  it('migrates a v0 empty tool-call name to V4 as invalid_tool_call', () => {
+    const header = {
+      type: 'session', version: 0, id: 'empty-tool-v4', createdAt: 1, cwd: '/work', delegationDepth: 0,
+    }
+    const toolCall = { type: 'tool-call', id: 'call', name: '', arguments: '{}' }
+    const rows = [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
+      {
+        type: 'assistant/chunk', seq: 2, time: 3,
+        data: {
+          turn: 1, step: 1,
+          chunk: { type: 'tool-call-delta', index: 0, id: 'call', name: '', argumentsDelta: '{}' },
+        },
+      },
+      {
+        type: 'assistant/chunk', seq: 3, time: 4,
+        data: { turn: 1, step: 1, chunk: { type: 'block-end', index: 0, block: toolCall } },
+      },
+      {
+        type: 'assistant/message', seq: 4, time: 5, sourceEventSeqs: [2, 3], surfaceOp: 'append',
+        data: {
+          turn: 1, step: 1,
+          message: {
+            id: 'assistant', role: 'assistant', content: [toolCall],
+            source: { kind: 'model', provider: 'mock', model: 'mock' },
+          },
+        },
+      },
+      { type: 'tool/call', seq: 5, time: 6, data: { turn: 1, step: 1, callId: 'call', name: '', arguments: '{}' } },
+      {
+        type: 'tool/result', seq: 6, time: 7, sourceEventSeqs: [5], surfaceOp: 'append',
+        data: {
+          turn: 1, step: 1,
+          message: {
+            id: 'result', role: 'user',
+            content: [{
+              type: 'tool-result', toolCallId: 'call',
+              content: [{ type: 'text', text: 'Error: unknown tool ""' }], isError: true,
+            }],
+            source: { kind: 'tool', callId: 'call' },
+          },
+        },
+      },
+      { type: 'step/end', seq: 7, time: 8, data: { turn: 1, step: 1 } },
+      { type: 'turn/end', seq: 8, time: 9, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    const restore = createSessionFormatCatalogWithChildren([]).createRestore(header, {
+      recovery: 'strict', validation: 'current',
+    })
+    for (const row of rows) restore.decodeRow(row)
+    const artifact = restore.finish()
+    expect(artifact.header.version).toBe(SESSION_FORMAT_VERSION)
+    const names: string[] = []
+    for (const event of artifact.events) {
+      if (event.type === 'assistant/message') {
+        const content = (event.data as { message: { content: Array<{ type: string; name?: string }> } }).message.content
+        for (const block of content) if (block.type === 'tool-call' && block.name !== undefined) names.push(block.name)
+      }
+      if (event.type === 'tool/call') names.push((event.data as { name: string }).name)
+    }
+    expect(names.length).toBeGreaterThan(0)
+    expect(names.every(name => name === 'invalid_tool_call')).toBe(true)
+    const result = artifact.events.find(event => event.type === 'tool/result')
+    expect((result?.data as { message: { source: { callId: string } } }).message.source.callId).toBe('call')
+  })
 })
 
 describe('historical child prerequisite catalog', () => {
