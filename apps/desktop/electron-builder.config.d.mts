@@ -25,6 +25,12 @@ export interface DesktopElectronBuilderConfig {
     readonly dshDesktopExtraBundles?: readonly string[]
     readonly dshDesktopProductName?: string
     readonly dshDesktopProtocolScheme?: string
+    readonly dshDesktopInAppAuth?: Readonly<{
+      readonly origins: readonly string[]
+      readonly callbackPrefix: string
+      readonly forwardPath: string
+    }>
+    readonly dshDesktopWelcomeApiKey?: string
   }
   readonly asarUnpack: readonly string[]
   readonly extraResources: readonly [

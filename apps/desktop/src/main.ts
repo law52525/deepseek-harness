@@ -27,9 +27,12 @@ import {
   applyPackagedProductConfig,
   desktopApplicationMenuTopLevelLabel,
   isDesktopOpenUrl,
+  resolveDesktopInAppAuth,
   resolveDesktopProductName,
   resolveDesktopProtocolScheme,
+  resolveDesktopWelcomeApiKeyEnabled,
 } from './product-config.ts'
+import { authorizeUrlUsesInAppWindow, openInAppAuthWindow } from './in-app-auth.ts'
 import { DesktopProjectManager } from './project-manager.ts'
 import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
 import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
@@ -404,6 +407,7 @@ async function main(): Promise<void> {
   let stopAccount: (() => void) | undefined
   let openedAttempt: string | undefined
   let returnedAttempt: string | undefined
+  let closeInAppAuth: (() => void) | undefined
   let pendingWelcomeNotice: WelcomeNotice | undefined
   let previousAccountStatus: string | undefined
   const assertProductSender = (event: IpcMainInvokeEvent): void => {
@@ -450,9 +454,32 @@ async function main(): Promise<void> {
           if (quitting) return
           if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.webContents.send(WELCOME_IPC.state, state)
           const attempt = state.attempt
+          if (attempt?.phase !== 'waiting-browser') {
+            closeInAppAuth?.()
+            closeInAppAuth = undefined
+          }
           if (attempt?.phase === 'waiting-browser' && attempt.authorizeUrl !== undefined && openedAttempt !== attempt.id) {
             openedAttempt = attempt.id
-            void shell.openExternal(platformLoginUrl(attempt.authorizeUrl)).catch(() => undefined)
+            const authorizeUrl = platformLoginUrl(attempt.authorizeUrl)
+            const inApp = resolveDesktopInAppAuth()
+            const parent = (welcomeWindow !== undefined && !welcomeWindow.isDestroyed() ? welcomeWindow : mainWindow)
+            if (inApp !== undefined && hostUrl !== undefined
+              && authorizeUrlUsesInAppWindow(authorizeUrl, inApp)
+              && parent !== undefined && !parent.isDestroyed()) {
+              closeInAppAuth = openInAppAuthWindow({
+                parent,
+                authorizeUrl,
+                attemptId: attempt.id,
+                hostUrl,
+                config: inApp,
+                fetch: (input, init) => net.fetch(input, init),
+                onCancel: () => {
+                  void welcomeBackend?.account.cancel(attempt.id).catch(() => undefined)
+                },
+              }).close
+            } else {
+              void shell.openExternal(authorizeUrl).catch(() => undefined)
+            }
           }
           if ((attempt?.phase === 'failed' || attempt?.phase === 'expired') && returnedAttempt !== attempt.id) {
             returnedAttempt = attempt.id
@@ -1144,7 +1171,7 @@ async function main(): Promise<void> {
           return { ok: true }
         },
         skip: enterWorkspace,
-      })
+      }, resolveDesktopWelcomeApiKeyEnabled())
       const window = welcomeWindow
       window.once('closed', () => {
         void welcomeBackend?.account.state().then((state) => {

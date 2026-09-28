@@ -7,16 +7,20 @@ import {
   DEFAULT_DESKTOP_PRODUCT_NAME,
   DEFAULT_DESKTOP_PROTOCOL_SCHEME,
   DESKTOP_EXTRA_BUNDLES_ENV,
+  DESKTOP_IN_APP_AUTH_ENV,
   DESKTOP_PRODUCT_NAME_ENV,
   DESKTOP_PRODUCT_VERSION_ENV,
   DESKTOP_PROFILE_NAME_ENV,
   DESKTOP_PROTOCOL_SCHEME_ENV,
+  DESKTOP_WELCOME_API_KEY_ENV,
   isDesktopOpenUrl,
   resolveDesktopArtifactPrefix,
   resolveDesktopExtraBundles,
+  resolveDesktopInAppAuth,
   resolveDesktopProductName,
   resolveDesktopProfileName,
   resolveDesktopProtocolScheme,
+  resolveDesktopWelcomeApiKeyEnabled,
   desktopApplicationMenuTopLevelLabel,
 } from '../src/product-config.ts'
 
@@ -139,5 +143,59 @@ describe('desktop product configuration', () => {
     }, env)
     expect(resolveDesktopProductName(env)).toBe('Wandox Work')
     expect(resolveDesktopProtocolScheme(env)).toBe('wandox')
+  })
+
+  it('defaults in-app authorization and the welcome API Key page to official behavior', () => {
+    expect(resolveDesktopInAppAuth({})).toBeUndefined()
+    expect(resolveDesktopWelcomeApiKeyEnabled({})).toBe(true)
+  })
+
+  it('parses a valid in-app authorization allow-list from env', () => {
+    const config = {
+      origins: ['https://sso.example.test'],
+      callbackPrefix: 'https://sso.example.test/callback',
+      forwardPath: '/auth/callback',
+    }
+    vi.stubEnv(DESKTOP_IN_APP_AUTH_ENV, JSON.stringify(config))
+    expect(resolveDesktopInAppAuth()).toEqual(config)
+    vi.stubEnv(DESKTOP_WELCOME_API_KEY_ENV, '0')
+    expect(resolveDesktopWelcomeApiKeyEnabled()).toBe(false)
+  })
+
+  it('packaged in-app authorization ignores a hijacked process env', () => {
+    const baked = {
+      origins: ['https://sso.example.test'],
+      callbackPrefix: 'https://sso.example.test/callback',
+      forwardPath: '/auth/callback',
+    }
+    const env: NodeJS.ProcessEnv = {
+      [DESKTOP_IN_APP_AUTH_ENV]: JSON.stringify({
+        origins: ['https://evil.example'],
+        callbackPrefix: 'https://evil.example/cb',
+        forwardPath: '/hijack',
+      }),
+      [DESKTOP_WELCOME_API_KEY_ENV]: '1',
+    }
+    applyPackagedProductConfig({
+      dshDesktopInAppAuth: baked,
+      dshDesktopWelcomeApiKey: '0',
+      version: '3.0.0',
+    }, env)
+    expect(resolveDesktopInAppAuth(env)).toEqual(baked)
+    expect(resolveDesktopWelcomeApiKeyEnabled(env)).toBe(false)
+  })
+
+  it('packaged official identity clears in-app authorization even when the live env is set', () => {
+    const env: NodeJS.ProcessEnv = {
+      [DESKTOP_IN_APP_AUTH_ENV]: JSON.stringify({
+        origins: ['https://sso.example.test'],
+        callbackPrefix: 'https://sso.example.test/callback',
+        forwardPath: '/auth/callback',
+      }),
+      [DESKTOP_WELCOME_API_KEY_ENV]: '0',
+    }
+    applyPackagedProductConfig({ version: '0.1.7-rc.2' }, env)
+    expect(resolveDesktopInAppAuth(env)).toBeUndefined()
+    expect(resolveDesktopWelcomeApiKeyEnabled(env)).toBe(true)
   })
 })

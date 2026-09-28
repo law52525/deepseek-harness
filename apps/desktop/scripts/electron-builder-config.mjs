@@ -42,6 +42,8 @@ const PRODUCT_NAME_ENV = 'DSH_DESKTOP_PRODUCT_NAME'
 const PROTOCOL_SCHEME_ENV = 'DSH_DESKTOP_PROTOCOL_SCHEME'
 const ARTIFACT_PREFIX_ENV = 'DSH_DESKTOP_ARTIFACT_PREFIX'
 const BRAND_RESOURCES_ENV = 'DSH_DESKTOP_BRAND_RESOURCES'
+const IN_APP_AUTH_ENV = 'DSH_DESKTOP_IN_APP_AUTH'
+const WELCOME_API_KEY_ENV = 'DSH_DESKTOP_WELCOME_API_KEY'
 const DEFAULT_PRODUCT_NAME = 'DeepSeek Harness'
 const DEFAULT_PROTOCOL_SCHEME = 'dsh'
 const DEFAULT_ARTIFACT_PREFIX = 'deepseek-harness'
@@ -59,6 +61,32 @@ function commaSeparatedNames(value) {
     names.push(name)
   }
   return names
+}
+
+function parseInAppAuthMetadata(env) {
+  const raw = trimmed(env, IN_APP_AUTH_ENV)
+  if (raw === undefined) return undefined
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error(`desktop package: ${IN_APP_AUTH_ENV} must be JSON`)
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)
+    || !Array.isArray(parsed.origins) || parsed.origins.length === 0
+    || typeof parsed.callbackPrefix !== 'string' || typeof parsed.forwardPath !== 'string') {
+    throw new Error(`desktop package: ${IN_APP_AUTH_ENV} must include origins, callbackPrefix, and forwardPath`)
+  }
+  return {
+    origins: parsed.origins.map((item) => {
+      if (typeof item !== 'string') {
+        throw new Error(`desktop package: ${IN_APP_AUTH_ENV} origins must be https origins`)
+      }
+      return item.trim()
+    }),
+    callbackPrefix: parsed.callbackPrefix.trim(),
+    forwardPath: parsed.forwardPath.trim(),
+  }
 }
 
 function trimmed(env, name) {
@@ -185,6 +213,8 @@ export function createElectronBuilderConfig(
   const installerSidebar = trimmed(env, BRAND_RESOURCES_ENV) === undefined
     ? join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp')
     : join(trimmed(env, BRAND_RESOURCES_ENV), 'uninstaller-sidebar.bmp')
+  const inAppAuth = parseInAppAuthMetadata(env)
+  const welcomeApiKey = trimmed(env, WELCOME_API_KEY_ENV)
   return {
     appId,
     protocols: [{ name: productName, schemes: [protocolScheme] }],
@@ -199,6 +229,8 @@ export function createElectronBuilderConfig(
       ...extraBundles.length === 0 ? {} : { dshDesktopExtraBundles: extraBundles },
       ...productName === DEFAULT_PRODUCT_NAME ? {} : { dshDesktopProductName: productName },
       ...protocolScheme === DEFAULT_PROTOCOL_SCHEME ? {} : { dshDesktopProtocolScheme: protocolScheme },
+      ...inAppAuth === undefined ? {} : { dshDesktopInAppAuth: inAppAuth },
+      ...welcomeApiKey === undefined ? {} : { dshDesktopWelcomeApiKey: welcomeApiKey },
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
     },
     productName,

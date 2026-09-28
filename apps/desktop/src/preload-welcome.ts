@@ -7,11 +7,14 @@ import { WELCOME_IPC, type WelcomeApi, type WelcomeNotice, type WelcomeSaveResul
 
 const localePrefix = '--dsh-welcome-locale='
 const productPrefix = '--dsh-welcome-product='
+const apiKeyPrefix = '--dsh-welcome-api-key='
 const locale = process.argv.find(argument => argument.startsWith(localePrefix))?.slice(localePrefix.length)
 const product = process.argv.find(argument => argument.startsWith(productPrefix))?.slice(productPrefix.length)
+const allowApiKey = process.argv.find(argument => argument.startsWith(apiKeyPrefix))?.slice(apiKeyPrefix.length) !== '0'
 if (locale === undefined) throw new Error('desktop welcome: missing window locale')
 const api: WelcomeApi = {
   ...resolveDesktopLocale(locale, product === undefined || product === '' ? undefined : { DSH_DESKTOP_PRODUCT_NAME: product }),
+  allowApiKey,
   takeNotice: () => ipcRenderer.invoke(WELCOME_IPC.takeNotice) as Promise<WelcomeNotice | undefined>,
   startSignIn: () => ipcRenderer.invoke(WELCOME_IPC.start) as Promise<AccountView>,
   cancelSignIn: (id: SignInAttemptId) => ipcRenderer.invoke(WELCOME_IPC.cancel, id) as Promise<AccountView>,

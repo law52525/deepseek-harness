@@ -68,6 +68,8 @@ describe('packaged runtime verification', () => {
     expect(config.extraMetadata).not.toHaveProperty('name')
     expect(config.extraMetadata).not.toHaveProperty('dshDesktopProfileName')
     expect(config.extraMetadata).not.toHaveProperty('dshDesktopExtraBundles')
+    expect(config.extraMetadata).not.toHaveProperty('dshDesktopInAppAuth')
+    expect(config.extraMetadata).not.toHaveProperty('dshDesktopWelcomeApiKey')
     expect(config.appId).toBe(ENVIRONMENT.DSH_DESKTOP_APP_ID)
   })
 
@@ -91,5 +93,23 @@ describe('packaged runtime verification', () => {
     })
     await config.afterPack(CONTEXT as never)
     expect(verifyDesktopRuntime.mock.calls[0]?.[1]).toBe(declaredVersion)
+  })
+
+  it('bakes in-app authorization and the welcome API Key switch into extraMetadata', async () => {
+    const auth = {
+      origins: ['https://sso.example.test'],
+      callbackPrefix: 'https://sso.example.test/callback',
+      forwardPath: '/auth/callback',
+    }
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const config = createElectronBuilderConfig({
+      ...ENVIRONMENT,
+      DSH_DESKTOP_IN_APP_AUTH: JSON.stringify(auth),
+      DSH_DESKTOP_WELCOME_API_KEY: '0',
+    }, 'win32', 'x64')
+    expect(config.extraMetadata).toMatchObject({
+      dshDesktopInAppAuth: auth,
+      dshDesktopWelcomeApiKey: '0',
+    })
   })
 })

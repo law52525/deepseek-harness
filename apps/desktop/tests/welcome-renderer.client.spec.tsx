@@ -11,7 +11,11 @@ import type { WelcomeSaveResult, WelcomeNotice } from '../src/welcome-api.ts'
 const html = readFileSync(join(import.meta.dirname, '../renderer/welcome.html'), 'utf8')
 afterEach(cleanup)
 
-function mount(language = 'zh-CN', takeNotice = vi.fn<() => Promise<WelcomeNotice | undefined>>().mockResolvedValue(undefined)) {
+function mount(
+  language = 'zh-CN',
+  takeNotice = vi.fn<() => Promise<WelcomeNotice | undefined>>().mockResolvedValue(undefined),
+  allowApiKey = true,
+) {
   cleanup()
   const stopAccount = vi.fn()
   const api = {
@@ -23,6 +27,7 @@ function mount(language = 'zh-CN', takeNotice = vi.fn<() => Promise<WelcomeNotic
     ...resolveDesktopLocale(language),
     saveApiKey: vi.fn<(value: string) => Promise<WelcomeSaveResult>>().mockResolvedValue({ ok: true }),
     skip: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    allowApiKey,
   }
   const mounted = render(<Welcome api={api} />)
   const input = document.querySelector('input')!
@@ -55,6 +60,13 @@ describe('desktop welcome presentation', () => {
     expect(view.document.activeElement).toBe(view.input)
     expect(view.input.type).toBe('password')
     await expect(view.copy()).toMatchFileSnapshot(`./expected/welcome/${language}-api-key.expected.txt`)
+  })
+
+  it('hides the API Key entry when allowApiKey is false', () => {
+    const view = mount('zh-CN', vi.fn<() => Promise<WelcomeNotice | undefined>>().mockResolvedValue(undefined), false)
+    expect(view.document.querySelector<HTMLButtonElement>('#api-key')!.hidden).toBe(true)
+    expect(view.document.querySelector('#sign-in')!.closest('[hidden]')).toBeNull()
+    expect(view.copy()).not.toContain(view.api.messages.welcomeApiKey)
   })
 
   it('sends one trimmed key, prevents competing actions, and clears it after saving', async () => {

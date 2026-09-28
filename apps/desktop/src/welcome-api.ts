@@ -48,6 +48,11 @@ export interface WelcomeOperations {
 export type WelcomeApi = DesktopLocale & WelcomeOperations & {
   /** @param listener - safe account snapshot recipient. @returns subscription disposer. */
   onAccountState(listener: (state: AccountView) => void): () => void
+  /**
+   * Whether the welcome entry offers the API Key page. `false` hides those
+   * controls; omitted or `true` is the official layout.
+   */
+  allowApiKey?: boolean
 }
 
 /** Authentication facts supplied at cold start or after a completed sign-out. */
