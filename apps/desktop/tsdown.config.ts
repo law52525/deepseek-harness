@@ -32,11 +32,17 @@ if (clientVersion === undefined) throw new Error('desktop build: the client envi
 /** Inline the one public build value the Node entry reads; every other variable stays a runtime lookup. */
 const clientVersionDefine = { 'process.env.DSH_CLIENT_VERSION': JSON.stringify(clientVersion) }
 
+/** Branded packaging inlines identity so official product-name literals are dropped from asar. */
+const brandedIdentityDefine = {
+  'process.env.DSH_BUNDLE_PRODUCT_NAME': JSON.stringify(process.env.DSH_DESKTOP_PRODUCT_NAME ?? ''),
+  'process.env.DSH_BUNDLE_ARTIFACT_PREFIX': JSON.stringify(process.env.DSH_DESKTOP_ARTIFACT_PREFIX ?? ''),
+}
+
 export default defineConfig([
   {
     entry: ['lib/types/main.js'],
     plugins: [packagedImportsPlugin(mainProcessImports)],
-    define: clientVersionDefine,
+    define: { ...clientVersionDefine, ...brandedIdentityDefine },
     onSuccess: async () => {
       await build({
         configFile: false,

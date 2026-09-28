@@ -33,14 +33,21 @@ export const DESKTOP_BRAND_RESOURCES_ENV = 'DSH_DESKTOP_BRAND_RESOURCES'
 /** Profile directory name when no override is configured. */
 export const DEFAULT_DESKTOP_PROFILE_NAME = 'desktop'
 
-/** Official productName when no brand override is configured. */
-export const DEFAULT_DESKTOP_PRODUCT_NAME = 'DeepSeek Harness'
+/**
+ * Official productName when no brand override is configured.
+ * Packaged branded builds replace `DSH_BUNDLE_PRODUCT_NAME` at bundle time so
+ * the official fallback string is dropped from the asar.
+ */
+export const DEFAULT_DESKTOP_PRODUCT_NAME = process.env.DSH_BUNDLE_PRODUCT_NAME || 'DeepSeek Harness'
 
 /** Official custom URL scheme when no brand override is configured. */
 export const DEFAULT_DESKTOP_PROTOCOL_SCHEME = 'dsh'
 
-/** Official artifactName prefix when no brand override is configured. */
-export const DEFAULT_DESKTOP_ARTIFACT_PREFIX = 'deepseek-harness'
+/**
+ * Official artifactName prefix when no brand override is configured.
+ * Packaged branded builds replace `DSH_BUNDLE_ARTIFACT_PREFIX` at bundle time.
+ */
+export const DEFAULT_DESKTOP_ARTIFACT_PREFIX = process.env.DSH_BUNDLE_ARTIFACT_PREFIX || 'deepseek-harness'
 
 const ARTIFACT_PREFIX = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const PROTOCOL_SCHEME = /^[a-z][a-z0-9+.-]*$/
@@ -98,7 +105,7 @@ function trimmedEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
 /**
  * Resolve the Electron productName used for the .app / .exe, menus, and about panel.
  * @param env - Process environment.
- * @returns Configured name, or the official DeepSeek Harness name when unset.
+ * @returns Configured name, or the official product name when unset.
  */
 export function resolveDesktopProductName(env: NodeJS.ProcessEnv = process.env): string {
   return trimmedEnv(env, DESKTOP_PRODUCT_NAME_ENV) ?? DEFAULT_DESKTOP_PRODUCT_NAME
