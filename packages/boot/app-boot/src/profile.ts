@@ -45,8 +45,23 @@ export interface ProfileTemplate {
   bundles: readonly string[]
 }
 
+/**
+ * Electron writes this top-level field onto every profile it manages.
+ * Value is generic (`desktop-app`); the CLI refuses a profile that carries it.
+ * Unconfigured official Desktop also writes it onto `$DSH_HOME/profiles/desktop`.
+ * The CLI already refuses that directory name, so the extra field has no
+ * additional CLI effect.
+ */
+export const DESKTOP_MANAGED_PROFILE_MARK = {
+  field: 'managedBy',
+  value: 'desktop-app',
+} as const
+
 /** Package metadata accepted by the profile reader; local profiles need no published identity. */
-export type ProfileManifest = Partial<DshPackageManifest>
+export type ProfileManifest = Partial<DshPackageManifest> & {
+  /** Electron-owned profiles set this to {@link DESKTOP_MANAGED_PROFILE_MARK.value}. */
+  managedBy?: typeof DESKTOP_MANAGED_PROFILE_MARK.value | string
+}
 
 /**
  * The patch files a bundle declares, as written: one file for a string
@@ -564,6 +579,38 @@ export function readProfileManifest(binName: string, dir: string): ProfileManife
  */
 export function writeProfileManifest(dir: string, manifest: ProfileManifest): void {
   writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest, undefined, 2) + '\n')
+}
+
+/**
+ * Whether a parsed profile `package.json` carries {@link DESKTOP_MANAGED_PROFILE_MARK}.
+ * Unreadable or non-object values are not managed.
+ */
+export function isDesktopManagedProfileManifest(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  return (value as Record<string, unknown>)[DESKTOP_MANAGED_PROFILE_MARK.field]
+    === DESKTOP_MANAGED_PROFILE_MARK.value
+}
+
+/**
+ * Write {@link DESKTOP_MANAGED_PROFILE_MARK} when it is missing.
+ * Missing files, unreadable JSON, and non-object manifests are left unchanged.
+ * Uses {@link writeProfileManifest}, the profile's existing write.
+ */
+export function ensureDesktopManagedProfileMark(dir: string): void {
+  const path = join(dir, 'package.json')
+  if (!existsSync(path)) return
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return
+  }
+  if (isDesktopManagedProfileManifest(parsed)) return
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return
+  writeProfileManifest(dir, {
+    ...(parsed as ProfileManifest),
+    managedBy: DESKTOP_MANAGED_PROFILE_MARK.value,
+  })
 }
 
 /** Return whether two bundle lists have the same values in the same order. */

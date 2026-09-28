@@ -1,7 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { parseDshArgs } from '../src/args.ts'
 
 const parse = (argv: string[]) => parseDshArgs(argv, '1.2.3')
+const homes: string[] = []
+
+function isolatedHome(): string {
+  const home = mkdtempSync(join(tmpdir(), 'dsh-cli-home-'))
+  homes.push(home)
+  vi.stubEnv('DSH_HOME', home)
+  return home
+}
+
+function writeProfileManifest(home: string, profile: string, manifest: unknown): void {
+  const dir = join(home, 'profiles', profile)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'package.json'), `${JSON.stringify(manifest, undefined, 2)}\n`)
+}
 
 /** Capture the process exit code while muting Commander's output. */
 function exitCode(argv: string[]): number {
@@ -21,6 +38,7 @@ function exitCode(argv: string[]): number {
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
+  for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true })
 })
 
 describe('parseDshArgs', () => {
@@ -217,12 +235,39 @@ describe('parseDshArgs', () => {
     expect(exitCode(['--from-default-profile', 'web', 'plugin', '--profile', 'x', 'add', 'y'])).toBe(1)
   })
 
-  it('rejects a configured Electron profile name and still rejects desktop', () => {
-    vi.stubEnv('DSH_DESKTOP_PROFILE_NAME', 'product-desktop')
+  it('rejects a profile whose package.json is marked as desktop-managed and still rejects desktop', () => {
+    const home = isolatedHome()
+    writeProfileManifest(home, 'product-desktop', {
+      name: 'dsh-profile-product-desktop',
+      private: true,
+      managedBy: 'desktop-app',
+      dependencies: {},
+      dsh: { profile: { bundles: [] } },
+    })
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     expect(exitCode(['--profile', 'product-desktop'])).toBe(1)
     expect(exitCode(['plugin', '--profile', 'product-desktop', 'add', 'x'])).toBe(1)
     expect(exitCode(['--profile', 'desktop'])).toBe(1)
+    expect(stderr.mock.calls.map(([chunk]) => String(chunk)).join(''))
+      .toContain('managed exclusively by the Electron application')
     expect(parse(['--profile', 'tui'])).toMatchObject({ profile: 'tui' })
+  })
+
+  it('does not consult DSH_DESKTOP_PROFILE_NAME when refusing Electron profiles', () => {
+    isolatedHome()
+    vi.stubEnv('DSH_DESKTOP_PROFILE_NAME', 'product-desktop')
+    expect(parse(['--profile', 'product-desktop'])).toMatchObject({ profile: 'product-desktop' })
+    expect(exitCode(['--profile', 'desktop'])).toBe(1)
+  })
+
+  it('does not refuse a missing or unreadable profile for the management mark', () => {
+    const home = isolatedHome()
+    expect(parse(['--profile', 'product-desktop'])).toMatchObject({ profile: 'product-desktop' })
+    const dir = join(home, 'profiles', 'product-desktop')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'package.json'), '{broken')
+    expect(parse(['--profile', 'product-desktop'])).toMatchObject({ profile: 'product-desktop' })
+    expect(exitCode(['--profile', 'desktop'])).toBe(1)
   })
 
   it('keeps its own help for an invocation with no app to hand it to', () => {

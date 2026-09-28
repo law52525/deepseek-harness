@@ -24,7 +24,8 @@ import { resolveDesktopExtraBundles } from './product-config.ts'
 import type { DesktopRelease } from './release.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
 import {
-  initProfile, PROFILE_TEMPLATES, removeLinkProjections, sanitizeProfile, type ProfileTemplate,
+  initProfile, PROFILE_TEMPLATES, removeLinkProjections, sanitizeProfile,
+  ensureDesktopManagedProfileMark, type ProfileTemplate,
 } from '@deepseek-ai/dsh-app-boot'
 
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
@@ -82,11 +83,15 @@ export class DesktopProjectManager {
 
   /**
    * Back up the profile patch and disable third-party bundles without loading application resources.
-   * The caller must stop the Host first.
+   * The caller must stop the Host first. Recovery keeps {@link ensureDesktopManagedProfileMark}.
    * @returns Backup path after the locked profile write, or undefined if the patch was absent.
    */
   async disableAllPlugins(): Promise<string | undefined> {
-    return this.withLock(() => sanitizeProfile('dsh', this.paths.profile, resolveProductBundles()))
+    return this.withLock(() => {
+      const backup = sanitizeProfile('dsh', this.paths.profile, resolveProductBundles())
+      ensureDesktopManagedProfileMark(this.paths.profile)
+      return backup
+    })
   }
 
   /**
@@ -185,4 +190,5 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
 /** Create the first external plugin profile without running a package manager. */
 export function createPluginProfile(projectDir: string): void {
   initProfile(projectDir, resolveProductBundles())
+  ensureDesktopManagedProfileMark(projectDir)
 }

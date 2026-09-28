@@ -15,6 +15,9 @@
  * @module @deepseek-ai/dsh/args
  */
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { Command, CommanderError, InvalidArgumentError } from 'commander'
 
 /** Boot a named profile and hand it the invocation's inner arguments. */
@@ -80,12 +83,37 @@ function selectProfile(value: string, previous?: string): string {
   return value
 }
 
+/**
+ * Electron writes this top-level field on profiles it owns.
+ * Must match `DESKTOP_MANAGED_PROFILE_MARK` in `@deepseek-ai/dsh-app-boot`.
+ * The CLI does not read `DSH_DESKTOP_PROFILE_NAME`; that variable is packaging / unpackaged Desktop only.
+ */
+const DESKTOP_MANAGED_PROFILE_FIELD = 'managedBy'
+const DESKTOP_MANAGED_PROFILE_VALUE = 'desktop-app'
+
+function isDesktopManagedProfileName(profile: string): boolean {
+  return profile.toLowerCase() === 'desktop'
+}
+
+/**
+ * Read `$DSH_HOME/profiles/<name>/package.json` for {@link DESKTOP_MANAGED_PROFILE_VALUE}.
+ * Missing files and unreadable JSON follow the launcher's original allow path.
+ */
+function isDesktopManagedProfileManifest(profile: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(
+      join(resolveDshHome(), 'profiles', profile, 'package.json'),
+      'utf8',
+    ))
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return false
+    return (parsed as Record<string, unknown>)[DESKTOP_MANAGED_PROFILE_FIELD] === DESKTOP_MANAGED_PROFILE_VALUE
+  } catch {
+    return false
+  }
+}
+
 function rejectElectronProfile(program: Command, profile: string): void {
-  const names = new Set(['desktop'])
-  // Must match apps/desktop/src/product-config.ts DESKTOP_PROFILE_NAME_ENV.
-  const extra = process.env.DSH_DESKTOP_PROFILE_NAME?.trim()
-  if (extra !== undefined && extra !== '') names.add(extra.toLowerCase())
-  if (names.has(profile.toLowerCase())) {
+  if (isDesktopManagedProfileName(profile) || isDesktopManagedProfileManifest(profile)) {
     program.error(`error: profile "${profile}" is managed exclusively by the Electron application`)
   }
 }
