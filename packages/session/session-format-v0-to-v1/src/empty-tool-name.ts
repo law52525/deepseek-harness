@@ -14,7 +14,10 @@ export const INVALID_TOOL_CALL_NAME = 'invalid_tool_call'
  * How one adjacent edge rewrites vacant historical tool names.
  * v0→v1 rewrites only blank strings so a later fragment may still supply a real name;
  * v1→v2 omits `tool-call-delta` `name: null` (streaming “this fragment did not carry name”)
- * and rewrites remaining null or blank names to {@link INVALID_TOOL_CALL_NAME}.
+ * and rewrites remaining null or blank settlement names to {@link INVALID_TOOL_CALL_NAME}.
+ * After an attempt is assembled, {@link unifyReleasedVacantSettledToolNames} then forces
+ * every appearance of a vacant-settled `callId` onto that placeholder, including non-blank
+ * stream fragments.
  */
 export interface VacantToolNameRewrite {
   readonly treatNullAsVacant: boolean
@@ -164,6 +167,196 @@ function omitName(record: SessionFormatJsonObject): SessionFormatJsonObject {
     next[key] = value
   }
   return next
+}
+
+/**
+ * After an attempt is assembled, rewrite every name for a `callId` whose settled
+ * `block-end`, message content, or `tool/call` name is vacant, null, or already
+ * {@link INVALID_TOOL_CALL_NAME}. Non-blank stream fragments are overwritten.
+ * A legal settlement leaves every appearance unchanged, including omitted delta names.
+ * @param event - assembled released event, typically `assistant/message` or `assistant/attempt`.
+ * @param options - adjacent-edge rewrite policy; `treatNullAsVacant` applies to settlement names.
+ * @returns a new event when a name changed; otherwise the original event.
+ */
+export function unifyReleasedVacantSettledToolNames(
+  event: SessionFormatEvent,
+  options: VacantToolNameRewrite,
+): SessionFormatEvent {
+  const data = event.data
+  if (!isJsonRecord(data)) return event
+  const callIds = vacantSettledCallIds(event, data, options)
+  if (callIds.size === 0) return event
+  return rewriteNamesForCallIds(event, data, callIds)
+}
+
+function vacantSettledCallIds(
+  event: SessionFormatEvent,
+  data: SessionFormatJsonObject,
+  options: VacantToolNameRewrite,
+): Set<string> {
+  const ids = new Set<string>()
+  if (event.type === 'tool/call') addIfVacantSettlement(ids, data, 'callId', options)
+  const message = data['message']
+  if (isJsonRecord(message) && Array.isArray(message['content'])) {
+    for (const block of message['content']) {
+      addIfVacantSettlement(ids, asRecord(block), 'id', options)
+    }
+  }
+  collectStreamSettlements(ids, data['stream'], options)
+  const chunk = data['chunk']
+  if (isJsonRecord(chunk) && chunk['type'] === 'block-end') {
+    addIfVacantSettlement(ids, asRecord(chunk['block']), 'id', options)
+  }
+  return ids
+}
+
+function collectStreamSettlements(
+  ids: Set<string>,
+  stream: SessionFormatJsonValue | undefined,
+  options: VacantToolNameRewrite,
+): void {
+  if (!Array.isArray(stream)) return
+  for (const record of stream) {
+    const chunk = streamChunk(record)
+    if (chunk === undefined || chunk['type'] !== 'block-end') continue
+    addIfVacantSettlement(ids, asRecord(chunk['block']), 'id', options)
+  }
+}
+
+function addIfVacantSettlement(
+  ids: Set<string>,
+  record: SessionFormatJsonObject | undefined,
+  idKey: 'id' | 'callId',
+  options: VacantToolNameRewrite,
+): void {
+  if (record === undefined) return
+  if (idKey === 'id' && record['type'] !== 'tool-call') return
+  const id = record[idKey]
+  if (typeof id !== 'string' || id.length === 0) return
+  if (!isVacantSettlementName(record['name'], options)) return
+  ids.add(id)
+}
+
+function isVacantSettlementName(
+  name: SessionFormatJsonValue | undefined,
+  options: VacantToolNameRewrite,
+): boolean {
+  if (name === INVALID_TOOL_CALL_NAME) return true
+  if (name === null) return options.treatNullAsVacant
+  return isBlankToolName(name)
+}
+
+function rewriteNamesForCallIds(
+  event: SessionFormatEvent,
+  data: SessionFormatJsonObject,
+  callIds: ReadonlySet<string>,
+): SessionFormatEvent {
+  let next = data
+  let changed = false
+  const patchedCall = forceInvalidName(next, callIds, 'callId')
+  if (patchedCall !== undefined) {
+    next = patchedCall
+    changed = true
+  }
+  const message = next['message']
+  if (isJsonRecord(message) && Array.isArray(message['content'])) {
+    const content = rewriteContentForCallIds(message['content'], callIds)
+    if (content !== undefined) {
+      next = { ...next, message: { ...message, content } }
+      changed = true
+    }
+  }
+  const stream = next['stream']
+  if (Array.isArray(stream)) {
+    const rewritten = rewriteStreamForCallIds(stream, callIds)
+    if (rewritten !== undefined) {
+      next = { ...next, stream: rewritten }
+      changed = true
+    }
+  }
+  const chunk = next['chunk']
+  if (isJsonRecord(chunk)) {
+    const rewritten = rewriteChunkForCallIds(chunk, callIds)
+    if (rewritten !== undefined) {
+      next = { ...next, chunk: rewritten }
+      changed = true
+    }
+  }
+  return changed ? { ...event, data: next } : event
+}
+
+function rewriteContentForCallIds(
+  content: readonly SessionFormatJsonValue[],
+  callIds: ReadonlySet<string>,
+): SessionFormatJsonValue[] | undefined {
+  let changed = false
+  const next = content.map((block) => {
+    const record = asRecord(block)
+    if (record === undefined || record['type'] !== 'tool-call') return block
+    const patched = forceInvalidName(record, callIds, 'id')
+    if (patched === undefined) return block
+    changed = true
+    return patched
+  })
+  return changed ? next : undefined
+}
+
+function rewriteStreamForCallIds(
+  stream: readonly SessionFormatJsonValue[],
+  callIds: ReadonlySet<string>,
+): SessionFormatJsonValue[] | undefined {
+  let changed = false
+  const next = stream.map((record) => {
+    const packed = asRecord(record)
+    if (packed === undefined) return record
+    if (packed['type'] === 'tool-call-chunks') {
+      const patched = forceInvalidName(packed, callIds, 'id')
+      if (patched === undefined) return record
+      changed = true
+      return patched
+    }
+    const chunk = streamChunk(record)
+    if (chunk === undefined) return record
+    const rewritten = rewriteChunkForCallIds(chunk, callIds)
+    if (rewritten === undefined) return record
+    changed = true
+    return { ...packed, chunk: rewritten }
+  })
+  return changed ? next : undefined
+}
+
+function rewriteChunkForCallIds(
+  chunk: SessionFormatJsonObject,
+  callIds: ReadonlySet<string>,
+): SessionFormatJsonObject | undefined {
+  if (chunk['type'] === 'tool-call-delta') return forceInvalidName(chunk, callIds, 'id')
+  if (chunk['type'] !== 'block-end') return undefined
+  const block = asRecord(chunk['block'])
+  if (block === undefined) return undefined
+  const patched = forceInvalidName(block, callIds, 'id')
+  if (patched === undefined) return undefined
+  return { ...chunk, block: patched }
+}
+
+function forceInvalidName(
+  record: SessionFormatJsonObject,
+  callIds: ReadonlySet<string>,
+  idKey: 'id' | 'callId',
+): SessionFormatJsonObject | undefined {
+  const id = record[idKey]
+  if (typeof id !== 'string' || !callIds.has(id)) return undefined
+  if (record['name'] === INVALID_TOOL_CALL_NAME) return undefined
+  return { ...record, name: INVALID_TOOL_CALL_NAME }
+}
+
+function streamChunk(record: SessionFormatJsonValue): SessionFormatJsonObject | undefined {
+  const packed = asRecord(record)
+  if (packed === undefined || packed['type'] !== 'chunk') return undefined
+  return asRecord(packed['chunk'])
+}
+
+function asRecord(value: SessionFormatJsonValue | undefined): SessionFormatJsonObject | undefined {
+  return isJsonRecord(value) ? value : undefined
 }
 
 function isJsonRecord(value: SessionFormatJsonValue | undefined): value is SessionFormatJsonObject {

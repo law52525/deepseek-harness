@@ -23,6 +23,7 @@ import {
   isReleasedAssistantChunkRun,
   rewriteReleasedVacantToolNameRun,
   rewriteReleasedVacantToolNames,
+  unifyReleasedVacantSettledToolNames,
 } from '@deepseek-ai/dsh-session-format-v0-to-v1'
 import { assertReleasedV2Header } from './validation.ts'
 
@@ -554,19 +555,19 @@ function streamOf(group: AttemptGroup) {
 function messageEvent(source: SessionFormatEvent, group: AttemptGroup): SessionFormatEvent {
   const data = record(source.data)
   const { sourceEventSeqs: _sourceEventSeqs, ...event } = source
-  return {
+  return unifyReleasedVacantSettledToolNames({
     ...event,
     data: { ...data, stream: streamOf(group) },
-  }
+  }, V1_VACANT_TOOL_NAME_REWRITE)
 }
 
 function attemptEvent(group: AttemptGroup): SessionFormatEvent {
-  return {
+  return unifyReleasedVacantSettledToolNames({
     type: 'assistant/attempt',
     seq: group.lastChunkSeq as number,
     time: group.lastChunkTime as number,
     data: { turn: group.turn, step: group.step, stream: streamOf(group) },
-  }
+  }, V1_VACANT_TOOL_NAME_REWRITE)
 }
 
 function remapReferences(

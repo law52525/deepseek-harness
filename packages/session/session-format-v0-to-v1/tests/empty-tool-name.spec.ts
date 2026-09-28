@@ -10,6 +10,7 @@ import {
   rewriteReleasedVacantToolNameRun,
   rewriteReleasedVacantToolNames,
   sessionFormatV0ToV1,
+  unifyReleasedVacantSettledToolNames,
   type ReleasedAssistantChunkRun,
 } from '../src/index.ts'
 import { restoreV0ToV1 } from '../src/testing/restore.ts'
@@ -328,6 +329,229 @@ describe('vacant tool-name rewrite', () => {
     expect([...rewritten.expand()][0]).toMatchObject({
       data: { chunk: { name: INVALID_TOOL_CALL_NAME } },
     })
+  })
+})
+
+describe('vacant-settlement callId unification', () => {
+  const skillStream = [
+    { type: 'tool-call-chunks', time0: 1, index: 0, id: 'call', name: 'skill', dt: [], args: ['{}'] },
+    {
+      type: 'chunk', time: 2,
+      chunk: { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'call', name: '', arguments: '{}' } },
+    },
+  ]
+
+  it('leaves non-object data and legal settlements unchanged', () => {
+    const scalar: SessionFormatEvent = { type: 'assistant/message', seq: 0, time: 1, data: 'x' }
+    expect(unifyReleasedVacantSettledToolNames(scalar, V1_VACANT_TOOL_NAME_REWRITE)).toBe(scalar)
+
+    const legal: SessionFormatEvent = {
+      type: 'assistant/message', seq: 0, time: 1,
+      data: {
+        turn: 1, step: 1,
+        message: {
+          id: 'a', role: 'assistant',
+          content: [{ type: 'tool-call', id: 'call', name: 'read', arguments: '{}' }],
+          source: { kind: 'model', provider: 'mock', model: 'mock' },
+        },
+        stream: [
+          { type: 'tool-call-chunks', time0: 1, index: 0, id: 'call', name: 'read', dt: [], args: ['{}'] },
+          { type: 'chunk', time: 2, chunk: { type: 'tool-call-delta', index: 0, id: 'call', argumentsDelta: '{}' } },
+        ],
+      },
+    }
+    expect(unifyReleasedVacantSettledToolNames(legal, V1_VACANT_TOOL_NAME_REWRITE)).toBe(legal)
+    expect(unifyReleasedVacantSettledToolNames(legal, V0_VACANT_TOOL_NAME_REWRITE)).toBe(legal)
+  })
+
+  it('overwrites non-blank stream names when settlement is vacant', () => {
+    const event: SessionFormatEvent = {
+      type: 'assistant/message', seq: 0, time: 1,
+      data: {
+        turn: 1, step: 1,
+        message: {
+          id: 'a', role: 'assistant',
+          content: [
+            { type: 'text', text: 'hi' },
+            1,
+            { type: 'tool-call', id: 'call', name: '', arguments: '{}' },
+            { type: 'tool-call', id: 'other', name: 'read', arguments: '{}' },
+            { type: 'tool-call', id: '', name: '', arguments: '{}' },
+            { type: 'tool-call', id: 1, name: '', arguments: '{}' },
+          ],
+          source: { kind: 'model', provider: 'mock', model: 'mock' },
+        },
+        stream: [
+          1,
+          { type: 'text-chunks', time0: 1, index: 0, dt: [], texts: ['a'] },
+          { type: 'chunk', time: 2, chunk: 'x' },
+          { type: 'chunk', time: 3, chunk: { type: 'text-delta', index: 0, text: 'a' } },
+          { type: 'chunk', time: 4, chunk: { type: 'block-end', index: 1, block: 'x' } },
+          {
+            type: 'chunk', time: 5,
+            chunk: { type: 'block-end', index: 2, block: { type: 'text', text: 'hi' } },
+          },
+          { type: 'tool-call-chunks', time0: 6, index: 0, id: 'call', name: 'skill', dt: [], args: [''] },
+          { type: 'tool-call-chunks', time0: 7, index: 0, id: 'call', dt: [], args: ['{}'] },
+          { type: 'tool-call-chunks', time0: 8, index: 1, id: 'other', name: 'read', dt: [], args: ['{}'] },
+          {
+            type: 'chunk', time: 9,
+            chunk: { type: 'tool-call-delta', index: 0, id: 'call', name: 'skill', argumentsDelta: '' },
+          },
+          {
+            type: 'chunk', time: 10,
+            chunk: { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'call', name: '', arguments: '{}' } },
+          },
+        ],
+      },
+    }
+    const unified = unifyReleasedVacantSettledToolNames(event, V1_VACANT_TOOL_NAME_REWRITE)
+    const data = unified.data as {
+      message: { content: Array<{ id?: string; name?: string }> }
+      stream: Array<{
+        type: string
+        id?: string
+        name?: string
+        chunk?: { type: string; name?: string; block?: { name?: string } }
+      }>
+    }
+    expect(data.message.content[2]?.name).toBe(INVALID_TOOL_CALL_NAME)
+    expect(data.message.content[3]?.name).toBe('read')
+    expect(data.stream[6]?.name).toBe(INVALID_TOOL_CALL_NAME)
+    expect(data.stream[7]?.name).toBe(INVALID_TOOL_CALL_NAME)
+    expect(data.stream[8]?.name).toBe('read')
+    expect(data.stream[9]?.chunk?.name).toBe(INVALID_TOOL_CALL_NAME)
+    expect(data.stream[10]?.chunk?.block?.name).toBe(INVALID_TOOL_CALL_NAME)
+  })
+
+  it('treats a null settlement as vacant only on the v1 policy', () => {
+    const event: SessionFormatEvent = {
+      type: 'assistant/message', seq: 0, time: 1,
+      data: {
+        turn: 1, step: 1,
+        message: {
+          id: 'a', role: 'assistant',
+          content: [{ type: 'tool-call', id: 'call', name: null, arguments: '{}' }],
+          source: { kind: 'model', provider: 'mock', model: 'mock' },
+        },
+        stream: [
+          { type: 'tool-call-chunks', time0: 1, index: 0, id: 'call', name: 'skill', dt: [], args: ['{}'] },
+        ],
+      },
+    }
+    expect(unifyReleasedVacantSettledToolNames(event, V0_VACANT_TOOL_NAME_REWRITE)).toBe(event)
+    const unified = unifyReleasedVacantSettledToolNames(event, V1_VACANT_TOOL_NAME_REWRITE)
+    expect(
+      (unified.data as { stream: Array<{ name?: string }> }).stream[0]?.name,
+    ).toBe(INVALID_TOOL_CALL_NAME)
+  })
+
+  it('does not rewrite when every appearance is already the placeholder', () => {
+    const event: SessionFormatEvent = {
+      type: 'assistant/message', seq: 0, time: 1,
+      data: {
+        turn: 1, step: 1,
+        message: {
+          id: 'a', role: 'assistant',
+          content: [{ type: 'tool-call', id: 'call', name: INVALID_TOOL_CALL_NAME, arguments: '{}' }],
+          source: { kind: 'model', provider: 'mock', model: 'mock' },
+        },
+        stream: [
+          {
+            type: 'tool-call-chunks', time0: 1, index: 0, id: 'call',
+            name: INVALID_TOOL_CALL_NAME, dt: [], args: ['{}'],
+          },
+        ],
+      },
+    }
+    expect(unifyReleasedVacantSettledToolNames(event, V1_VACANT_TOOL_NAME_REWRITE)).toBe(event)
+
+    const call: SessionFormatEvent = {
+      type: 'tool/call', seq: 0, time: 1,
+      data: { turn: 1, step: 1, callId: 'call', name: INVALID_TOOL_CALL_NAME, arguments: '{}' },
+    }
+    expect(unifyReleasedVacantSettledToolNames(call, V1_VACANT_TOOL_NAME_REWRITE)).toBe(call)
+
+    const blockEnd: SessionFormatEvent = {
+      type: 'assistant/chunk', seq: 0, time: 1,
+      data: {
+        turn: 1, step: 1,
+        chunk: {
+          type: 'block-end', index: 0,
+          block: { type: 'tool-call', id: 'call', name: INVALID_TOOL_CALL_NAME, arguments: '{}' },
+        },
+      },
+    }
+    expect(unifyReleasedVacantSettledToolNames(blockEnd, V1_VACANT_TOOL_NAME_REWRITE)).toBe(blockEnd)
+  })
+
+  it('unifies assistant/attempt streams and tool/call events from vacant settlement', () => {
+    const attempt: SessionFormatEvent = {
+      type: 'assistant/attempt', seq: 0, time: 1,
+      data: { turn: 1, step: 1, stream: skillStream },
+    }
+    const unifiedAttempt = unifyReleasedVacantSettledToolNames(attempt, V1_VACANT_TOOL_NAME_REWRITE)
+    expect(
+      (unifiedAttempt.data as { stream: Array<{ name?: string }> }).stream[0]?.name,
+    ).toBe(INVALID_TOOL_CALL_NAME)
+
+    const call: SessionFormatEvent = {
+      type: 'tool/call', seq: 0, time: 1,
+      data: { turn: 1, step: 1, callId: 'call', name: '', arguments: '{}' },
+    }
+    expect(
+      (unifyReleasedVacantSettledToolNames(call, V1_VACANT_TOOL_NAME_REWRITE).data as { name: string }).name,
+    ).toBe(INVALID_TOOL_CALL_NAME)
+
+    const emptyCallId: SessionFormatEvent = {
+      type: 'tool/call', seq: 0, time: 1,
+      data: { turn: 1, step: 1, callId: '', name: '', arguments: '{}' },
+    }
+    expect(unifyReleasedVacantSettledToolNames(emptyCallId, V1_VACANT_TOOL_NAME_REWRITE)).toBe(emptyCallId)
+  })
+
+  it('unifies a vacant block-end on an assistant/chunk and leaves non-settlement payloads', () => {
+    const blockEnd: SessionFormatEvent = {
+      type: 'assistant/chunk', seq: 0, time: 1,
+      data: {
+        turn: 1, step: 1,
+        chunk: { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'call', name: ' ', arguments: '{}' } },
+      },
+    }
+    expect(
+      (unifyReleasedVacantSettledToolNames(blockEnd, V1_VACANT_TOOL_NAME_REWRITE).data as {
+        chunk: { block: { name: string } }
+      }).chunk.block.name,
+    ).toBe(INVALID_TOOL_CALL_NAME)
+
+    const delta: SessionFormatEvent = {
+      type: 'assistant/chunk', seq: 0, time: 1,
+      data: {
+        turn: 1, step: 1,
+        chunk: { type: 'tool-call-delta', index: 0, id: 'call', name: 'skill', argumentsDelta: '{}' },
+      },
+    }
+    expect(unifyReleasedVacantSettledToolNames(delta, V1_VACANT_TOOL_NAME_REWRITE)).toBe(delta)
+
+    const missingMessage: SessionFormatEvent = {
+      type: 'assistant/message', seq: 0, time: 1, data: { turn: 1, step: 1, stream: 'x' },
+    }
+    expect(unifyReleasedVacantSettledToolNames(missingMessage, V1_VACANT_TOOL_NAME_REWRITE)).toBe(missingMessage)
+
+    const scalarMessage: SessionFormatEvent = {
+      type: 'assistant/message', seq: 0, time: 1,
+      data: { turn: 1, step: 1, message: 'x', stream: [] },
+    }
+    expect(unifyReleasedVacantSettledToolNames(scalarMessage, V1_VACANT_TOOL_NAME_REWRITE)).toBe(scalarMessage)
+
+    const nonArray: SessionFormatEvent = {
+      type: 'assistant/message', seq: 0, time: 1,
+      data: {
+        turn: 1, step: 1,
+        message: { id: 'a', role: 'assistant', content: 'x', source: { kind: 'model' } },
+      },
+    }
+    expect(unifyReleasedVacantSettledToolNames(nonArray, V1_VACANT_TOOL_NAME_REWRITE)).toBe(nonArray)
   })
 })
 

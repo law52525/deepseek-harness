@@ -123,6 +123,35 @@ function assistantMessage(artifact: SessionFormatArtifact): SessionFormatEvent {
   return found
 }
 
+function namesForCall(artifact: SessionFormatArtifact, callId: string): string[] {
+  const names: string[] = []
+  const take = (id: unknown, name: unknown) => {
+    if (id === callId && typeof name === 'string') names.push(name)
+  }
+  for (const event of artifact.events) {
+    const data = event.data as Record<string, unknown>
+    if (event.type === 'tool/call') take(data['callId'], data['name'])
+    const message = data['message'] as { content?: unknown[] } | undefined
+    if (Array.isArray(message?.content)) {
+      for (const block of message.content) {
+        const item = block as { type?: string; id?: string; name?: string }
+        if (item.type === 'tool-call') take(item.id, item.name)
+      }
+    }
+    if (!Array.isArray(data['stream'])) continue
+    for (const record of data['stream'] as Array<Record<string, unknown>>) {
+      if (record['type'] === 'tool-call-chunks') take(record['id'], record['name'])
+      const chunk = record['chunk'] as Record<string, unknown> | undefined
+      if (chunk?.['type'] === 'tool-call-delta') take(chunk['id'], chunk['name'])
+      if (chunk?.['type'] === 'block-end') {
+        const block = chunk['block'] as { type?: string; id?: string; name?: string } | undefined
+        if (block?.type === 'tool-call') take(block.id, block.name)
+      }
+    }
+  }
+  return names
+}
+
 function packedRun(options: {
   readonly firstSeq: number
   readonly eventCount?: number
@@ -146,6 +175,8 @@ function packedRun(options: {
 describe('sessionFormatV1ToV2 vacant tool names', () => {
   it('keeps a settled legal name when a tool-call-delta carried name: null', () => {
     const migrated = migrateV1ToV2(toolSession('read', null))
+    expect(namesForCall(migrated, 'call').every(name => name === 'read')).toBe(true)
+    expect(namesForCall(migrated, 'call').length).toBeGreaterThan(0)
     const data = assistantMessage(migrated).data as {
       message: { content: Array<{ name: string }> }
       stream: Array<{ type: string; name?: string; chunk?: { type: string; name?: string } }>
@@ -159,6 +190,8 @@ describe('sessionFormatV1ToV2 vacant tool names', () => {
 
   it('rewrites a settled empty name to invalid_tool_call when a delta carried name: null', () => {
     const migrated = migrateV1ToV2(toolSession('', null))
+    expect(namesForCall(migrated, 'call').every(name => name === INVALID_TOOL_CALL_NAME)).toBe(true)
+    expect(namesForCall(migrated, 'call').length).toBeGreaterThan(0)
     const data = assistantMessage(migrated).data as {
       message: { content: Array<{ name: string }> }
       stream: Array<{ type: string; chunk?: { block?: { name?: string } } }>
@@ -170,6 +203,14 @@ describe('sessionFormatV1ToV2 vacant tool names', () => {
     expect((call?.data as { name: string }).name).toBe(INVALID_TOOL_CALL_NAME)
     expect((migrated.events.find(candidate => candidate.type === 'tool/result')
       ?.data as { message: { source: { callId: string } } }).message.source.callId).toBe('call')
+  })
+
+  it('rewrites a non-blank stream name when settlement is vacant', () => {
+    const migrated = migrateV1ToV2(toolSession('', 'skill'))
+    const names = namesForCall(migrated, 'call')
+    expect(names.length).toBeGreaterThan(0)
+    expect(names.every(name => name === INVALID_TOOL_CALL_NAME)).toBe(true)
+    expect(names.some(name => name === 'skill')).toBe(false)
   })
 
   it('rewrites a packed tool-call-chunks run whose name is blank', () => {
