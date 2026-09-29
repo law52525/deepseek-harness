@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AccountClientMetadata } from '@deepseek-ai/dsh-deepseek-account/types'
+import { desktopPolicyClientMetadata } from '../src/client-metadata.ts'
 import { DesktopMandatoryUpdatePolicy, desktopPolicyPage, resolveDesktopPolicyConfig, type DesktopPolicyState } from '../src/mandatory-update-policy.ts'
+import { DESKTOP_PRODUCT_VERSION_ENV } from '../src/product-config.ts'
 
 const identity = { platform: 'win32', arch: 'x64', bundledDshVersion: '0.1.5-rc.1' } as const
 const client: AccountClientMetadata = { version: '1.2.3', locale: 'zh-CN', timezoneOffsetSeconds: 28_800 }
@@ -25,6 +27,7 @@ beforeEach(() => { vi.useFakeTimers() })
 afterEach(async () => {
   await Promise.all(instances.splice(0).map(policy => policy.dispose()))
   vi.useRealTimers()
+  vi.unstubAllEnvs()
 })
 
 describe('mandatory update policy', () => {
@@ -53,6 +56,22 @@ describe('mandatory update policy', () => {
     request.mockResolvedValueOnce(Response.json({ error: { code: 'UNAUTHENTICATED' } }, { status: 401 }))
     expect(await policy.check('launch')).toMatchObject({ error: 'unavailable' })
   })
+  it('sends the inlined client version when no product overlay is configured', async () => {
+    vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
+    vi.stubEnv(DESKTOP_PRODUCT_VERSION_ENV, undefined)
+    const { policy, request } = fixture('anonymous', () => desktopPolicyClientMetadata('zh-CN'))
+    await policy.check('launch')
+    expect((request.mock.calls[0]![1]?.headers as Record<string, string>)['x-client-version']).toBe('1.2.3')
+  })
+
+  it('sends the product version overlay as x-client-version when configured', async () => {
+    vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
+    vi.stubEnv(DESKTOP_PRODUCT_VERSION_ENV, '3.0.0')
+    const { policy, request } = fixture('anonymous', () => desktopPolicyClientMetadata('zh-CN'))
+    await policy.check('launch')
+    expect((request.mock.calls[0]![1]?.headers as Record<string, string>)['x-client-version']).toBe('3.0.0')
+  })
+
   it('sends an anonymous independent request with installed release headers and fixed Nightly', async () => {
     const { policy, request } = fixture()
     await expect(policy.check('launch')).resolves.toEqual({ blocking: false, checking: false })
