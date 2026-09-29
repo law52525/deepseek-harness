@@ -66,7 +66,7 @@ foreach ($asset in @('brand', 'brand-2x', 'brand-dark', 'brand-dark-2x', 'uninst
     # A product brand directory replaces the installer page artwork (installer-<asset>.png); the default ships in assets/.
     $source = Join-Path $installerRoot "assets/$asset.png"
     if ($BrandDirectory -and $asset -like 'brand*') {
-        $source = Join-Path $BrandDirectory "installer-$asset.png"
+        $source = Join-Path ([IO.Path]::GetFullPath($BrandDirectory)) "installer-$asset.png"
         if (-not (Test-Path -LiteralPath $source)) { throw "Brand directory is missing installer-$asset.png: $BrandDirectory" }
     }
     $image = [Drawing.Image]::FromFile($source)
