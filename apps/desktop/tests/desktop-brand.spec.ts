@@ -1,6 +1,7 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const RELEASE = {
@@ -69,5 +70,24 @@ describe('desktop brand identity in electron-builder config', () => {
     expect(config.artifactName).toContain('${arch}')
     expect(config.mac.extendInfo.NSMicrophoneUsageDescription).toContain('Wandox Work')
     expect(config.mac.extendInfo.CFBundleLocalizations).toEqual(['en', 'zh_CN'])
+  })
+
+  it('ships installer page artwork in the product brand directory at the official sizes', () => {
+    const derived = fileURLToPath(new URL('../brand/derived', import.meta.url))
+    const sizes: Record<string, [number, number]> = {
+      'installer-brand.png': [600, 196],
+      'installer-brand-dark.png': [600, 196],
+      'installer-brand-2x.png': [1200, 392],
+      'installer-brand-dark-2x.png': [1200, 392],
+    }
+    for (const [name, [width, height]] of Object.entries(sizes)) {
+      const png = readFileSync(join(derived, name))
+      expect([png.readUInt32BE(16), png.readUInt32BE(20)], name).toEqual([width, height])
+    }
+    const prepare = readFileSync(fileURLToPath(new URL('../scripts/prepare-windows-installer.ps1', import.meta.url)), 'utf8')
+    expect(prepare).toContain('[string]$BrandDirectory')
+    expect(prepare).toContain('installer-$asset.png')
+    const builder = readFileSync(fileURLToPath(new URL('../scripts/electron-builder-config.mjs', import.meta.url)), 'utf8')
+    expect(builder).toContain("'-BrandDirectory', trimmed(env, BRAND_RESOURCES_ENV)")
   })
 })
