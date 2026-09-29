@@ -405,8 +405,11 @@ export async function packageTarget(
   const mac = target.platform === 'darwin' ? resolveMacOSPackageSettings(environment) : undefined
   const packArguments = mac === undefined ? [] : ['--concurrency', String(mac.packConcurrency)]
   const buildPaths = desktopTargetBuildPaths(target.name)
-  const releaseRecordPath = join(buildPaths.artifacts, desktopBuildRecordFilename(target.name))
-  if (!invocation.prepareOnly && !invocation.unsigned) {
+  const unsignedUpdates = environment.DSH_DESKTOP_UNSIGNED_UPDATES === '1'
+  const artifactsRoot = invocation.unsigned ? buildPaths.unsignedArtifacts : buildPaths.artifacts
+  const writeCompletionRecord = !invocation.directory && (!invocation.unsigned || unsignedUpdates)
+  const releaseRecordPath = join(artifactsRoot, desktopBuildRecordFilename(target.name))
+  if (!invocation.prepareOnly && writeCompletionRecord) {
     rmSync(releaseRecordPath, { force: true })
     rmSync(`${releaseRecordPath}.tmp`, { force: true })
   }
@@ -500,8 +503,8 @@ export async function packageTarget(
     await signedStage('artifacts', () => execute(desktopElectronBuilderArguments(target, invocation.directory), electronBuilderEnv))
     await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts', ...(invocation.unsigned ? ['--unsigned'] : [])], targetEnv)
   }
-  if (!invocation.directory && !invocation.unsigned) writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
-  if (journal) recordPackagingEvent(journal, { type: 'artifacts', directory: buildPaths.artifacts })
+  if (writeCompletionRecord) writeReleaseRecord(target, electronBuilderEnv, artifactsRoot)
+  if (journal) recordPackagingEvent(journal, { type: 'artifacts', directory: artifactsRoot })
 }
 
 if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) await main()

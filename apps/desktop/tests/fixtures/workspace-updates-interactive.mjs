@@ -16,7 +16,6 @@ export async function runInteractiveUpdates({ mainWindow, server, fixture, check
   panel.once('closed', finish)
   app.once('before-quit', finish)
   let closing = false
-  const originalInstall = fixture.updater.quitAndInstall
   fixture.updater.quitAndInstall = (...args) => {
     fixture.installations.push(args)
     void dialog.showMessageBox(panel, { type: 'info', title: '本地验收结束',
@@ -74,7 +73,6 @@ export async function runInteractiveUpdates({ mainWindow, server, fixture, check
       interceptedInstallations: fixture.installations.length, phases: fixture.states.map(state => state.phase) }, null, 2) + '\n')
   } finally {
     closing = true
-    fixture.updater.quitAndInstall = originalInstall
     app.off('before-quit', finish)
     panel.off('closed', finish)
     if (!panel.isDestroyed()) panel.destroy()

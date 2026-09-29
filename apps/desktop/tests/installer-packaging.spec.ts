@@ -75,6 +75,46 @@ describe('installer preparation preserves application dependencies', () => {
       DSH_DESKTOP_UNSIGNED: '1',
     }, 'win32', 'x64')
     expect(config.artifactName).toBe('deepseek-harness-${version}-${os}-${arch}-unsigned.${ext}')
+    expect(config.publish).toBeNull()
+    expect(config.win.signtoolOptions.publisherName).toBeUndefined()
+  })
+
+  it('keeps the updater on unsigned Windows when DSH_DESKTOP_UNSIGNED_UPDATES=1', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const config = createElectronBuilderConfig({
+      DSH_DESKTOP_APP_ID: 'com.example.installer',
+      DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: 'https://policy.example.com',
+      DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: JSON.stringify({ allowedAuthOrigins: ['https://login.example.com'] }),
+      DSH_DESKTOP_TARGET_PLATFORM: 'win32',
+      DSH_DESKTOP_TARGET_ARCH: 'x64',
+      DSH_DESKTOP_UNSIGNED: '1',
+      DSH_DESKTOP_UNSIGNED_UPDATES: '1',
+      DOWNLOAD_TEST_ORIGIN: 'https://desktop-updates.example.com',
+      DOWNLOAD_TEST_RELEASE_ID: '',
+      DOWNLOAD_KEY_PREFIX_TEST: 'v3-test',
+    }, 'win32', 'x64')
+    expect(config.artifactName).toBe('deepseek-harness-${version}-${os}-${arch}.${ext}')
+    expect(config.publish).toEqual([{
+      provider: 'generic',
+      url: 'https://desktop-updates.example.com/v3-test/feeds/win-x64/',
+      channel: 'nightly',
+    }])
+    expect(config.win.signtoolOptions.publisherName).toBeUndefined()
+    expect(config.win.forceCodeSigning).toBe(false)
+  })
+
+  it('refuses DSH_DESKTOP_UNSIGNED_UPDATES=1 on a signed build', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    expect(() => createElectronBuilderConfig({
+      DSH_DESKTOP_APP_ID: 'com.example.installer',
+      DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
+      DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: 'https://harness-test.deepseek.com',
+      DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN: 'https://policy.example.com',
+      DSH_DESKTOP_MACOS_SIGNING_IDENTITY: 'Example Company (TEAMID1234)',
+      DSH_DESKTOP_MACOS_TEAM_ID: 'TEAMID1234',
+      APPLE_KEYCHAIN_PROFILE: 'installer-test',
+      DSH_DESKTOP_UNSIGNED_UPDATES: '1',
+    }, 'darwin', 'arm64')).toThrow(/mutually exclusive with signed builds/u)
   })
 
   it('packages every preload entry point the shell loads', async () => {

@@ -5,17 +5,23 @@ import { valid } from 'semver'
 /** Environment variable that selects the Desktop update deployment. */
 export const DESKTOP_AUTO_UPDATE_ENV = 'DSH_DESKTOP_AUTO_UPDATE_ENV'
 
+const DEFAULT_PROD_ORIGIN = 'https://download.deepseek.com'
+const DEFAULT_KEY_PREFIX = 'dsh-desk'
+const KEY_PREFIX_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u
+
 const UPDATE_ENVIRONMENTS = {
   test: {
     originEnvName: 'DOWNLOAD_TEST_ORIGIN',
-    fixedOrigin: undefined,
+    defaultOrigin: undefined,
+    keyPrefixEnvName: 'DOWNLOAD_KEY_PREFIX_TEST',
     bucketEnvName: 'DOWNLOAD_TEST_COS_BUCKET',
     secretIdEnvName: 'DOWNLOAD_TEST_COS_SECRET_ID',
     secretKeyEnvName: 'DOWNLOAD_TEST_COS_SECRET_KEY',
   },
   production: {
-    originEnvName: undefined,
-    fixedOrigin: 'https://download.deepseek.com',
+    originEnvName: 'DOWNLOAD_PROD_ORIGIN',
+    defaultOrigin: DEFAULT_PROD_ORIGIN,
+    keyPrefixEnvName: 'DOWNLOAD_KEY_PREFIX_PROD',
     bucketEnvName: 'DOWNLOAD_PROD_COS_BUCKET',
     secretIdEnvName: 'DOWNLOAD_PROD_COS_SECRET_ID',
     secretKeyEnvName: 'DOWNLOAD_PROD_COS_SECRET_KEY',
@@ -120,30 +126,55 @@ function httpsOrigin(value, name) {
 }
 
 /**
+ * Resolve a feed-key prefix token. Unset keeps the official `dsh-desk` directory.
+ * @param {NodeJS.ProcessEnv} env - Packaging or upload environment.
+ * @param {string} name - Environment variable to read.
+ * @returns {string} Single path segment used before `/feeds` and `/bin`.
+ */
+function keyPrefixToken(env, name) {
+  const value = env[name]?.trim()
+  if (value === undefined || value === '') return DEFAULT_KEY_PREFIX
+  if (!KEY_PREFIX_PATTERN.test(value)) {
+    throw new Error(`desktop auto-update: ${name} must be a single path segment`)
+  }
+  return value
+}
+
+/**
  * Resolve the public updater URL and object prefixes for one release target.
+ * Unset `DOWNLOAD_PROD_ORIGIN` / `DOWNLOAD_KEY_PREFIX_*` keep the official DeepSeek
+ * feed. Test `DOWNLOAD_TEST_RELEASE_ID` may be empty, in which case the path has
+ * no release-id segment; a missing (unset) value still fails like the official build.
  * @param {NodeJS.ProcessEnv} env - Packaging or upload environment.
  * @param {NodeJS.Platform} platform - Target Node.js platform.
  * @param {string} arch - Target Node.js architecture.
  * @returns {{ environment: 'test' | 'production', target: 'mac-arm64' | 'mac-x64' | 'win-x64', origin: string, publicUrl: string, keyPrefix: string, binaryKeyPrefix: string }} Resolved updater configuration.
- * @throws {Error} When the test deployment lacks a valid HTTPS origin or a 32-character lowercase hexadecimal release ID.
+ * @throws {Error} When the selected origin is not HTTPS, a set release ID is not 32 hex, or a prefix is invalid.
  */
 export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
   const environment = resolveDesktopAutoUpdateEnvironment(env)
   const target = resolveDesktopAutoUpdateTarget(platform, arch)
   const deployment = UPDATE_ENVIRONMENTS[environment]
-  let origin = deployment.fixedOrigin
-  if (origin === undefined) {
-    const { originEnvName } = deployment
-    if (originEnvName === undefined) throw new Error('desktop auto-update: selected deployment has no origin')
-    origin = httpsOrigin(requiredEnvironmentValue(env, originEnvName), originEnvName)
-  }
-  let releasePrefix = 'dsh-desk'
+  const { originEnvName } = deployment
+  if (originEnvName === undefined) throw new Error('desktop auto-update: selected deployment has no origin')
+  const configuredOrigin = env[originEnvName]?.trim()
+  const origin = configuredOrigin === undefined || configuredOrigin === ''
+    ? deployment.defaultOrigin === undefined
+      ? httpsOrigin(requiredEnvironmentValue(env, originEnvName), originEnvName)
+      : httpsOrigin(deployment.defaultOrigin, originEnvName)
+    : httpsOrigin(configuredOrigin, originEnvName)
+  let releasePrefix = keyPrefixToken(env, deployment.keyPrefixEnvName)
   if (environment === 'test') {
-    const releaseId = requiredEnvironmentValue(env, 'DOWNLOAD_TEST_RELEASE_ID')
-    if (!/^[a-f0-9]{32}$/u.test(releaseId)) {
-      throw new Error('desktop auto-update: DOWNLOAD_TEST_RELEASE_ID must contain 32 lowercase hexadecimal characters')
+    if (env.DOWNLOAD_TEST_RELEASE_ID === undefined) {
+      throw new Error('desktop auto-update: DOWNLOAD_TEST_RELEASE_ID must be set')
     }
-    releasePrefix += `/${releaseId}`
+    const releaseId = env.DOWNLOAD_TEST_RELEASE_ID.trim()
+    if (releaseId !== '') {
+      if (!/^[a-f0-9]{32}$/u.test(releaseId)) {
+        throw new Error('desktop auto-update: DOWNLOAD_TEST_RELEASE_ID must contain 32 lowercase hexadecimal characters')
+      }
+      releasePrefix += `/${releaseId}`
+    }
   }
   const keyPrefix = `${releasePrefix}/feeds/${target}`
   return {

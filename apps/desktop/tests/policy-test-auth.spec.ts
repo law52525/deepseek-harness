@@ -51,6 +51,15 @@ it('shares an isolated memory Session with policy fetches, without opening a log
   expect(browserSession.fetch).toHaveBeenCalledTimes(1)
 })
 
+it('accepts a configured policy pathname for authenticated fetches', async () => {
+  await auth.dispose()
+  auth = new DesktopPolicyTestAuth('https://policy.example.com', ['https://login.example.com'], resolveDesktopLocale('zh'), () => undefined, record, '/work/api/v0/check_client_update')
+  await auth.request('https://policy.example.com/work/api/v0/check_client_update?scenario=manual')
+  expect(browserSession.fetch).toHaveBeenCalledWith('https://policy.example.com/work/api/v0/check_client_update?scenario=manual',
+    { credentials: 'include', redirect: 'error', cache: 'no-store' })
+  await expect(auth.request('https://policy.example.com/api/v0/check_client_update')).rejects.toThrow('disallowed')
+})
+
 it('opens a sandboxed window on explicit action and coalesces logins without authorizing an update', async () => {
   const pending = auth.login()
   expect(auth.login()).toBe(pending)

@@ -151,8 +151,18 @@ export function createElectronBuilderConfig(
   if (env.DSH_DESKTOP_UNSIGNED !== undefined && !['0', '1'].includes(env.DSH_DESKTOP_UNSIGNED)) {
     throw new Error('desktop package: DSH_DESKTOP_UNSIGNED must be 0 or 1')
   }
+  if (env.DSH_DESKTOP_UNSIGNED_UPDATES !== undefined && !['0', '1'].includes(env.DSH_DESKTOP_UNSIGNED_UPDATES)) {
+    throw new Error('desktop package: DSH_DESKTOP_UNSIGNED_UPDATES must be 0 or 1')
+  }
   const unsigned = env.DSH_DESKTOP_UNSIGNED === '1'
+  const unsignedUpdates = env.DSH_DESKTOP_UNSIGNED_UPDATES === '1'
   if (unsigned && resolvedPlatform !== 'win32') throw new Error('desktop package: unsigned builds require Windows')
+  if (unsignedUpdates && !unsigned) {
+    throw new Error('desktop package: DSH_DESKTOP_UNSIGNED_UPDATES=1 is mutually exclusive with signed builds')
+  }
+  if (unsignedUpdates && resolvedPlatform !== 'win32') {
+    throw new Error('desktop package: unsigned updates require Windows')
+  }
   const packagesMacOS = targetPlatform === 'darwin' || (targetPlatform === undefined && hostPlatform === 'darwin')
   const packagesWindows = resolvedPlatform === 'win32'
   if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
@@ -183,7 +193,10 @@ export function createElectronBuilderConfig(
   if (windowsSigner !== undefined) {
     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
   }
-  const update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+  const keepUnsignedUpdater = unsigned && unsignedUpdates
+  const update = unsigned && !keepUnsignedUpdater
+    ? undefined
+    : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
   if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
   // electron-builder merges extraMetadata into the packaged manifest, so a build version here reaches
   // the artifact names, the update feed, and the installed app.getVersion() the updater compares against.
@@ -234,8 +247,8 @@ export function createElectronBuilderConfig(
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
     },
     productName,
-    // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact.
-    artifactName: `${artifactPrefix}-\${version}-\${os}-\${arch}${unsigned ? '-unsigned' : ''}.\${ext}`,
+    // Unsigned builds without the explicit updater switch carry `-unsigned` so they cannot pass for a release artifact.
+    artifactName: `${artifactPrefix}-\${version}-\${os}-\${arch}${unsigned && !keepUnsignedUpdater ? '-unsigned' : ''}.\${ext}`,
     directories: { output: unsigned ? buildPaths.unsignedArtifacts : buildPaths.artifacts },
     asar: true,
     electronDist: buildPaths.electron,
@@ -358,7 +371,9 @@ export function createElectronBuilderConfig(
       forceCodeSigning: !unsigned,
       signtoolOptions: {
         sign: windowsSigner,
-        publisherName: windowsSigner === undefined ? undefined : resolveWindowsUpdatePublisher(env.DSH_DESKTOP_WINDOWS_CER_FILE),
+        publisherName: windowsSigner === undefined || keepUnsignedUpdater
+          ? undefined
+          : resolveWindowsUpdatePublisher(env.DSH_DESKTOP_WINDOWS_CER_FILE),
         signingHashAlgorithms: ['sha256'],
       },
       target: ['nsis'],

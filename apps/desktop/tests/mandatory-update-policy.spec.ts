@@ -66,6 +66,18 @@ describe('mandatory update policy', () => {
     } })
   })
 
+  it('uses a configured policy path when present', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json(clear))
+    const publish = vi.fn<(state: DesktopPolicyState) => void>()
+    const policy = new DesktopMandatoryUpdatePolicy(resolveDesktopPolicyConfig({
+      ...deployment, path: '/work/api/v0/check_client_update',
+    })!, identity, publish, request, () => client)
+    instances.push(policy)
+    await policy.check('launch')
+    expect((request.mock.calls[0]![0] as URL).href)
+      .toBe('https://policy.example.com/work/api/v0/check_client_update?scenario=launch')
+  })
+
   it('sends the language and UTC offset sampled for each check', async () => {
     let current = { ...client, locale: 'en', timezoneOffsetSeconds: -18_000 }
     const { policy, request } = fixture('anonymous', () => current)
@@ -198,7 +210,14 @@ describe('policy deployment and page validation', () => {
 
   it.each([{ intervalMs: 0 }, { timeoutMs: 1.5 }, { maxBackoffMs: 1000 }, { jitter: 2 }, { allowedPageOrigins: [] },
     { origin: 'https://example.com/path' }, { authentication: 'feishu' },
-    { authentication: 'feishu-test', origin: 'http://127.0.0.1:9000' }])('rejects invalid deployment input: %j', (change) => {
+    { authentication: 'feishu-test', origin: 'http://127.0.0.1:9000' },
+    { path: 'api/v0/check_client_update' }, { path: '/api/v0/check_client_update?x=1' }])('rejects invalid deployment input: %j', (change) => {
     expect(() => resolveDesktopPolicyConfig({ ...deployment, ...change })).toThrow()
+  })
+
+  it('defaults the policy path to the official check_client_update route', () => {
+    expect(resolveDesktopPolicyConfig(deployment)?.path).toBe('/api/v0/check_client_update')
+    expect(resolveDesktopPolicyConfig({ ...deployment, path: '/work/api/v0/check_client_update' })?.path)
+      .toBe('/work/api/v0/check_client_update')
   })
 })

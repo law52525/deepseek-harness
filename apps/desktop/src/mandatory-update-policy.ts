@@ -20,7 +20,11 @@ export interface DesktopPolicyConfig {
   readonly maxBackoffMs: number
   readonly jitter: number
   readonly authentication: 'anonymous' | 'feishu-test'
+  readonly path: string
 }
+
+/** Official policy request path when configuration omits `path`. */
+export const DEFAULT_MANDATORY_UPDATE_PATH = '/api/v0/check_client_update'
 
 /** A known block survives transport and parsing failures, but not a fresh no-force success. */
 export interface DesktopPolicyState {
@@ -34,6 +38,15 @@ export interface DesktopPolicyState {
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function policyPath(value: unknown): string {
+  if (value === undefined) return DEFAULT_MANDATORY_UPDATE_PATH
+  if (typeof value !== 'string' || !value.startsWith('/') || value.includes('?') || value.includes('#')
+    || value.includes('//')) {
+    throw new Error('desktop policy: path must be an absolute pathname without query or fragment')
+  }
+  return value
 }
 
 function origin(value: unknown, local: boolean): string {
@@ -88,6 +101,7 @@ export function resolveDesktopPolicyConfig(input: unknown, allowLoopback = false
     allowedPageOrigins: value.allowedPageOrigins.map(item => origin(item, false)),
     allowedAuthOrigins: authentication === 'feishu-test' ? (authOrigins as unknown[]).map(item => origin(item, false)) : [],
     intervalMs, timeoutMs: duration('timeoutMs', 15_000), maxBackoffMs, jitter, authentication,
+    path: policyPath(value.path),
   }
 }
 
@@ -184,7 +198,7 @@ export class DesktopMandatoryUpdatePolicy {
       const timeout = setTimeout(() => { controller.abort() }, this.config.timeoutMs)
       this.setState({ ...this.current, checking: true })
       try {
-        const url = new URL('/api/v0/check_client_update', this.config.origin)
+        const url = new URL(this.config.path, this.config.origin)
         url.searchParams.set('scenario', scenario)
         const response = await this.request(url, { headers: this.requestHeaders(), signal: controller.signal,
           credentials: this.config.authentication === 'feishu-test' ? 'include' : 'omit', cache: 'no-store', redirect: 'error' })
