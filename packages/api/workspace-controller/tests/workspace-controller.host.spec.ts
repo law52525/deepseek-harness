@@ -68,9 +68,10 @@ async function harness(options: { systemDocuments?: boolean; productDirectory?: 
     lookups: { configure: () => dispose },
     contexts: { configureHost: () => dispose },
   } as never)
+  const product = options.productDirectory === undefined ? {} : { productDirectory: options.productDirectory }
   const config = options.systemDocuments === true
-    ? { productDirectory: options.productDirectory }
-    : { documentsDirectory: root, productDirectory: options.productDirectory }
+    ? { ...product }
+    : { documentsDirectory: root, ...product }
   const controller = new WorkspaceController(ctx, config)
   return { controller, ctx, root, storageDomain }
 }
