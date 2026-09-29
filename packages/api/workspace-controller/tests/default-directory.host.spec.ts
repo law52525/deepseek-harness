@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
-import { defaultWorkspaceDirectory, validateDocumentsDirectory } from '../src/default-directory.ts'
+import { defaultWorkspaceDirectory, validateDocumentsDirectory, validateProductDirectory } from '../src/default-directory.ts'
+import WorkspaceController from '../src/index.ts'
 
 describe('system Documents directory', () => {
   it.each([
@@ -19,6 +20,30 @@ describe('system Documents directory', () => {
     await expect(defaultWorkspaceDirectory('/documents', new AbortController().signal, { platform: 'linux', run }))
       .resolves.toBe('/documents/deepseek-harness/default-workspace')
     expect(run).not.toHaveBeenCalled()
+  })
+
+  it('uses a configured product directory name', async () => {
+    const run = vi.fn<NativeCommandRunner>()
+    await expect(defaultWorkspaceDirectory(
+      '/documents', new AbortController().signal, { platform: 'linux', run }, 'Product Name',
+    )).resolves.toBe('/documents/Product Name/default-workspace')
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('rejects an illegal product directory name', () => {
+    expect(() => validateProductDirectory('')).toThrow('single path segment')
+    expect(() => validateProductDirectory('a/b')).toThrow('single path segment')
+    expect(() => validateProductDirectory('a\\b')).toThrow('single path segment')
+    expect(() => validateProductDirectory('..')).toThrow('single path segment')
+    expect(() => validateProductDirectory('.')).toThrow('single path segment')
+  })
+
+  it('defaults Config.productDirectory to the official folder name', () => {
+    expect(WorkspaceController.Config({}).productDirectory).toBe('deepseek-harness')
+  })
+
+  it.each(['', 'a/b', 'a\\b', '..', '.', ' foo', 'foo/../bar'])('rejects Config.productDirectory %j', (value) => {
+    expect(() => WorkspaceController.Config({ productDirectory: value })).toThrow()
   })
 
   it.each(['', '\r\n', '/home/a\n'])('rejects an unavailable XDG directory %j', async (stdout) => {

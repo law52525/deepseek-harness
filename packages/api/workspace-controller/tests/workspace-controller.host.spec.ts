@@ -50,7 +50,7 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve }
 }
 
-async function harness(options: { systemDocuments?: boolean } = {}) {
+async function harness(options: { systemDocuments?: boolean; productDirectory?: string } = {}) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-workspace-controller-')))
   tempDirs.push(root)
   const ctx = new Context()
@@ -68,7 +68,10 @@ async function harness(options: { systemDocuments?: boolean } = {}) {
     lookups: { configure: () => dispose },
     contexts: { configureHost: () => dispose },
   } as never)
-  const controller = new WorkspaceController(ctx, options.systemDocuments === true ? {} : { documentsDirectory: root })
+  const config = options.systemDocuments === true
+    ? { productDirectory: options.productDirectory }
+    : { documentsDirectory: root, productDirectory: options.productDirectory }
+  const controller = new WorkspaceController(ctx, config)
   return { controller, ctx, root, storageDomain }
 }
 
@@ -466,6 +469,21 @@ describe('first-use Remote', () => {
     expect(existsSync(result!.workspace.path)).toBe(true)
     expect(ctx.sessions.list()).toEqual([])
     expect(await controller.initializeDefault(signal)).toEqual(result)
+  })
+
+  it('defaults productDirectory to the official folder name and rejects illegal values', () => {
+    expect(WorkspaceController.Config({}).productDirectory).toBe('deepseek-harness')
+    expect(() => WorkspaceController.Config({ productDirectory: '' })).toThrow()
+    expect(() => WorkspaceController.Config({ productDirectory: 'a/b' })).toThrow()
+    expect(() => WorkspaceController.Config({ productDirectory: 'a\\b' })).toThrow()
+    expect(() => WorkspaceController.Config({ productDirectory: '..' })).toThrow()
+    expect(() => WorkspaceController.Config({ productDirectory: '.' })).toThrow()
+  })
+
+  it('places the default Workspace under a configured product directory', async () => {
+    const { controller, root } = await harness({ productDirectory: 'Product Name' })
+    const result = await controller.initializeDefault(new AbortController().signal)
+    expect(result!.workspace.path).toBe(join(root, 'Product Name', DEFAULT_WORKSPACE_DIRECTORY))
   })
 
   it('skips ineligible first use and propagates preparation failures', async () => {
