@@ -3,7 +3,7 @@
     Single brand source (decision #21): v2 Wandox W mark.
     Glyph bbox x 0.40921.56 / y 3.7620.287, center (10.98, 12.02).
     scale 40 ’ width H 846px H 83% of the 1024 canvas.
-    Derived platform assets are produced by scripts/derive-brand-icons.ts.
+    Derived platform assets are produced by `pnpm run derive:brand-icons` (derive-brand-icons.ts and derive-installer-brand.ts).
   -->
   <g transform="translate(512 512) scale(40) translate(-10.98 -12.02)">
     <path fill="#000" d="M 0.409 5.581 L 5.602 20.287 L 10.984 11.827 L 16.367 20.287 L 21.56 5.581 A 1.47 1.47 0 0 1 18.738 4.759 L 15.977 17.373 L 10.984 8.888 L 5.992 17.373 L 3.231 4.759 A 1.47 1.47 0 0 1 0.409 5.581 Z"/>
