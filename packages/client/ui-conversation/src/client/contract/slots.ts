@@ -16,7 +16,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { ComposerBlock } from './composer-blocks.ts'
-import type { DraftAttachmentId, InputActions, InputNotice, InputState } from './input.ts'
+import type { AddToConversation, DraftAttachmentId, InputActions, InputNotice, InputState } from './input.ts'
 import type { ComposerKeyboard, EditSelection } from './draft-editor.ts'
 import type { createConversationStore } from '../stores.ts'
 import type { BusyEnterBehavior } from './composer-submission.ts'
@@ -258,6 +258,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     useInput: SnapshotSelectorHook<InputState>
     /** Stable public input actions for this Session. */
     inputActions: InputActions
+    /**
+     * Explicit add-to-draft verb (reference chip or text fragment) for this
+     * Session. Optional so existing Session-scope mocks stay valid: the
+     * Conversation provider always supplies it, and a consumer treats absence as
+     * "no composer to add to".
+     */
+    addToConversation?: AddToConversation
   }
 
   interface SessionMaybeStandardProps {
@@ -267,6 +274,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     useInput: MaybeSnapshotSelectorHook<InputState>
     /** Input actions are absent without a current Session. */
     inputActions: InputActions | undefined
+    /** Add-to-draft verb, absent without a current Session. */
+    addToConversation?: AddToConversation
   }
 }
 
