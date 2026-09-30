@@ -889,6 +889,57 @@ describe('SidebarRightController — a service-level open\'s reveal scope (P-12)
   })
 })
 
+describe('SidebarRightController — replacement cleanup prediction (P-12)', () => {
+  const ADDRESS = 'dsh-resource://file/session/s-test/a.txt'
+
+  /**
+   * Two panes each hold a copy of one address, so a surface-wide lookup reaches
+   * the left copy while the open's own pane holds the right one. `replaceTab`
+   * names the right copy: the store reveals that pane-local copy, so the
+   * service must not read the left copy as the tab the open lands on and run the
+   * right copy's cleanup under it.
+   */
+  it('does not clean up a replaced copy the open reveals in its own pane', () => {
+    const h = harness()
+    h.adopt(SESSION, h.instance)
+    h.publish()
+    // The left pane gets a copy, then a split opens a pane to its right.
+    h.controller.openResource(ADDRESS)
+    h.publish()
+    h.instance.actions.splitPane(SESSION)
+    h.publish()
+    const [left, right] = dockPaneIds(h.layout())
+    if (left === undefined || right === undefined) throw new Error('expected two panes')
+    // The right pane opens its own copy, so one contentId now sits in two panes.
+    h.controller.openResource(ADDRESS)
+    h.publish()
+    const copyIn = (paneId: PaneId): TabId => {
+      const found = getPane(h.layout(), paneId).tabs.find(id => h.layout().tabs[id]?.contentId === ADDRESS)
+      if (found === undefined) throw new Error('expected a copy in this pane')
+      return found
+    }
+    const leftCopy = copyIn(left)
+    const rightCopy = copyIn(right)
+    expect(leftCopy).not.toBe(rightCopy)
+    const handler = vi.fn()
+    const release = h.controller.registerCloseHandler('text', handler)
+    try {
+      // Replacing the right copy with its own address: the store reveals that
+      // copy in place, so no cleanup may run and the copy must survive.
+      h.controller.openResource(ADDRESS, { replaceTab: rightCopy })
+      h.publish()
+      expect(handler).not.toHaveBeenCalled()
+      expect(h.layout().tabs[rightCopy]).toBeDefined()
+      expect(findTabPane(h.layout(), rightCopy).id).toBe(right)
+      expect(findTabPane(h.layout(), leftCopy).id).toBe(left)
+      expect(getPane(h.layout(), right).activeTabId).toBe(rightCopy)
+      expect(h.layout().activePaneId).toBe(right)
+    } finally {
+      release()
+    }
+  })
+})
+
 it('releases close handlers without a stale disposer removing a replacement', () => {
   const h = harness()
   h.adopt(SESSION, h.instance)
