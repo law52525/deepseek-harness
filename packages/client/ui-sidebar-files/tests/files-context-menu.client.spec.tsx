@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** File-tree row context menu: add a file or folder to the current conversation. */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, screen } from '@testing-library/react'
 import type { DirLevel } from '../src/client/store.ts'
 import { zh } from '../src/client/locales.ts'
@@ -11,11 +11,15 @@ const LEVEL: DirLevel = {
     { name: 'README.md', type: 'file', size: 12 },
     { name: 'src', type: 'directory' },
     { name: 'pipe', type: 'other' },
+    { name: 'a"b.md', type: 'file', size: 3 },
   ],
   truncated: false,
 }
 
-afterEach(() => { cleanup() })
+afterEach(() => {
+  vi.useRealTimers()
+  cleanup()
+})
 
 /** Mount a settled tree with the given entry level. */
 async function tree(withConversation = true) {
@@ -80,5 +84,23 @@ describe('FilesBody row context menu', () => {
     act(() => { fireEvent.contextMenu(row(view, `${ROOT}/README.md`), { clientX: 40, clientY: 60 }) })
     const item = screen.getByRole('menuitem', { name: zh['menu.addToConversation'] }) as HTMLButtonElement
     expect(item.disabled).toBe(true)
+  })
+
+  it('shows a visible notice when the verb refuses the row', async () => {
+    // A name the reference grammar cannot represent (a double quote) makes the
+    // verb return `conflict`; the entry must say so, not close on a silent no-op.
+    const { view, addToConversation } = await tree()
+    addToConversation!.mockReturnValue('conflict')
+    const files = [...view.container.querySelectorAll<HTMLElement>('[data-files-entry="file"]')]
+    const target = files.find(li => li.getAttribute('data-files-path') === `${ROOT}/a"b.md`)
+    if (target === undefined) throw new Error('no double-quoted file row')
+    act(() => { fireEvent.contextMenu(target.querySelector('button')!, { clientX: 40, clientY: 60 }) })
+    vi.useFakeTimers()
+    act(() => { fireEvent.click(screen.getByRole('menuitem', { name: zh['menu.addToConversation'] })) })
+    expect(screen.queryByRole('menuitem')).toBeNull()
+    expect(screen.getByRole('alert').textContent).toContain(zh['menu.addFailed'])
+    // The banner leaves after its hold and fade, dismissing the notice.
+    act(() => { vi.advanceTimersByTime(4_000) })
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })

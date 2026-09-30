@@ -6,9 +6,11 @@
  * - {@link readPreviewSelection} reads the live DOM selection only when it lies
  *   inside a preview body and is non-empty, and best-effort maps its endpoints
  *   to source line numbers through the renderers' own line markers (the plain
- *   renderer's `data-textpreview-line` rows, the code renderer's `span.line`
- *   rows). Markdown has no source-line markers, so its selections carry no
- *   lines and the snippet header falls back to the path alone.
+ *   renderer's `data-textpreview-line` rows, the code preview renderer's
+ *   `span.line` rows under `data-code-preview`). Markdown has no source-line
+ *   markers — a fenced block renders its own `span.line` rows, but those count
+ *   lines within the fence, not the file — so its selections carry no lines and
+ *   the snippet header falls back to the path alone.
  * - {@link buildSelectionSnippet} renders the fenced body: a location header
  *   (`path:line[-line]`), the verbatim selection, and a truncation note when the
  *   selection was cut or the file's later pages were still unloaded.
@@ -60,7 +62,14 @@ export function lineNumberAt(node: Node): number | undefined {
   }
   const codeLine = element.closest('span.line')
   const pre = codeLine?.closest('pre') ?? null
-  if (codeLine === null || pre === null) return undefined
+  // `span.line` is a source-line anchor only inside the code preview renderer
+  // (`data-code-preview`), whose `CodeBlock` is handed the whole file so the
+  // row index is the file line. A Markdown fenced block renders its own
+  // `span.line` rows through the same primitive, but its index counts lines
+  // within the fence — treating it as a file line mislabels the snippet, so
+  // any `span.line` outside the code preview carries no line (a missing line
+  // beats a wrong one).
+  if (codeLine === null || pre === null || pre.closest('[data-code-preview]') === null) return undefined
   // `closest` resolved the line inside this very pre, so it is always listed; indexOf is never -1 here.
   return Array.from(pre.querySelectorAll('span.line')).indexOf(codeLine) + 1
 }

@@ -180,6 +180,8 @@ describe('readPreviewSelection', () => {
 
   it('maps a code-renderer selection to its 1-based line index', () => {
     const body = document.createElement('div')
+    const renderer = document.createElement('div')
+    renderer.setAttribute('data-code-preview', '')
     const pre = document.createElement('pre')
     for (const text of ['a', 'b', 'c']) {
       const span = document.createElement('span')
@@ -187,7 +189,8 @@ describe('readPreviewSelection', () => {
       span.textContent = text
       pre.appendChild(span)
     }
-    body.appendChild(pre)
+    renderer.appendChild(pre)
+    body.appendChild(renderer)
     document.body.appendChild(body)
     const range = document.createRange()
     range.setStart(pre.children[1]!.firstChild!, 0)
@@ -196,6 +199,35 @@ describe('readPreviewSelection', () => {
     selection.removeAllRanges()
     selection.addRange(range)
     expect(readPreviewSelection(body)).toMatchObject({ startLine: 2, endLine: 3 })
+  })
+
+  it('gives no line for a fenced block outside the code preview renderer', () => {
+    // A Markdown fence renders `span.line` rows like the code renderer, but its
+    // row index counts lines within the fence, not the file. Anchoring on the
+    // code preview keeps the snippet header path-only instead of mislabelling it.
+    const body = document.createElement('div')
+    const fence = document.createElement('pre')
+    for (const [index, text] of ['const x = 1', 'const y = 2'].entries()) {
+      if (index > 0) fence.appendChild(document.createTextNode('\n'))
+      const span = document.createElement('span')
+      span.className = 'line'
+      span.textContent = text
+      fence.appendChild(span)
+    }
+    body.appendChild(fence)
+    document.body.appendChild(body)
+    const range = document.createRange()
+    range.setStart(fence.children[0]!.firstChild!, 0)
+    range.setEnd(fence.children[1]!.firstChild!, fence.children[1]!.firstChild!.textContent!.length)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    const read = readPreviewSelection(body)
+    expect(read).toMatchObject({ text: 'const x = 1\nconst y = 2', startLine: undefined, endLine: undefined })
+    // The whole point: a fenced selection yields a path-only header, never `:1-2`.
+    expect(buildSelectionSnippet(
+      { path: '/work/app/guide.md', selection: read!, incomplete: false }, NOTES,
+    ).text).toBe('```markdown\n/work/app/guide.md\nconst x = 1\nconst y = 2\n```')
   })
 
   it('reads nothing for an empty non-collapsed range', () => {

@@ -16,8 +16,8 @@ import type { PropsLocale, PropsRuntime, PropsStore, TranslateNS } from '@deepse
 // Type-only: pulls the Conversation standard-prop merge (`addToConversation`).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
-  ContextMenu, FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, IconRefreshOutlineRegular, Tooltip, classifyFileType,
-  IconPauseOutlineRegular, IconPlayOutlineRegular, PathLabel,
+  ContextMenu, FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, IconRefreshOutlineRegular,
+  IconWarningOutlineRegular, Toast, Tooltip, classifyFileType, IconPauseOutlineRegular, IconPlayOutlineRegular, PathLabel,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ContextMenuPoint, MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
@@ -172,6 +172,8 @@ export function FilesBody({
   const cwd = useSessions(sessions => sessions.byId[sessionId]?.cwd)
   const state = useStore(store => store.byTab[tab.id])
   const [rowMenu, setRowMenu] = useState<{ target: RowTarget; point: ContextMenuPoint } | null>(null)
+  // Counts failed adds so the same refusal replays the banner (0 = none shown).
+  const [addFailure, setAddFailure] = useState(0)
   const bodyRef = useRef<HTMLDivElement>(null)
   const scrollTopRef = useRef(0)
   // Come back where the reader was: loaded levels outlive the body in the
@@ -226,7 +228,11 @@ export function FilesBody({
     // The chip's label is the row's own name; a folder keeps the trailing slash
     // the reference grammar uses for directories.
     const label = target.kind === 'directory' ? `${target.name}/` : target.name
-    addToConversation({ kind: 'reference', path: target.path, target: target.kind, label })
+    // A refusal (a path the mention grammar cannot represent, or a composer that
+    // is locked or gone) writes nothing; say so instead of closing on a no-op.
+    if (addToConversation({ kind: 'reference', path: target.path, target: target.kind, label }) !== 'inserted') {
+      setAddFailure(seq => seq + 1)
+    }
   }
   return (
     <div className={css.root} data-files-state="tree" data-files-root={state.root}>
@@ -267,6 +273,14 @@ export function FilesBody({
           items={rowItems}
           onSelect={() => { addRow(rowMenu.target); setRowMenu(null) }}
           onClose={() => { setRowMenu(null) }}
+        />
+      )}
+      {addFailure > 0 && (
+        <Toast
+          key={addFailure}
+          text={t('menu.addFailed')}
+          icon={<IconWarningOutlineRegular />}
+          onDone={() => { setAddFailure(0) }}
         />
       )}
     </div>

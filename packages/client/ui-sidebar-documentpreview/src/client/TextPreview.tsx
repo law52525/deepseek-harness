@@ -18,7 +18,8 @@ import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStor
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
   ContextMenu, FileTypeIcon, IconNowrapFillRegular, IconPauseOutlineRegular, IconPlayOutlineRegular,
-  IconRefreshOutlineRegular, IconWrapFillRegular, Menu, PathLabel, Tooltip, classifyFileType, writeClipboard,
+  IconRefreshOutlineRegular, IconWarningOutlineRegular, IconWrapFillRegular, Menu, PathLabel, Toast, Tooltip,
+  classifyFileType, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ContextMenuPoint, MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { pathPartsOf } from '@deepseek-ai/dsh-util-workspace-path'
@@ -96,6 +97,8 @@ export function TextPreview({
   const storedScrollTopRef = useRef(0)
   const [menuOpen, setMenuOpen] = useState(false)
   const [selectionMenu, setSelectionMenu] = useState<{ point: ContextMenuPoint; selection: PreviewSelection } | null>(null)
+  // Counts refused snippet adds so the same failure replays the banner (0 = none shown).
+  const [addFailure, setAddFailure] = useState(0)
   const absolutePath = meta.value?.absolutePath ?? current?.complete?.absolutePath
   const displayPath = absolutePath ?? file.path
   // Contributions that hand the file to the Host wait for its Host path.
@@ -264,7 +267,11 @@ export function TextPreview({
       { path: displayPath, selection: open, incomplete: isSelectionAtLoadedEnd(open, current, loadedThrough) },
       { truncated: t('snippet.truncated'), incomplete: t('snippet.incomplete') },
     )
-    addToConversation({ kind: 'fragment', text: snippet.text })
+    // A refusal (the composer is locked or gone) lands nothing; say so rather
+    // than closing the menu on a silent no-op.
+    if (addToConversation({ kind: 'fragment', text: snippet.text }) !== 'inserted') {
+      setAddFailure(seq => seq + 1)
+    }
   }
   return (
     <div className={css.preview} data-textpreview-state="text" data-textpreview-url={tab.contentId} data-document-preview={selected.id}>
@@ -444,6 +451,14 @@ export function TextPreview({
           items={selectionItems}
           onSelect={(id) => { selectSelectionItem(selectionMenu.selection, id) }}
           onClose={closeSelectionMenu}
+        />
+      )}
+      {addFailure > 0 && (
+        <Toast
+          key={addFailure}
+          text={t('menu.addFailed')}
+          icon={<IconWarningOutlineRegular />}
+          onDone={() => { setAddFailure(0) }}
         />
       )}
     </div>

@@ -12,6 +12,7 @@ import { apply as resourcesApply, inject as resourcesInject } from '@deepseek-ai
 import { apply as sidebarApply, inject as sidebarInject } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/index.ts'
 import type { ConversationInsert, ConversationInsertOutcome } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply, inject } from '../src/client/index.ts'
+import { en, zh } from '../src/client/locales.ts'
 import type { DocumentPreviewProps } from '../src/client/document/contract.ts'
 import type { DocumentLoadMode } from '../src/client/document/registry.ts'
 import type { WorkspaceFilesReadRemote } from '../src/client/rpc.ts'
@@ -28,6 +29,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   try {
     await runtime?.dispose()
     runtime = undefined
@@ -220,6 +222,33 @@ describe('document extension seat', () => {
     const insert = h.addToConversation.mock.calls[0]?.[0]
     if (insert?.kind !== 'fragment') throw new Error('expected a fragment insert')
     expect(insert.text).toContain('/host/notes:1-2')
+    act(() => { window.getSelection()?.removeAllRanges() })
+  })
+
+  it('shows a visible notice when the add-to-conversation verb refuses a snippet', async () => {
+    // A locked/gone composer makes the verb return `unavailable`; the entry must
+    // announce the refusal instead of closing on a silent no-op.
+    const h = await boot()
+    h.addToConversation.mockReturnValue('unavailable')
+    h.open('notes.unknown')
+    await waitFor(() => { expect(h.view.container.querySelectorAll('[data-textpreview-line]')).toHaveLength(2) })
+    const body = h.view.container.querySelector<HTMLElement>('[data-textpreview-body]')!
+    const lines = h.view.container.querySelectorAll<HTMLElement>('[data-textpreview-line]')
+    const range = document.createRange()
+    range.setStart(lines[0]!.firstChild!, 0)
+    range.setEnd(lines[1]!.firstChild!, lines[1]!.firstChild!.textContent!.length)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    act(() => { fireEvent.contextMenu(body, { clientX: 12, clientY: 12 }) })
+    vi.useFakeTimers()
+    act(() => { fireEvent.click(screen.getAllByRole('menuitem')[1]!) })
+    // The seat's active locale decides the copy; either dictionary's line proves the notice.
+    expect([zh['menu.addFailed'], en['menu.addFailed']]).toContain(screen.getByRole('alert').textContent)
+    // The banner leaves after its hold and fade, dismissing the notice.
+    act(() => { vi.advanceTimersByTime(4_000) })
+    expect(screen.queryByRole('alert')).toBeNull()
+    vi.useRealTimers()
     act(() => { window.getSelection()?.removeAllRanges() })
   })
 
