@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Plan mode lets you review a plan before implementation. Enter with `/plan` and leave with the composer chip. Submitted plans open automatically in the right sidebar for review and remain available from cards in the completed Turn’s final artifact area after approval, rejection, or dismissal. Reopening a plan focuses its existing tab, and browser reload restores the document from Session history.
+Plan mode lets you review a plan before implementation. Enter with `/plan` and leave with the composer chip. Submitted plans open automatically in the right sidebar for review and remain available from cards in the completed Turn’s final artifact area after approval, rejection, or dismissal. Reopening a plan focuses its existing tab in the target pane (a copy parked in another pane is left alone), and browser reload restores the document from Session history.
 
 ## Table of Contents
 

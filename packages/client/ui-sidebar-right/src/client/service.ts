@@ -34,7 +34,7 @@ import { sidebarTargetFromElement, type SidebarRightTarget } from './focus.ts'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { FloatRect, PaneId, TabId, TabRecord } from '@deepseek-ai/dsh-client-ui-dockkit'
-import { activeDockPaneId, canSplit, findContentTab, dockPaneIds, findTabPane, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
+import { activeDockPaneId, canSplit, findPaneContentTab, dockPaneIds, findTabPane, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SidebarRightNavigationParams, SidebarRightResourceParams, SidebarRightTabParamsFor } from './contract/params.ts'
@@ -131,8 +131,9 @@ export interface SidebarRightPlacement {
   /** Take this tab's place — its pane and its strip slot — and close it in the same step. */
   readonly replaceTab?: TabId
   /**
-   * Resource tabs reveal an existing (kind, contentId) by default; `false`
-   * permits duplicates. Pages always deduplicate within the target pane.
+   * Resource tabs reveal an existing (kind, contentId) within the target pane
+   * only, by default; `false` permits duplicates and a copy parked in another
+   * pane is never revealed. Pages always deduplicate within the target pane.
    */
   readonly revealIfOpened?: boolean
 }
@@ -437,8 +438,18 @@ export class SidebarRightController implements ISidebarRight {
     }, (tabId) => { this.tabDomain.navigate(sessionId, tabId, { address, params }) }) }
     const layout = surface?.layout
     const replaced = placement.replaceTab === undefined ? undefined : layout?.tabs[placement.replaceTab]
-    const revealed = layout === undefined || placement.revealIfOpened === false
-      ? undefined : findContentTab(layout, claim.contentId, claim.kind)
+    // Predict the store's reveal the way the store decides it: per pane. A
+    // replaced docked tab lends its pane, and the open lands on a copy there —
+    // never on one parked in another pane, which a surface-wide lookup would
+    // reach first and mistake for the tab this open replaces.
+    const lent = replaced === undefined || layout === undefined ? undefined : findTabPane(layout, replaced.id)
+    const revealPane = (lent?.host === 'dock' ? lent.id : placement.paneId)
+      ?? (layout === undefined ? undefined : activeDockPaneId(layout))
+    const page = claim.contentId === pageAddress(claim.kind)
+    const revealed = layout === undefined || revealPane === undefined ? undefined
+      : page || placement.revealIfOpened !== false
+        ? findPaneContentTab(layout, revealPane, claim.contentId, claim.kind)
+        : undefined
     if (replaced === undefined || replaced.id === revealed) { commit(); return }
     this.removeAfterCleanup(sessionId, replaced, commit)
   }

@@ -450,3 +450,35 @@ describe('createSidebarRightStore — page uniqueness', () => {
     expect(Object.values(layout().tabs).filter(tab => tab.kind === 'guide')).toHaveLength(1)
   })
 })
+
+describe('createSidebarRightStore — resource identity is per pane', () => {
+  const ADDRESS = 'dsh-resource://file/session/s-test/a.txt'
+
+  it('reveals a resource only in the pane it lands in, never across panes', () => {
+    const { actions, layout, expand } = harness()
+    expand()
+    actions.splitPane(SESSION)
+    const [left, right] = dockPaneIds(layout())
+    if (left === undefined || right === undefined) throw new Error('expected two panes')
+    // A preview parked in the second pane.
+    actions.openContent(SESSION, { kind: 'text', contentId: ADDRESS, title: 'a', paneId: right }, () => {})
+    const parked = Object.values(layout().tabs).find(tab => tab.contentId === ADDRESS)?.id
+    if (parked === undefined) throw new Error('expected the parked preview')
+    expect(findTabPane(layout(), parked).id).toBe(right)
+
+    // The same address opened into the first pane opens a second tab there rather
+    // than focusing the copy in the other pane, and leaves that pane alone.
+    const settled = vi.fn<(tabId: TabId) => void>()
+    actions.openContent(SESSION, { kind: 'text', contentId: ADDRESS, title: 'a', paneId: left }, settled)
+    const opened = settled.mock.calls[0]![0]
+    expect(opened).not.toBe(parked)
+    expect(getPane(layout(), left).tabs).toContain(opened)
+    expect(getPane(layout(), right).activeTabId).toBe(parked)
+
+    // Opening it again into the same pane reveals that pane's own tab.
+    const again = vi.fn<(tabId: TabId) => void>()
+    actions.openContent(SESSION, { kind: 'text', contentId: ADDRESS, title: 'a', paneId: left }, again)
+    expect(again).toHaveBeenCalledExactlyOnceWith(opened)
+    expect(Object.values(layout().tabs).filter(tab => tab.contentId === ADDRESS)).toHaveLength(2)
+  })
+})

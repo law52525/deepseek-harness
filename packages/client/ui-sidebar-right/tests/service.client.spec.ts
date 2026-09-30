@@ -749,6 +749,197 @@ describe('explicit tab resource cleanup', () => {
   })
 })
 
+describe('SidebarRightController — a file tree row\'s open (P-12)', () => {
+  /** The address a row click produces. */
+  const file = (path: string): string => `dsh-resource://file/session/s-test/${path}`
+
+  /**
+   * A mounted surface whose root pane holds the 文件 page, with its occurrence
+   * wired the way the seat wires every tab — the domain's own `openResource`,
+   * which is exactly what a row's click calls.
+   */
+  function withTree(): { h: ReturnType<typeof harness>; tree: TabId } {
+    const h = harness()
+    // Stands in for ui-sidebar-files' own page kind.
+    h.tabs.register({ id: 'test/files', kind: 'files', title: () => 'files' })
+    h.adopt(SESSION, h.instance)
+    h.expand()
+    h.publish()
+    h.controller.openTab('files')
+    h.publish()
+    return { h, tree: h.tabOf('files') }
+  }
+
+  /** What a row click does: the tree tab's own action, no placement named. */
+  const click = (h: ReturnType<typeof harness>, tree: TabId, path: string): void => {
+    h.controller.tabDomain.occurrence(SESSION, { id: tree }).tabActions.openResource(file(path))
+  }
+
+  it('AC-1: lands a preview beside the tree tab in the same pane and activates it, with no split', () => {
+    const { h, tree } = withTree()
+    click(h, tree, 'a.txt')
+    h.publish()
+    // No second pane: the click never asks for one.
+    expect(dockPaneIds(h.layout())).toHaveLength(1)
+    const pane = getPane(h.layout(), h.layout().activePaneId)
+    // The tree tab is retained, the preview sits beside it, and it took focus.
+    expect(pane.tabs).toContain(tree)
+    expect(pane.tabs).toContain(h.tabOf('a.txt'))
+    expect(pane.activeTabId).toBe(h.tabOf('a.txt'))
+  })
+
+  it('AC-2: a preview parked in another pane is neither revealed nor focused; the open lands in the tree\'s pane', () => {
+    const { h, tree } = withTree()
+    // Open a.txt, then move that preview into a second pane and go back to the tree.
+    click(h, tree, 'a.txt')
+    h.publish()
+    h.instance.actions.splitPane(SESSION)
+    h.publish()
+    const [left, right] = dockPaneIds(h.layout())
+    if (left === undefined || right === undefined) throw new Error('expected two panes')
+    h.instance.actions.placeTab(SESSION, h.tabOf('a.txt'), right, 0)
+    h.publish()
+    h.instance.actions.focusPane(SESSION, left)
+    h.instance.actions.focusTab(SESSION, tree)
+    h.publish()
+    const treePane = findTabPane(h.layout(), tree).id
+    const parked = h.tabOf('a.txt')
+    const rightBefore = getPane(h.layout(), right)
+    const panesBefore = dockPaneIds(h.layout())
+
+    click(h, tree, 'a.txt')
+    h.publish()
+
+    // The pane structure is untouched and the other pane's copy keeps its seat.
+    expect(dockPaneIds(h.layout())).toEqual(panesBefore)
+    expect(getPane(h.layout(), right).tabs).toEqual(rightBefore.tabs)
+    expect(getPane(h.layout(), right).activeTabId).toBe(rightBefore.activeTabId)
+    expect(findTabPane(h.layout(), parked).id).toBe(right)
+    // Focus stayed where the click happened: the tree's pane, showing the preview.
+    expect(h.layout().activePaneId).toBe(treePane)
+    const shown = getPane(h.layout(), treePane)
+    expect(shown.tabs).toContain(tree)
+    expect(shown.activeTabId).toBe(shown.tabs.at(-1))
+    expect(shown.tabs.at(-1)).not.toBe(parked)
+  })
+
+  it('AC-3: clicking the same file twice reuses one preview tab; another file is its own tab', () => {
+    const { h, tree } = withTree()
+    click(h, tree, 'a.txt')
+    h.publish()
+    const first = h.tabOf('a.txt')
+    click(h, tree, 'a.txt')
+    h.publish()
+    expect(Object.values(h.layout().tabs).filter(tab => tab.title === 'a.txt')).toHaveLength(1)
+    expect(h.tabOf('a.txt')).toBe(first)
+    // A different file gets its own tab beside it.
+    click(h, tree, 'b.txt')
+    h.publish()
+    expect(Object.values(h.layout().tabs).filter(tab => tab.title === 'b.txt')).toHaveLength(1)
+    expect(h.tabOf('b.txt')).not.toBe(first)
+    const pane = getPane(h.layout(), h.layout().activePaneId)
+    expect(pane.tabs).toEqual(expect.arrayContaining([tree, first, h.tabOf('b.txt')]))
+  })
+})
+
+describe('SidebarRightController — a service-level open\'s reveal scope (P-12)', () => {
+  const ADDRESS = 'dsh-resource://file/session/s-test/a.txt'
+
+  /**
+   * A service-level caller names no pane — `ctx.sidebarRight.openResource` from
+   * another plugin, an address that opens at most one tab per pane. With a copy
+   * parked in a pane that is not active, the reveal must stay out of that pane:
+   * the open lands beside the caller in the active pane instead.
+   */
+  it('lands a fresh copy in the active pane instead of revealing one parked in another pane', () => {
+    const h = harness()
+    h.expand()
+    h.publish()
+    // Open the resource, then park its tab in a second pane and go back to the first.
+    h.controller.openResource(ADDRESS)
+    h.publish()
+    h.instance.actions.splitPane(SESSION)
+    h.publish()
+    const [left, right] = dockPaneIds(h.layout())
+    if (left === undefined || right === undefined) throw new Error('expected two panes')
+    h.instance.actions.placeTab(SESSION, h.tabOf('a.txt'), right, 0)
+    h.publish()
+    const parked = h.tabOf('a.txt')
+    h.instance.actions.focusPane(SESSION, left)
+    h.publish()
+    expect(h.layout().activePaneId).toBe(left)
+    expect(findTabPane(h.layout(), parked).id).toBe(right)
+    const rightBefore = getPane(h.layout(), right)
+    const copiesBefore = Object.values(h.layout().tabs).filter(tab => tab.contentId === ADDRESS).length
+
+    // No paneId: the target is the active pane, which holds no copy of the address.
+    h.controller.openResource(ADDRESS)
+    h.publish()
+
+    // A second tab beside the caller, in the active pane, focused.
+    const copies = Object.values(h.layout().tabs).filter(tab => tab.contentId === ADDRESS)
+    expect(copies).toHaveLength(copiesBefore + 1)
+    const active = getPane(h.layout(), h.layout().activePaneId)
+    expect(active.id).toBe(left)
+    expect(active.tabs).toContain(copies.find(tab => tab.id !== parked)?.id)
+    expect(active.activeTabId).toBe(copies.find(tab => tab.id !== parked)?.id)
+    // The parked copy is neither focused nor moved: its pane is left exactly as it was.
+    expect(findTabPane(h.layout(), parked).id).toBe(right)
+    expect(getPane(h.layout(), right)).toEqual(rightBefore)
+  })
+})
+
+describe('SidebarRightController — replacement cleanup prediction (P-12)', () => {
+  const ADDRESS = 'dsh-resource://file/session/s-test/a.txt'
+
+  /**
+   * Two panes each hold a copy of one address, so a surface-wide lookup reaches
+   * the left copy while the open's own pane holds the right one. `replaceTab`
+   * names the right copy: the store reveals that pane-local copy, so the
+   * service must not read the left copy as the tab the open lands on and run the
+   * right copy's cleanup under it.
+   */
+  it('does not clean up a replaced copy the open reveals in its own pane', () => {
+    const h = harness()
+    h.adopt(SESSION, h.instance)
+    h.publish()
+    // The left pane gets a copy, then a split opens a pane to its right.
+    h.controller.openResource(ADDRESS)
+    h.publish()
+    h.instance.actions.splitPane(SESSION)
+    h.publish()
+    const [left, right] = dockPaneIds(h.layout())
+    if (left === undefined || right === undefined) throw new Error('expected two panes')
+    // The right pane opens its own copy, so one contentId now sits in two panes.
+    h.controller.openResource(ADDRESS)
+    h.publish()
+    const copyIn = (paneId: PaneId): TabId => {
+      const found = getPane(h.layout(), paneId).tabs.find(id => h.layout().tabs[id]?.contentId === ADDRESS)
+      if (found === undefined) throw new Error('expected a copy in this pane')
+      return found
+    }
+    const leftCopy = copyIn(left)
+    const rightCopy = copyIn(right)
+    expect(leftCopy).not.toBe(rightCopy)
+    const handler = vi.fn()
+    const release = h.controller.registerCloseHandler('text', handler)
+    try {
+      // Replacing the right copy with its own address: the store reveals that
+      // copy in place, so no cleanup may run and the copy must survive.
+      h.controller.openResource(ADDRESS, { replaceTab: rightCopy })
+      h.publish()
+      expect(handler).not.toHaveBeenCalled()
+      expect(h.layout().tabs[rightCopy]).toBeDefined()
+      expect(findTabPane(h.layout(), rightCopy).id).toBe(right)
+      expect(findTabPane(h.layout(), leftCopy).id).toBe(left)
+      expect(getPane(h.layout(), right).activeTabId).toBe(rightCopy)
+      expect(h.layout().activePaneId).toBe(right)
+    } finally {
+      release()
+    }
+  })
+})
+
 it('releases close handlers without a stale disposer removing a replacement', () => {
   const h = harness()
   h.adopt(SESSION, h.instance)

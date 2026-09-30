@@ -124,7 +124,11 @@ export interface SidebarRightTabPlacement {
   readonly paneId?: PaneId
   /** Prefer a new pane for new content; use the target pane when splitting is unavailable. */
   readonly preferNewPane?: boolean
-  /** Resource tabs reveal existing content by default; `false` permits duplicates. Pages always deduplicate within the target pane. */
+  /**
+   * Resource tabs reveal content already open in the target pane by default;
+   * `false` permits duplicates and a copy parked in another pane is never
+   * revealed. Pages always deduplicate within the target pane.
+   */
   readonly revealIfOpened?: boolean
   /** `true` opens in this tab's place — its pane and strip slot — and closes this tab in the same step. */
   readonly replaceTab?: boolean

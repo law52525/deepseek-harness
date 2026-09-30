@@ -79,7 +79,7 @@ export function apply(ctx: Context): void {
 |---|---|
 | `paneId` | 新 tab 落到这个 pane；缺省为活动的停靠 pane（活动的是浮窗时取第一个停靠 pane）。 |
 | `replaceTab` | 占用这个 tab 的 pane 与条上位置，并在同一步关闭它；浮窗里的 tab 让不出位置，新 tab 按未指定位置落位。 |
-| `revealIfOpened` | 缺省 `true`：已显示同一 `(kind, address)` 的 tab 被聚焦并收到 `params`。`false` 则无论如何再开一个。 |
+| `revealIfOpened` | 缺省 `true`：已显示同一 `(kind, address)` 的 tab 被聚焦并收到 `params`——但仅在目标分栏内；停在其它分栏的副本不动，本次打开落在目标分栏。`false` 则无论如何再开一个。 |
 | `preferNewPane` | 在普通格数预算与空间规则下优先新建停靠格；不能分栏时回退到目标格。与 `replaceTab` 一起使用时忽略。 |
 | `kind`（仅 `openResource`） | 点名打开类型而不排候选；该 kind 的生效实现打开地址，它的 `canOpen` 仍生效。 |
 | `params` | 给正文的导航参数，作为 `navigation.params` 送达。`openResource` 按资源类型经声明合并表 `SidebarRightResourceParamsMap` 定型（文本预览声明 `{ line?: number }`）；`openTab<K>` 按 kind 经 `SidebarRightTabParamsMap` 定型，未声明的 kind 为 `undefined`；正文读到的是二者联合 `SidebarRightNavigationParams`。值按约定为 JSON 形状，运行时不校验。 |
@@ -153,6 +153,6 @@ Host 的 `ctx.workspaceFiles` 服务与生成的 `workspaceFiles` Remote 命名�
 - tab 类型的 `option` 优先级档：没有「只列出、不许认领」的 tab 类型。
 - 改写记录的标题：`title(address)` 只捕获一次；活的 chip 来自标题 slot，而不是记录。
 - 打开时点名某个 tab 实现：`openResource` 最多点名一个 kind；文档渲染器由文件 tab 的工具栏选择。
-- 服务上的地址查找（`find`）：调用方用 `revealIfOpened` 打开，由停靠面去重。
+- 服务上的地址查找（`find`）：调用方用 `revealIfOpened` 打开，由目标分栏去重。
 - Sidebar 自身 `sidebar://<kind>` 记账之外的导航地址；其语法等导航控制器整体做时再定。
 - 面向用户的撤销与跨类型通用内容导航栈（[暂缓](../../.agents/notes/implemented/feature/2026-09-04-right-sidebar-docking-infrastructure.zh.md#deferred)）；Browser 只拥有自身页面历史。
