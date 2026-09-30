@@ -8,15 +8,18 @@
  * anything else is shown but refuses to open. The header uses the shared
  * PathLabel for the root, followed by reload for the expanded directories.
  */
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import type { RemoteFailure } from '@deepseek-ai/dsh-api-remotes/client'
 import type { PropsLocale, PropsRuntime, PropsStore, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+// Type-only: pulls the Conversation standard-prop merge (`addToConversation`).
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
-  FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, IconRefreshOutlineRegular, Tooltip, classifyFileType,
+  ContextMenu, FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, IconRefreshOutlineRegular, Tooltip, classifyFileType,
   IconPauseOutlineRegular, IconPlayOutlineRegular, PathLabel,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ContextMenuPoint, MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceDirectoryEntry } from '@deepseek-ai/dsh-api-workspace-files/types'
 import { childPath } from './face.ts'
@@ -66,11 +69,20 @@ export function failureLine(t: TranslateNS<'sidebarFiles'>, failure: RemoteFailu
   }
 }
 
-/** What every level shares: the tab's tree and the two gestures. */
+/** One entry the reader can offer to the current conversation. */
+interface RowTarget {
+  readonly path: string
+  readonly name: string
+  readonly kind: 'file' | 'directory'
+}
+
+/** What every level shares: the tab's tree and the row gestures. */
 interface TreeContext {
   readonly state: FilesTabState
   readonly onToggle: (parent: string, path: string) => void
   readonly onOpen: (path: string) => void
+  /** Open the row's context menu at the pointer. */
+  readonly onRowMenu: (target: RowTarget, point: ContextMenuPoint) => void
   readonly t: TranslateNS<'sidebarFiles'>
 }
 
@@ -81,7 +93,16 @@ function Entry({ parent, entry, tree }: { parent: string; entry: WorkspaceDirect
     const expanded = tree.state.expanded.includes(path)
     return (
       <li className={css.item} data-files-entry="directory" data-files-path={path}>
-        <button type="button" className={css.row} aria-expanded={expanded} onClick={() => { tree.onToggle(parent, path) }}>
+        <button
+          type="button"
+          className={css.row}
+          aria-expanded={expanded}
+          onClick={() => { tree.onToggle(parent, path) }}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            tree.onRowMenu({ path, name: entry.name, kind: 'directory' }, { x: event.clientX, y: event.clientY })
+          }}
+        >
           {expanded ? <IconFolderOpenRegular className={css.icon} /> : <IconFolderCloseRegular className={css.icon} />}
           <span className={css.name}>{entry.name}</span>
         </button>
@@ -92,7 +113,15 @@ function Entry({ parent, entry, tree }: { parent: string; entry: WorkspaceDirect
   if (entry.type === 'file') {
     return (
       <li className={css.item} data-files-entry="file" data-files-path={path}>
-        <button type="button" className={css.row} onClick={() => { tree.onOpen(path) }}>
+        <button
+          type="button"
+          className={css.row}
+          onClick={() => { tree.onOpen(path) }}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            tree.onRowMenu({ path, name: entry.name, kind: 'file' }, { x: event.clientX, y: event.clientY })
+          }}
+        >
           <FileTypeIcon kind={classifyFileType(entry.name)} size={16} className={css.fileIcon} />
           <span className={css.name}>{entry.name}</span>
         </button>
@@ -135,13 +164,14 @@ function Level({ path, tree }: { path: string; tree: TreeContext }): ReactNode {
 
 /** The file tree's body: the workspace root and whatever the reader has opened under it. */
 export function FilesBody({
-  useTabInfo, sessionId, useSessions, useStore, actions, start, refresh, setAutoRefresh, toggle, t,
+  useTabInfo, sessionId, useSessions, useStore, actions, start, refresh, setAutoRefresh, toggle, addToConversation, t,
 }: FilesBodyProps): ReactNode {
   const { tab } = useTabInfo()
   useEffect(() => tab.actions.bindCommands({ refresh: () => { refresh(tab.id) } }), [tab.actions, tab.id, refresh])
   const { signal, actions: tabActions } = tab
   const cwd = useSessions(sessions => sessions.byId[sessionId]?.cwd)
   const state = useStore(store => store.byTab[tab.id])
+  const [rowMenu, setRowMenu] = useState<{ target: RowTarget; point: ContextMenuPoint } | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const scrollTopRef = useRef(0)
   // Come back where the reader was: loaded levels outlive the body in the
@@ -181,10 +211,22 @@ export function FilesBody({
     onToggle: (parent, path) => { toggle(tab.id, parent, path, state.expanded, signal) },
     // Every row is under the tree's root, so its address is session-relative.
     onOpen: (path) => { tabActions.openResource(fileAddressFor(sessionId, state.root, path)) },
+    onRowMenu: (target, point) => { setRowMenu({ target, point }) },
     t,
   }
   const reload = (): void => {
     refresh(tab.id)
+  }
+  const rowItems: readonly MenuItem[] = [
+    { id: 'add-to-conversation', label: t('menu.addToConversation'), disabled: addToConversation === undefined },
+  ]
+  const addRow = (target: RowTarget): void => {
+    /* v8 ignore next -- the row is disabled when the verb is absent, so this guard is belt-and-braces. */
+    if (addToConversation === undefined) return
+    // The chip's label is the row's own name; a folder keeps the trailing slash
+    // the reference grammar uses for directories.
+    const label = target.kind === 'directory' ? `${target.name}/` : target.name
+    addToConversation({ kind: 'reference', path: target.path, target: target.kind, label })
   }
   return (
     <div className={css.root} data-files-state="tree" data-files-root={state.root}>
@@ -219,6 +261,14 @@ export function FilesBody({
       >
         <ul className={css.level}><Level path={state.root} tree={tree} /></ul>
       </div>
+      {rowMenu !== null && (
+        <ContextMenu
+          point={rowMenu.point}
+          items={rowItems}
+          onSelect={() => { addRow(rowMenu.target); setRowMenu(null) }}
+          onClose={() => { setRowMenu(null) }}
+        />
+      )}
     </div>
   )
 }
