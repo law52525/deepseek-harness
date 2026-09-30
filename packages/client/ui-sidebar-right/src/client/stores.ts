@@ -94,7 +94,11 @@ export interface OpenContentIntent {
   readonly preferNewPane?: boolean
   /** Take this tab's pane and slot, and close it in the same entry. */
   readonly replaceTab?: TabId
-  /** Resource tabs reveal an existing identity by default; `false` permits duplicates. Pages always deduplicate within the target pane. */
+  /**
+   * Resource tabs reveal an existing identity within the target pane only, by
+   * default; a copy parked in another pane is never revealed. `false` permits
+   * duplicates. Pages always deduplicate within the target pane.
+   */
   readonly revealIfOpened?: boolean
 }
 

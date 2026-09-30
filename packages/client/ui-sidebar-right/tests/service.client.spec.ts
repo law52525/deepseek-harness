@@ -842,6 +842,53 @@ describe('SidebarRightController — a file tree row\'s open (P-12)', () => {
   })
 })
 
+describe('SidebarRightController — a service-level open\'s reveal scope (P-12)', () => {
+  const ADDRESS = 'dsh-resource://file/session/s-test/a.txt'
+
+  /**
+   * A service-level caller names no pane — `ctx.sidebarRight.openResource` from
+   * another plugin, an address that opens at most one tab per pane. With a copy
+   * parked in a pane that is not active, the reveal must stay out of that pane:
+   * the open lands beside the caller in the active pane instead.
+   */
+  it('lands a fresh copy in the active pane instead of revealing one parked in another pane', () => {
+    const h = harness()
+    h.expand()
+    h.publish()
+    // Open the resource, then park its tab in a second pane and go back to the first.
+    h.controller.openResource(ADDRESS)
+    h.publish()
+    h.instance.actions.splitPane(SESSION)
+    h.publish()
+    const [left, right] = dockPaneIds(h.layout())
+    if (left === undefined || right === undefined) throw new Error('expected two panes')
+    h.instance.actions.placeTab(SESSION, h.tabOf('a.txt'), right, 0)
+    h.publish()
+    const parked = h.tabOf('a.txt')
+    h.instance.actions.focusPane(SESSION, left)
+    h.publish()
+    expect(h.layout().activePaneId).toBe(left)
+    expect(findTabPane(h.layout(), parked).id).toBe(right)
+    const rightBefore = getPane(h.layout(), right)
+    const copiesBefore = Object.values(h.layout().tabs).filter(tab => tab.contentId === ADDRESS).length
+
+    // No paneId: the target is the active pane, which holds no copy of the address.
+    h.controller.openResource(ADDRESS)
+    h.publish()
+
+    // A second tab beside the caller, in the active pane, focused.
+    const copies = Object.values(h.layout().tabs).filter(tab => tab.contentId === ADDRESS)
+    expect(copies).toHaveLength(copiesBefore + 1)
+    const active = getPane(h.layout(), h.layout().activePaneId)
+    expect(active.id).toBe(left)
+    expect(active.tabs).toContain(copies.find(tab => tab.id !== parked)?.id)
+    expect(active.activeTabId).toBe(copies.find(tab => tab.id !== parked)?.id)
+    // The parked copy is neither focused nor moved: its pane is left exactly as it was.
+    expect(findTabPane(h.layout(), parked).id).toBe(right)
+    expect(getPane(h.layout(), right)).toEqual(rightBefore)
+  })
+})
+
 it('releases close handlers without a stale disposer removing a replacement', () => {
   const h = harness()
   h.adopt(SESSION, h.instance)
