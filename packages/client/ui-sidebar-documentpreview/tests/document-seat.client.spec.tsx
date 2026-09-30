@@ -10,7 +10,9 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { absoluteFileAddress, sessionFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
 import { apply as resourcesApply, inject as resourcesInject } from '@deepseek-ai/dsh-client-resources/src/client/index.ts'
 import { apply as sidebarApply, inject as sidebarInject } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/index.ts'
+import type { ConversationInsert, ConversationInsertOutcome } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply, inject } from '../src/client/index.ts'
+import { en, zh } from '../src/client/locales.ts'
 import type { DocumentPreviewProps } from '../src/client/document/contract.ts'
 import type { DocumentLoadMode } from '../src/client/document/registry.ts'
 import type { WorkspaceFilesReadRemote } from '../src/client/rpc.ts'
@@ -27,6 +29,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   try {
     await runtime?.dispose()
     runtime = undefined
@@ -65,6 +68,13 @@ async function boot() {
     },
   }))
   await rt.mount({ inject: [...sidebarInject], apply: sidebarApply })
+  // The Conversation provider is not mounted in this seat; hand the sidebar a
+  // stub of its add-to-draft verb so the selection menu's add path runs for real.
+  const addToConversation = vi.fn<(insert: ConversationInsert) => ConversationInsertOutcome>(() => 'inserted')
+  ;(rt.ctx.uiSession as unknown as { provide(descriptor: unknown): () => void }).provide({
+    props: ['addToConversation'],
+    resolve: () => ({ props: { addToConversation } }),
+  })
   await rt.mount({ inject: [...inject], apply })
   const view = rt.renderSlot('rightbar', { width: 600, viewportWidth: 1440, canShow: true })
   const open = (name: string): void => {
@@ -92,7 +102,7 @@ async function boot() {
     ))
     return () => { removeBody(); removeDefinition() }
   })
-  return { rt, view, open, register, read, bytes }
+  return { rt, view, open, register, read, bytes, addToConversation }
 }
 
 describe('document extension seat', () => {
@@ -174,5 +184,81 @@ describe('document extension seat', () => {
     await act(async () => { await remove!() })
     await waitFor(() => { expect(h.view.container.querySelector('[data-document-markdown]')).not.toBeNull() })
     expect(h.read).toHaveBeenCalledOnce()
+  })
+
+  it('offers no selection menu without a selection, and Copy plus add-to-conversation with one', async () => {
+    const h = await boot()
+    h.open('notes.unknown')
+    await waitFor(() => { expect(h.view.container.querySelectorAll('[data-textpreview-line]')).toHaveLength(2) })
+    const body = h.view.container.querySelector<HTMLElement>('[data-textpreview-body]')!
+    act(() => { fireEvent.contextMenu(body, { clientX: 10, clientY: 10 }) })
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
+
+    const lines = h.view.container.querySelectorAll<HTMLElement>('[data-textpreview-line]')
+    const select = (): void => {
+      const range = document.createRange()
+      range.setStart(lines[0]!.firstChild!, 0)
+      range.setEnd(lines[1]!.firstChild!, lines[1]!.firstChild!.textContent!.length)
+      const selection = window.getSelection()!
+      selection.removeAllRanges()
+      selection.addRange(range)
+    }
+    select()
+    act(() => { fireEvent.contextMenu(body, { clientX: 12, clientY: 12 }) })
+    const items = screen.getAllByRole('menuitem')
+    expect(items).toHaveLength(2)
+    // Copy is available (the platform menu is suppressed) and adds nothing.
+    act(() => { fireEvent.click(items[0]!) })
+    expect(h.addToConversation).not.toHaveBeenCalled()
+
+    select()
+    act(() => { fireEvent.contextMenu(body, { clientX: 12, clientY: 12 }) })
+    act(() => { fireEvent.keyDown(document, { key: 'Escape' }) })
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
+
+    select()
+    act(() => { fireEvent.contextMenu(body, { clientX: 12, clientY: 12 }) })
+    act(() => { fireEvent.click(screen.getAllByRole('menuitem')[1]!) })
+    const insert = h.addToConversation.mock.calls[0]?.[0]
+    if (insert?.kind !== 'fragment') throw new Error('expected a fragment insert')
+    expect(insert.text).toContain('/host/notes:1-2')
+    act(() => { window.getSelection()?.removeAllRanges() })
+  })
+
+  it('shows a visible notice when the add-to-conversation verb refuses a snippet', async () => {
+    // A locked/gone composer makes the verb return `unavailable`; the entry must
+    // announce the refusal instead of closing on a silent no-op.
+    const h = await boot()
+    h.addToConversation.mockReturnValue('unavailable')
+    h.open('notes.unknown')
+    await waitFor(() => { expect(h.view.container.querySelectorAll('[data-textpreview-line]')).toHaveLength(2) })
+    const body = h.view.container.querySelector<HTMLElement>('[data-textpreview-body]')!
+    const lines = h.view.container.querySelectorAll<HTMLElement>('[data-textpreview-line]')
+    const range = document.createRange()
+    range.setStart(lines[0]!.firstChild!, 0)
+    range.setEnd(lines[1]!.firstChild!, lines[1]!.firstChild!.textContent!.length)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    act(() => { fireEvent.contextMenu(body, { clientX: 12, clientY: 12 }) })
+    vi.useFakeTimers()
+    act(() => { fireEvent.click(screen.getAllByRole('menuitem')[1]!) })
+    // The seat's active locale decides the copy; either dictionary's line proves the notice.
+    expect([zh['menu.addFailed'], en['menu.addFailed']]).toContain(screen.getByRole('alert').textContent)
+    // The banner leaves after its hold and fade, dismissing the notice.
+    act(() => { vi.advanceTimersByTime(4_000) })
+    expect(screen.queryByRole('alert')).toBeNull()
+    vi.useRealTimers()
+    act(() => { window.getSelection()?.removeAllRanges() })
+  })
+
+  it('leaves a non-text renderer body to its own secondary press', async () => {
+    const h = await boot()
+    await act(async () => { h.register('bytes-reader', 'bytes-complete', 'extension') })
+    h.open('notes.md')
+    await waitFor(() => { expect(h.view.container.querySelector('[data-renderer="bytes-reader"]')).not.toBeNull() })
+    const body = h.view.container.querySelector<HTMLElement>('[data-textpreview-body]')!
+    act(() => { fireEvent.contextMenu(body, { clientX: 3, clientY: 3 }) })
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
   })
 })

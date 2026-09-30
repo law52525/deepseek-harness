@@ -14,9 +14,11 @@ import {
   createSnapshotStore, type ObservableSnapshot, type SnapshotStore,
 } from '@deepseek-ai/dsh-client-store'
 import type { LexicalEditor } from 'lexical'
+import { formatFileMention } from '@deepseek-ai/dsh-file-reference/grammar'
+import { relativizeToCwd } from '@deepseek-ai/dsh-util-workspace-path'
 import type {
-  CommandClaim, ConsumeTokenRequest, DraftAttachmentId,
-  InputActions, InputEffect, InputNotice, InputState, InputTriggerController, PickOutcome,
+  CommandClaim, ConsumeTokenRequest, ConversationInsert, ConversationInsertOutcome,
+  DraftAttachmentId, InputActions, InputEffect, InputNotice, InputState, InputTriggerController, PickOutcome,
   SessionInput, SubmitAttempt, SubmitAttachment, SubmitOutcome,
 } from '../contract/input.ts'
 import type {
@@ -52,6 +54,10 @@ export interface SessionInputDeps {
    * order (the empty-draft accelerated-Enter gesture); absent = unsupported.
    */
   steerQueue?: (() => void) | undefined
+  /** This Session's workspace root, for resolving an add-to-draft reference path. Absent = leave the path as given. */
+  cwd?: (() => string | undefined) | undefined
+  /** Localized notice surfaced when an add-to-draft request lands during admission. */
+  insertRefusedNotice?: (() => string) | undefined
   /** The plain-message sink (send choreography / materialize fork — the hub owns it). */
   defaultSink(
     text: string,
@@ -233,6 +239,53 @@ export class SessionInputShell implements SessionInput {
     this.attachmentIds = [...this.attachmentIds, ...ids]
     this.publish()
     return true
+  }
+
+  /**
+   * Add one reference chip or text fragment to this Session's draft (the
+   * explicit cross-package verb the sidebar trees and previews call). Synchronous
+   * and non-throwing: admission lock, disposal, and an editor refusal settle as
+   * outcomes rather than errors. A refusal during admission surfaces one composer
+   * notice so the reader sees why nothing landed; a successful insert focuses the
+   * composer.
+   * @param insert - the reference or fragment to add.
+   * @returns how the request settled: `inserted`, refused by admission (`unavailable`), or declined (`conflict`).
+   */
+  addToConversation(insert: ConversationInsert): ConversationInsertOutcome {
+    if (this.disposed) return 'unavailable'
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') {
+      const notice = this.deps.insertRefusedNotice?.()
+      if (notice !== undefined) this.notify('error', notice)
+      return 'unavailable'
+    }
+    const applied = insert.kind === 'fragment'
+      ? this.insertFragment(insert.text)
+      : this.insertPathReference(insert)
+    if (!applied) return 'conflict'
+    this.focus()
+    return 'inserted'
+  }
+
+  /** Insert a text fragment at the live caret as one undo unit without replacing a selection. */
+  private insertFragment(text: string): boolean {
+    const caret = this.caretSpan()
+    return this.draftEditor.insertAsyncText({ start: caret.end, end: caret.end }, text)
+  }
+
+  /** Resolve one workspace path through the shared `@` mention grammar and add its chip. */
+  private insertPathReference(insert: Extract<ConversationInsert, { kind: 'reference' }>): boolean {
+    const mention = formatFileMention(
+      { path: relativizeToCwd(insert.path, this.deps.cwd?.()), kind: insert.target },
+      false,
+    )
+    if (mention === undefined) return false
+    return this.draftEditor.insertFileReferences([{
+      source: 'reference',
+      ref: mention,
+      label: insert.label,
+      appearance: insert.target === 'directory' ? 'folder' : 'file',
+      clipboardText: mention,
+    }])
   }
 
   /**

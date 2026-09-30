@@ -241,6 +241,36 @@ export interface InputActions {
   submit(): void
 }
 
+/**
+ * What one Session-scope surface hands to the current Session's composer.
+ *
+ * A reference names a workspace path the chip stands in for; a fragment is
+ * verbatim text (for example a quoted code snippet) inserted as-is.
+ */
+export type ConversationInsert =
+  | {
+    readonly kind: 'reference'
+    /** Absolute or workspace-relative path; the verb resolves it against the Session root. */
+    readonly path: string
+    /** Directories keep the quoted/drill grammar; files close the mention. */
+    readonly target: 'file' | 'directory'
+    /** Chip label shown in the composer. */
+    readonly label: string
+  }
+  | { readonly kind: 'fragment'; readonly text: string }
+
+/** How {@link AddToConversation} settled: applied, refused by admission, or the editor declined. */
+export type ConversationInsertOutcome = 'inserted' | 'unavailable' | 'conflict'
+
+/**
+ * Explicit cross-package draft verb handed to every Session-scope slot: add a
+ * reference chip or a text fragment to the current Session's composer without
+ * replacing the reader's typing, then return the keyboard to the composer.
+ * Synchronous and non-throwing — a refusal is a settled outcome the caller (or
+ * the composer's own notice channel) can explain instead of catching.
+ */
+export type AddToConversation = (insert: ConversationInsert) => ConversationInsertOutcome
+
 /** One surfaced notice (command results, adjudication failures). seq keys re-render of repeats. */
 export interface InputNotice {
   readonly level: 'info' | 'error'

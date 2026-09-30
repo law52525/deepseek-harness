@@ -18,7 +18,7 @@ import type {
   ComposerBarInjected, ConversationInjected, ConversationSessionHeaderInjected,
   ConversationSessionInjected, DraftFileUploads,
 } from './contract/slots.ts'
-import type { InputNotice } from './contract/input.ts'
+import type { ConversationInsert, InputNotice } from './contract/input.ts'
 import type { ReferenceInsert } from './contract/draft-editor.ts'
 import { createConversationStore, readConversationViewPreference } from './stores.ts'
 import { formatFileMention } from '@deepseek-ai/dsh-file-reference/grammar'
@@ -282,7 +282,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
   // source roster is installed before any consuming Slot entry.
   ctx.uiSession.provide({
     hooks: ['conversation', 'input'],
-    props: ['inputActions'],
+    props: ['inputActions', 'addToConversation'],
     resolve: (binding) => {
       trackBinding(binding)
       const shell = inputHub.shellFor(binding)
@@ -293,7 +293,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
           conversation: conversation.snapshot,
           input: shell.state,
         },
-        props: { inputActions: shell.actions },
+        props: { inputActions: shell.actions, addToConversation: (insert: ConversationInsert) => shell.addToConversation(insert) },
       }
     },
   })

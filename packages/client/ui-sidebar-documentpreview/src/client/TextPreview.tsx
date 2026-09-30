@@ -10,14 +10,18 @@
  * the path row; the Sidebar's strip carries none of them.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+// Type-only: pulls the Conversation standard-prop merge (`addToConversation`).
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
-  FileTypeIcon, IconNowrapFillRegular, IconPauseOutlineRegular, IconPlayOutlineRegular,
-  IconRefreshOutlineRegular, IconWrapFillRegular, Menu, PathLabel, Tooltip, classifyFileType,
+  ContextMenu, FileTypeIcon, IconNowrapFillRegular, IconPauseOutlineRegular, IconPlayOutlineRegular,
+  IconRefreshOutlineRegular, IconWarningOutlineRegular, IconWrapFillRegular, Menu, PathLabel, Toast, Tooltip,
+  classifyFileType, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ContextMenuPoint, MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { pathPartsOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type { TextInjected } from './face.ts'
 import { emptyFailureRecourse, failureLine } from './failure-line.ts'
@@ -30,6 +34,8 @@ import type { DocumentPreviewDefinition } from './document/registry.ts'
 import { unviewableBinaryPath } from './document/unviewable.ts'
 import { PLAIN_BODY_ID } from './text/index.ts'
 import { loadedPages, lastLineLoaded, scrollToLine } from './text/lines.ts'
+import { buildSelectionSnippet, isSelectionAtLoadedEnd, readPreviewSelection } from './selection-snippet.ts'
+import type { PreviewSelection } from './selection-snippet.ts'
 import css from './TextPreview.module.css'
 
 export { linesOf, loadedPages, lastLineLoaded, scrollToLine } from './text/lines.ts'
@@ -55,7 +61,7 @@ export type TextPreviewProps =
  */
 export function TextPreview({
   useTabInfo, useResource, useStore, actions, loadPage, reloadPages,
-  loadAll, reloadAll, prepareRenderer, useDocumentPreviews, renderSlot, t,
+  loadAll, reloadAll, prepareRenderer, useDocumentPreviews, renderSlot, addToConversation, t,
   addResource, setResources,
 }: TextPreviewProps): ReactNode {
   const { tab } = useTabInfo()
@@ -90,6 +96,9 @@ export function TextPreview({
   const scrollportRef = useRef<HTMLElement | null>(null)
   const storedScrollTopRef = useRef(0)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [selectionMenu, setSelectionMenu] = useState<{ point: ContextMenuPoint; selection: PreviewSelection } | null>(null)
+  // Counts refused snippet adds so the same failure replays the banner (0 = none shown).
+  const [addFailure, setAddFailure] = useState(0)
   const absolutePath = meta.value?.absolutePath ?? current?.complete?.absolutePath
   const displayPath = absolutePath ?? file.path
   // Contributions that hand the file to the Host wait for its Host path.
@@ -229,6 +238,41 @@ export function TextPreview({
     if (!canRead || current?.loading || current?.eof) return
     loadPage(tab.id, file, next, signal, meta.value?.version)
   }
+  // A secondary press over selected text offers Copy (the platform menu is
+  // suppressed) and "add to conversation". Only the paginated text renderers
+  // take part; a binary or renderer-owned body keeps its default.
+  const onBodyContextMenu = (event: ReactMouseEvent<HTMLDivElement>): void => {
+    if (mode !== 'text-pages') return
+    const selection = readPreviewSelection(event.currentTarget)
+    if (selection === null) return
+    event.preventDefault()
+    setSelectionMenu({ point: { x: event.clientX, y: event.clientY }, selection })
+  }
+  const closeSelectionMenu = (): void => { setSelectionMenu(null) }
+  const selectionItems: readonly MenuItem[] = [
+    { id: 'copy', label: t('menu.copy') },
+    { id: 'add-selection', label: t('menu.addSelection'), disabled: addToConversation === undefined },
+  ]
+  const selectSelectionItem = (open: PreviewSelection, id: string): void => {
+    setSelectionMenu(null)
+    if (id === 'copy') {
+      void writeClipboard(open.text)
+      return
+    }
+    /* v8 ignore next -- the add row is disabled when no verb is supplied, so this guard is belt-and-braces. */
+    if (addToConversation === undefined) return
+    // The selection may end at the last loaded line of a still-loading file;
+    // the note tells the model the snippet is a prefix, never a silent splice.
+    const snippet = buildSelectionSnippet(
+      { path: displayPath, selection: open, incomplete: isSelectionAtLoadedEnd(open, current, loadedThrough) },
+      { truncated: t('snippet.truncated'), incomplete: t('snippet.incomplete') },
+    )
+    // A refusal (the composer is locked or gone) lands nothing; say so rather
+    // than closing the menu on a silent no-op.
+    if (addToConversation({ kind: 'fragment', text: snippet.text }) !== 'inserted') {
+      setAddFailure(seq => seq + 1)
+    }
+  }
   return (
     <div className={css.preview} data-textpreview-state="text" data-textpreview-url={tab.contentId} data-document-preview={selected.id}>
       {meta.failure !== undefined && hasContent
@@ -330,6 +374,7 @@ export function TextPreview({
         className={clsx(css.body, state.wrap && css.wrap)}
         data-textpreview-body
         data-textpreview-wrap={state.wrap ? '' : undefined}
+        onContextMenu={onBodyContextMenu}
         onScrollCapture={(event) => {
           const body = scrollportRef.current
           /* v8 ignore next -- callback refs bind the scrollport during commit, before user input. */
@@ -400,6 +445,22 @@ export function TextPreview({
           </button>
         )}
       </div>
+      {selectionMenu !== null && (
+        <ContextMenu
+          point={selectionMenu.point}
+          items={selectionItems}
+          onSelect={(id) => { selectSelectionItem(selectionMenu.selection, id) }}
+          onClose={closeSelectionMenu}
+        />
+      )}
+      {addFailure > 0 && (
+        <Toast
+          key={addFailure}
+          text={t('menu.addFailed')}
+          icon={<IconWarningOutlineRegular />}
+          onDone={() => { setAddFailure(0) }}
+        />
+      )}
     </div>
   )
 }

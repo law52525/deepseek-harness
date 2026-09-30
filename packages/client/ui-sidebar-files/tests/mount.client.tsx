@@ -54,12 +54,18 @@ export interface Mounted {
   readonly face: FilesInjected
   readonly controller: AbortController
   readonly tabActions: MockedTabActions
+  /** The add-to-draft verb handed to the body; absent when the mount omits it. */
+  readonly addToConversation: Mock | undefined
   /** Render a fresh body over the same store and face, as a tab switch remounts it. */
   readonly remount: () => RenderResult
 }
 
 /** One store instance, one face, one owner share. */
-function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut']) {
+function harness(
+  cwd: string | null,
+  refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut'],
+  withConversation = true,
+) {
   const instance = createFilesStore().create()
   const script = scriptedList()
   const face = filesFace(script.list, script.watch)(SESSION, instance.actions)
@@ -75,6 +81,7 @@ function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps
     close: vi.fn<SidebarRightTabActions['close']>(),
   }
   const sessions = { byId: cwd === null ? {} : { [SESSION]: { cwd } } } as unknown as SessionListState
+  const addToConversation = withConversation ? vi.fn(() => 'inserted' as const) : undefined
   const shared = {
     // A page tab's address is the shell's to mint; the body never reads it.
     useTabInfo: () => ({
@@ -92,18 +99,24 @@ function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps
     useStore: hookOf(instance),
     actions: instance.actions,
     ...face,
+    ...(withConversation ? { addToConversation } : {}),
     t: makeTranslate(zh),
   }
-  return { instance, script, face, controller, tabActions, shared }
+  return { instance, script, face, controller, tabActions, addToConversation, shared }
 }
 
 /**
  * Mount the body.
  * @param cwd - the session's working directory as `useSessions` reports it; `null` for a session without one.
  * @param refreshShortcut - effective binding advertised by the tab owner.
+ * @param withConversation - whether the add-to-draft verb is present (default true); false mounts without one.
  */
-export function mountBody(cwd: string | null = ROOT, refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut']): Mounted {
-  const { shared, ...hands } = harness(cwd, refreshShortcut)
+export function mountBody(
+  cwd: string | null = ROOT,
+  refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut'],
+  withConversation = true,
+): Mounted {
+  const { shared, ...hands } = harness(cwd, refreshShortcut, withConversation)
   const view = render(<FilesBody {...shared as unknown as FilesBodyProps} />)
   return { ...hands, view, remount: () => render(<FilesBody {...shared as unknown as FilesBodyProps} />) }
 }
