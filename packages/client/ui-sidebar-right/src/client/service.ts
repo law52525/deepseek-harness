@@ -131,8 +131,9 @@ export interface SidebarRightPlacement {
   /** Take this tab's place — its pane and its strip slot — and close it in the same step. */
   readonly replaceTab?: TabId
   /**
-   * Resource tabs reveal an existing (kind, contentId) by default; `false`
-   * permits duplicates. Pages always deduplicate within the target pane.
+   * Resource tabs reveal an existing (kind, contentId) within the target pane
+   * only, by default; `false` permits duplicates and a copy parked in another
+   * pane is never revealed. Pages always deduplicate within the target pane.
    */
   readonly revealIfOpened?: boolean
 }

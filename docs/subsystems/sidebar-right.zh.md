@@ -153,6 +153,6 @@ Host 的 `ctx.workspaceFiles` 服务与生成的 `workspaceFiles` Remote 命名�
 - tab 类型的 `option` 优先级档：没有「只列出、不许认领」的 tab 类型。
 - 改写记录的标题：`title(address)` 只捕获一次；活的 chip 来自标题 slot，而不是记录。
 - 打开时点名某个 tab 实现：`openResource` 最多点名一个 kind；文档渲染器由文件 tab 的工具栏选择。
-- 服务上的地址查找（`find`）：调用方用 `revealIfOpened` 打开，由停靠面去重。
+- 服务上的地址查找（`find`）：调用方用 `revealIfOpened` 打开，由目标分栏去重。
 - Sidebar 自身 `sidebar://<kind>` 记账之外的导航地址；其语法等导航控制器整体做时再定。
 - 面向用户的撤销与跨类型通用内容导航栈（[暂缓](../../.agents/notes/implemented/feature/2026-09-04-right-sidebar-docking-infrastructure.zh.md#deferred)）；Browser 只拥有自身页面历史。

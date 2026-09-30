@@ -153,6 +153,6 @@ The Host `ctx.workspaceFiles` service and generated `workspaceFiles` Remote name
 - An `option` priority band for tab types: nothing lists a tab type without letting it claim.
 - Retitling a record: `title(address)` is captured once; a live chip comes from the title slot, not from the record.
 - Naming a tab implementation when opening: `openResource` names a kind at most; document-renderer selection belongs to the file tab's toolbar.
-- An address lookup on the service (`find`): a caller opens with `revealIfOpened` and lets the surface de-duplicate.
+- An address lookup on the service (`find`): a caller opens with `revealIfOpened` and lets the target pane de-duplicate.
 - Navigation addresses beyond the Sidebar's own `sidebar://<kind>` bookkeeping; their grammar waits for the navigation controller as a whole.
 - A user-facing undo and general cross-type content navigation stack ([deferred](../../.agents/notes/implemented/feature/2026-09-04-right-sidebar-docking-infrastructure.md#deferred)); Browser owns only its own page history.
