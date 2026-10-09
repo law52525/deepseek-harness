@@ -669,6 +669,38 @@ export async function writeFileAtomic(
   }
 }
 
+/**
+ * Create one directory, never its missing parents and never over an existing entry.
+ * @param absolutePath - directory to create; its parent must already exist.
+ * @param displayPath - caller-facing path for error messages.
+ * @param signal - cancellation checked before the directory is created.
+ * @throws FsError `FS_NOT_OBSERVED` when any entry, a dangling link included, already
+ * occupies the path; `FS_NOT_FOUND` when the parent is missing; `FS_NOT_DIRECTORY` when a
+ * parent segment is not a directory.
+ */
+export async function createDirectoryExclusive(absolutePath: string, displayPath: string, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal, 'create directory')
+  try {
+    await mkdir(absolutePath)
+  } catch (error: unknown) {
+    if (isEEXIST(error)) {
+      throw new FsError(`cannot create directory "${displayPath}": an entry already exists there`, 'FS_NOT_OBSERVED', { cause: error })
+    }
+    if (isENOENT(error)) {
+      throw new FsError(`cannot create directory "${displayPath}": its parent directory does not exist`, 'FS_NOT_FOUND', { cause: error })
+    }
+    /* v8 ignore next 3 -- Windows reports a file parent as ENOENT, so only POSIX reaches this branch. */
+    if (isENOTDIR(error)) {
+      throw new FsError(`cannot create directory "${displayPath}": a parent path segment is not a directory`, 'FS_NOT_DIRECTORY', { cause: error })
+    }
+    /* v8 ignore next 4 -- requires a permission or kernel fault from mkdir. */
+    if (isPermissionError(error)) {
+      throw new FsError(`cannot create directory "${displayPath}": permission denied`, 'FS_PERMISSION_DENIED', { cause: error })
+    }
+    throw new FsError(`cannot create directory "${displayPath}": ${errorMessage(error)}`, 'FS_IO_ERROR', { cause: error })
+  }
+}
+
 // --- Editing ---
 
 /** Line ending style detected before LF normalization. */

@@ -1124,6 +1124,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the outcome, including the version the write produced.',
       },
       {
+        signature: 'createDirectory(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<void>',
+        description: 'Create one directory at `target`. Only that level is created: a missing parent fails, and so does any entry already at `target`, which is left untouched. The base provider creates nothing; a backend that can create directories overrides this.',
+        parameters: [{ name: 'target', description: 'the resolved target to create; its parent must exist.' }, { name: 'signal', description: 'aborts before the directory is created.' }, { name: 'sandboxPolicy', description: 'the per-call mode and workspace root this creation runs under; a sandboxing backend fences the creation by it, the bare backend ignores it. Omit to leave the backend its own default.' }],
+        returns: 'once the directory exists.',
+        throws: ['FsError `FS_IO_ERROR` when the provider cannot create directories; a creating backend reports `FS_NOT_OBSERVED` for an existing entry and `FS_NOT_FOUND` for a missing parent.'],
+      },
+      {
         signature: 'abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsEditOutcome>',
         description: 'Atomically edit literal text. When supplied, the version guard is checked before matching so stale content reports `FS_STALE_VERSION`; omission edits the current content without a freshness precondition.',
         parameters: [{ name: 'target', description: 'the resolved target to edit.' }, { name: 'edit', description: 'the literal search/replace request.' }, { name: 'expected', description: 'the version guard; omit for an unconditional edit.' }, { name: 'signal', description: 'aborts before atomic publication takes effect.' }, { name: 'sandboxPolicy', description: 'the per-call mode and workspace root this edit runs under; a sandboxing backend fences the edit by it, the bare backend ignores it. Omit to leave the backend its own default.' }],

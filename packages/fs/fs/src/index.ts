@@ -272,6 +272,28 @@ export abstract class FileSystem extends Service {
   ): Promise<FsWriteOutcome>
 
   /**
+   * Create one directory at `target`. Only that level is created: a missing
+   * parent fails, and so does any entry already at `target`, which is left
+   * untouched. The base provider creates nothing; a backend that can create
+   * directories overrides this.
+   * @param target - the resolved target to create; its parent must exist.
+   * @param signal - aborts before the directory is created.
+   * @param sandboxPolicy - the per-call mode and workspace root this creation
+   *   runs under; a sandboxing backend fences the creation by it, the bare
+   *   backend ignores it. Omit to leave the backend its own default.
+   * @returns once the directory exists.
+   * @throws FsError `FS_IO_ERROR` when the provider cannot create directories;
+   *   a creating backend reports `FS_NOT_OBSERVED` for an existing entry and
+   *   `FS_NOT_FOUND` for a missing parent.
+   */
+  createDirectory(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<void> {
+    void target
+    void sandboxPolicy
+    signal?.throwIfAborted()
+    return Promise.reject(new FsError('Directory creation is not supported by this provider.', 'FS_IO_ERROR'))
+  }
+
+  /**
    * Atomically edit literal text. When supplied, the version guard is checked
    * before matching so stale content reports `FS_STALE_VERSION`; omission edits
    * the current content without a freshness precondition.

@@ -37,6 +37,8 @@ Through `ctx.fs` you can resolve any path to a stable target identity, read a wh
 
 `watch(target, changed, signal)` reports invalidations for one file or a directory's direct entries. It resolves once observation is ready with an asynchronous close function that the caller must await. The signal cancels initialization; unsupported providers reject without polling.
 
+`createDirectory(target, signal?, sandboxPolicy?)` creates one directory level. A missing parent fails with `FS_NOT_FOUND`, and any entry already at the target fails with `FS_NOT_OBSERVED` and stays untouched. The base class rejects with `FS_IO_ERROR`, so a provider that does not override the method creates nothing; a sandboxing provider fences the creation by `sandboxPolicy` as it fences `writeText`.
+
 -----
 
 <a id="understand-the-implementation"></a>
