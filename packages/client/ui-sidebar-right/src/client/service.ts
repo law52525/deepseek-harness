@@ -128,6 +128,16 @@ export interface SidebarRightPlacement {
   readonly paneId?: PaneId
   /** Prefer a new pane for new content; use the target pane when splitting is unavailable. */
   readonly preferNewPane?: boolean
+  /**
+   * Keep the open out of the target pane. With another docked pane on the
+   * surface the open lands there, under that pane's own reveal rule; with the
+   * target pane alone it splits as `preferNewPane` does, and falls back to the
+   * target pane when no split is available or the target pane floats. A copy
+   * of the resource in the target pane is neither revealed nor moved unless
+   * the open falls back; a page the target pane already holds is focused
+   * there instead of splitting. Ignored with `replaceTab`.
+   */
+  readonly preferOtherPane?: boolean
   /** Take this tab's place — its pane and its strip slot — and close it in the same step. */
   readonly replaceTab?: TabId
   /**
@@ -415,39 +425,49 @@ export class SidebarRightController implements ISidebarRight {
   ): void {
     const surface = this.adopted.get(sessionId)?.store.getSnapshot().bySession[sessionId]
       ?? (this.binding?.sessionId === sessionId ? this.binding.surfaces[sessionId] : undefined)
-    const targetPane = surface === undefined ? undefined : placement.paneId ?? activeDockPaneId(surface.layout)
-    const target = targetPane === undefined ? undefined : surface?.layout.nodes[targetPane]
-    const preferNewPane = placement.preferNewPane === true
+    const layout = surface?.layout
+    const origin = layout === undefined ? undefined : placement.paneId ?? activeDockPaneId(layout)
+    const node = origin === undefined ? undefined : layout?.nodes[origin]
+    const docked = node?.kind === 'pane' && node.host === 'dock' ? node : undefined
+    // `preferOtherPane` settles here, before the store sees the intent: another
+    // docked pane becomes the intent's pane, and the store's per-pane reveal
+    // then applies to that pane.
+    const elsewhere = placement.preferOtherPane === true && placement.replaceTab === undefined && docked !== undefined
+    const other = elsewhere && layout !== undefined ? dockPaneIds(layout).find(id => id !== docked.id) : undefined
+    const preferNewPane = (placement.preferNewPane === true || elsewhere)
+      && other === undefined
       && placement.replaceTab === undefined
-      && surface !== undefined
-      && target?.kind === 'pane'
-      && target.host === 'dock'
-      && target.tabs.length > 0
-      && canSplit(surface.layout)
-      && dockPaneIds(surface.layout).length < 2
+      && layout !== undefined
+      && docked !== undefined
+      && docked.tabs.length > 0
+      && canSplit(layout)
+      && dockPaneIds(layout).length < 2
       && this.binding?.sessionId === sessionId
-      && this.binding.canSplitPane(target.id)
+      && this.binding.canSplitPane(docked.id)
+    const paneId = other ?? placement.paneId
+    // The store splits only when it reveals nothing in the origin pane, so an
+    // open that leaves that pane must not reveal the copy the pane holds.
+    const revealIfOpened = elsewhere && preferNewPane ? false : placement.revealIfOpened
     const commit = (): void => { actions.openContent(sessionId, {
       kind: claim.kind,
       contentId: claim.contentId,
       title: claim.title,
-      ...placement.paneId === undefined ? {} : { paneId: placement.paneId },
+      ...paneId === undefined ? {} : { paneId },
       ...preferNewPane ? { preferNewPane: true } : {},
       ...placement.replaceTab === undefined ? {} : { replaceTab: placement.replaceTab },
-      ...placement.revealIfOpened === undefined ? {} : { revealIfOpened: placement.revealIfOpened },
+      ...revealIfOpened === undefined ? {} : { revealIfOpened },
     }, (tabId) => { this.tabDomain.navigate(sessionId, tabId, { address, params }) }) }
-    const layout = surface?.layout
     const replaced = placement.replaceTab === undefined ? undefined : layout?.tabs[placement.replaceTab]
     // Predict the store's reveal the way the store decides it: per pane. A
     // replaced docked tab lends its pane, and the open lands on a copy there —
     // never on one parked in another pane, which a surface-wide lookup would
     // reach first and mistake for the tab this open replaces.
     const lent = replaced === undefined || layout === undefined ? undefined : findTabPane(layout, replaced.id)
-    const revealPane = (lent?.host === 'dock' ? lent.id : placement.paneId)
+    const revealPane = (lent?.host === 'dock' ? lent.id : paneId)
       ?? (layout === undefined ? undefined : activeDockPaneId(layout))
     const page = claim.contentId === pageAddress(claim.kind)
     const revealed = layout === undefined || revealPane === undefined ? undefined
-      : page || placement.revealIfOpened !== false
+      : page || revealIfOpened !== false
         ? findPaneContentTab(layout, revealPane, claim.contentId, claim.kind)
         : undefined
     if (replaced === undefined || replaced.id === revealed) { commit(); return }

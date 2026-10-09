@@ -749,14 +749,14 @@ describe('explicit tab resource cleanup', () => {
   })
 })
 
-describe('SidebarRightController — a file tree row\'s open (P-12)', () => {
+describe('SidebarRightController — a file tree row\'s open (P-15)', () => {
   /** The address a row click produces. */
   const file = (path: string): string => `dsh-resource://file/session/s-test/${path}`
 
   /**
-   * A mounted surface whose root pane holds the 文件 page, with its occurrence
-   * wired the way the seat wires every tab — the domain's own `openResource`,
-   * which is exactly what a row's click calls.
+   * A mounted surface whose root pane holds only the 文件 page, with its
+   * occurrence wired the way the seat wires every tab — the domain's own
+   * `openResource`, which is exactly what a row's click calls.
    */
   function withTree(): { h: ReturnType<typeof harness>; tree: TabId } {
     const h = harness()
@@ -765,80 +765,212 @@ describe('SidebarRightController — a file tree row\'s open (P-12)', () => {
     h.adopt(SESSION, h.instance)
     h.expand()
     h.publish()
-    h.controller.openTab('files')
+    // The guide gives way to the file page, as the `workspace.files` command has it.
+    h.controller.openTab('files', { replaceTab: h.tabOf('seed') })
     h.publish()
     return { h, tree: h.tabOf('files') }
   }
 
-  /** What a row click does: the tree tab's own action, no placement named. */
+  /** What a row click does: the tree tab's own action, asking for the other pane. */
   const click = (h: ReturnType<typeof harness>, tree: TabId, path: string): void => {
-    h.controller.tabDomain.occurrence(SESSION, { id: tree }).tabActions.openResource(file(path))
+    h.controller.tabDomain.occurrence(SESSION, { id: tree }).tabActions.openResource(file(path), { preferOtherPane: true })
+    h.publish()
   }
 
-  it('AC-1: lands a preview beside the tree tab in the same pane and activates it, with no split', () => {
+  /** The tree's pane still holds exactly `tabs`, with the tree tab active. */
+  const expectTreePane = (h: ReturnType<typeof harness>, tree: TabId, tabs: readonly TabId[] = [tree]): void => {
+    const pane = findTabPane(h.layout(), tree)
+    expect(pane.tabs).toEqual(tabs)
+    expect(pane.activeTabId).toBe(tree)
+  }
+
+  /** The docked pane that is not the tree's. */
+  const otherPane = (h: ReturnType<typeof harness>, tree: TabId): ReturnType<typeof getPane> => {
+    const treePane = findTabPane(h.layout(), tree).id
+    const other = dockPaneIds(h.layout()).find(id => id !== treePane)
+    if (other === undefined) throw new Error('expected a second docked pane')
+    return getPane(h.layout(), other)
+  }
+
+  it('AC-1: with the tree\'s pane alone, splits and seats the preview alone in the new pane', () => {
     const { h, tree } = withTree()
-    click(h, tree, 'a.txt')
-    h.publish()
-    // No second pane: the click never asks for one.
     expect(dockPaneIds(h.layout())).toHaveLength(1)
-    const pane = getPane(h.layout(), h.layout().activePaneId)
-    // The tree tab is retained, the preview sits beside it, and it took focus.
-    expect(pane.tabs).toContain(tree)
-    expect(pane.tabs).toContain(h.tabOf('a.txt'))
-    expect(pane.activeTabId).toBe(h.tabOf('a.txt'))
+    const before = h.entries()
+    click(h, tree, 'a.txt')
+    expect(dockPaneIds(h.layout())).toHaveLength(2)
+    const preview = otherPane(h, tree)
+    expect(preview.tabs).toEqual([h.tabOf('a.txt')])
+    expect(preview.activeTabId).toBe(h.tabOf('a.txt'))
+    // The new pane sits to the right of the tree's, and the open is one history entry.
+    expect(dockPaneIds(h.layout())).toEqual([findTabPane(h.layout(), tree).id, preview.id])
+    expect(h.entries()).toBe(before + 1)
+    expectTreePane(h, tree)
   })
 
-  it('AC-2: a preview parked in another pane is neither revealed nor focused; the open lands in the tree\'s pane', () => {
+  it('AC-2: three files in a row become three tabs of the other pane, in click order, the last one active', () => {
     const { h, tree } = withTree()
-    // Open a.txt, then move that preview into a second pane and go back to the tree.
+    const opened: TabId[] = []
+    for (const path of ['a.txt', 'b.txt', 'c.txt']) {
+      click(h, tree, path)
+      opened.push(h.tabOf(path))
+      expect(dockPaneIds(h.layout())).toHaveLength(2)
+      const preview = otherPane(h, tree)
+      expect(preview.tabs).toEqual(opened)
+      expect(preview.activeTabId).toBe(opened.at(-1))
+      expectTreePane(h, tree)
+    }
+    expect(new Set(opened).size).toBe(3)
+  })
+
+  it('AC-3: clicking a file already open in the other pane activates that tab instead of opening a second', () => {
+    const { h, tree } = withTree()
     click(h, tree, 'a.txt')
+    click(h, tree, 'b.txt')
+    const tabs = otherPane(h, tree).tabs
+    expect(otherPane(h, tree).activeTabId).toBe(h.tabOf('b.txt'))
+    click(h, tree, 'a.txt')
+    expect(Object.values(h.layout().tabs).filter(tab => tab.title === 'a.txt')).toHaveLength(1)
+    expect(otherPane(h, tree).tabs).toEqual(tabs)
+    expect(otherPane(h, tree).activeTabId).toBe(h.tabOf('a.txt'))
+    expect(dockPaneIds(h.layout())).toHaveLength(2)
+    expectTreePane(h, tree)
+  })
+
+  it('AC-4: a preview left in the tree\'s own pane is not reused when the open splits', () => {
+    const { h, tree } = withTree()
+    // The layout an earlier build left behind: the preview beside the tree tab.
+    h.controller.tabDomain.occurrence(SESSION, { id: tree }).tabActions.openResource(file('a.txt'))
     h.publish()
-    h.instance.actions.splitPane(SESSION)
-    h.publish()
-    const [left, right] = dockPaneIds(h.layout())
-    if (left === undefined || right === undefined) throw new Error('expected two panes')
-    h.instance.actions.placeTab(SESSION, h.tabOf('a.txt'), right, 0)
-    h.publish()
-    h.instance.actions.focusPane(SESSION, left)
+    const stale = h.tabOf('a.txt')
     h.instance.actions.focusTab(SESSION, tree)
     h.publish()
-    const treePane = findTabPane(h.layout(), tree).id
-    const parked = h.tabOf('a.txt')
-    const rightBefore = getPane(h.layout(), right)
-    const panesBefore = dockPaneIds(h.layout())
+    expectTreePane(h, tree, [tree, stale])
 
     click(h, tree, 'a.txt')
-    h.publish()
-
-    // The pane structure is untouched and the other pane's copy keeps its seat.
-    expect(dockPaneIds(h.layout())).toEqual(panesBefore)
-    expect(getPane(h.layout(), right).tabs).toEqual(rightBefore.tabs)
-    expect(getPane(h.layout(), right).activeTabId).toBe(rightBefore.activeTabId)
-    expect(findTabPane(h.layout(), parked).id).toBe(right)
-    // Focus stayed where the click happened: the tree's pane, showing the preview.
-    expect(h.layout().activePaneId).toBe(treePane)
-    const shown = getPane(h.layout(), treePane)
-    expect(shown.tabs).toContain(tree)
-    expect(shown.activeTabId).toBe(shown.tabs.at(-1))
-    expect(shown.tabs.at(-1)).not.toBe(parked)
+    expect(dockPaneIds(h.layout())).toHaveLength(2)
+    const preview = otherPane(h, tree)
+    expect(preview.tabs).toHaveLength(1)
+    expect(preview.tabs[0]).not.toBe(stale)
+    expect(h.layout().tabs[preview.tabs[0] as TabId]?.contentId).toBe(file('a.txt'))
+    expect(preview.activeTabId).toBe(preview.tabs[0])
+    expectTreePane(h, tree, [tree, stale])
   })
 
-  it('AC-3: clicking the same file twice reuses one preview tab; another file is its own tab', () => {
+  it('AC-4: a preview left in the tree\'s own pane is not reused when another pane exists', () => {
+    const { h, tree } = withTree()
+    h.controller.tabDomain.occurrence(SESSION, { id: tree }).tabActions.openResource(file('a.txt'))
+    h.publish()
+    const stale = h.tabOf('a.txt')
+    h.instance.actions.focusTab(SESSION, tree)
+    h.publish()
+    click(h, tree, 'b.txt')
+    const tabs = otherPane(h, tree).tabs
+
+    click(h, tree, 'a.txt')
+    expect(dockPaneIds(h.layout())).toHaveLength(2)
+    const preview = otherPane(h, tree)
+    expect(preview.tabs).toHaveLength(2)
+    expect(preview.tabs[0]).toBe(tabs[0])
+    expect(preview.tabs[1]).not.toBe(stale)
+    expect(h.layout().tabs[preview.tabs[1] as TabId]?.contentId).toBe(file('a.txt'))
+    expect(preview.activeTabId).toBe(preview.tabs[1])
+    expectTreePane(h, tree, [tree, stale])
+  })
+
+  it('AC-5: with no room to split and no other pane, the preview is a tab beside the tree and is reused there', () => {
+    const { h, tree } = withTree()
+    h.room.allowed = false
+    click(h, tree, 'a.txt')
+    expect(dockPaneIds(h.layout())).toHaveLength(1)
+    const a = h.tabOf('a.txt')
+    const pane = findTabPane(h.layout(), tree)
+    expect(pane.tabs).toEqual([tree, a])
+    expect(pane.activeTabId).toBe(a)
+
+    h.instance.actions.focusTab(SESSION, tree)
+    h.publish()
+    click(h, tree, 'a.txt')
+    expect(findTabPane(h.layout(), tree).tabs).toEqual([tree, a])
+    expect(findTabPane(h.layout(), tree).activeTabId).toBe(a)
+    expect(dockPaneIds(h.layout())).toHaveLength(1)
+  })
+
+  it('AC-5: a floating tree opens as it does without the option, never into a split', () => {
+    const floated = (preferOtherPane: boolean): { panes: number; host: string; tabs: number } => {
+      const { h, tree } = withTree()
+      // A second docked tab keeps the dock populated once the tree floats.
+      h.controller.openResource(file('kept.txt'))
+      h.publish()
+      h.controller.float(tree)
+      h.publish()
+      expect(findTabPane(h.layout(), tree).host).toBe('float')
+      const actions = h.controller.tabDomain.occurrence(SESSION, { id: tree }).tabActions
+      actions.openResource(file('a.txt'), preferOtherPane ? { preferOtherPane: true } : {})
+      h.publish()
+      return {
+        panes: dockPaneIds(h.layout()).length,
+        host: findTabPane(h.layout(), h.tabOf('a.txt')).host,
+        tabs: Object.keys(h.layout().tabs).length,
+      }
+    }
+    expect(floated(true)).toEqual(floated(false))
+    expect(floated(true).panes).toBe(1)
+  })
+
+  it('does not split for a session whose seat is not the mounted one', () => {
+    const { h, tree } = withTree()
+    const release = h.controller.bind({
+      sessionId: 's-other' as SessionId, actions: h.instance.actions, surfaces: {},
+      closeWithFocus: (_paneId, close) => { close() },
+      openWithFocus: (open) => { open() },
+      canSplitPane: () => true,
+    })
+    h.controller.tabDomain.occurrence(SESSION, { id: tree }).tabActions.openResource(file('a.txt'), { preferOtherPane: true })
+    release()
+    expect(dockPaneIds(h.layout())).toHaveLength(1)
+    expect(findTabPane(h.layout(), tree).tabs).toEqual([tree, h.tabOf('a.txt')])
+  })
+
+  it('keeps duplicates in the other pane when the caller forbids the reveal', () => {
     const { h, tree } = withTree()
     click(h, tree, 'a.txt')
+    h.controller.tabDomain.occurrence(SESSION, { id: tree }).tabActions
+      .openResource(file('a.txt'), { preferOtherPane: true, revealIfOpened: false })
     h.publish()
-    const first = h.tabOf('a.txt')
+    expect(otherPane(h, tree).tabs).toHaveLength(2)
+    expectTreePane(h, tree)
+  })
+
+  it('replaceTab wins over preferOtherPane: the open takes the tree tab\'s place', () => {
+    const { h, tree } = withTree()
     click(h, tree, 'a.txt')
+    const preview = otherPane(h, tree)
+    const treePane = findTabPane(h.layout(), tree).id
+    h.controller.tabDomain.occurrence(SESSION, { id: tree }).tabActions
+      .openResource(file('b.txt'), { preferOtherPane: true, replaceTab: true })
     h.publish()
-    expect(Object.values(h.layout().tabs).filter(tab => tab.title === 'a.txt')).toHaveLength(1)
-    expect(h.tabOf('a.txt')).toBe(first)
-    // A different file gets its own tab beside it.
-    click(h, tree, 'b.txt')
+    expect(h.layout().tabs[tree]).toBeUndefined()
+    expect(getPane(h.layout(), treePane).tabs).toEqual([h.tabOf('b.txt')])
+    expect(getPane(h.layout(), preview.id).tabs).toEqual(preview.tabs)
+  })
+
+  it('a service-level open with the option leaves the active pane for the other one', () => {
+    const { h, tree } = withTree()
+    click(h, tree, 'a.txt')
+    h.instance.actions.focusPane(SESSION, findTabPane(h.layout(), tree).id)
     h.publish()
-    expect(Object.values(h.layout().tabs).filter(tab => tab.title === 'b.txt')).toHaveLength(1)
-    expect(h.tabOf('b.txt')).not.toBe(first)
-    const pane = getPane(h.layout(), h.layout().activePaneId)
-    expect(pane.tabs).toEqual(expect.arrayContaining([tree, first, h.tabOf('b.txt')]))
+    h.controller.openResource(file('b.txt'), { preferOtherPane: true })
+    h.publish()
+    expect(otherPane(h, tree).tabs).toEqual([h.tabOf('a.txt'), h.tabOf('b.txt')])
+    expectTreePane(h, tree)
+  })
+
+  it('focuses a page the origin pane already holds instead of splitting for it', () => {
+    const { h, tree } = withTree()
+    h.controller.openTab('files', { preferOtherPane: true })
+    h.publish()
+    expect(dockPaneIds(h.layout())).toHaveLength(1)
+    expectTreePane(h, tree)
   })
 })
 

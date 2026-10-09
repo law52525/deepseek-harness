@@ -210,4 +210,25 @@ describe('TabDomain — a tab\'s own actions', () => {
       { paneId: current().rootId, preferNewPane: true, revealIfOpened: false },
     )
   })
+
+  it('passes preferOtherPane through from a docked tab, and drops it from a floating tab that names no pane', () => {
+    const { domain, navigator, controller, current } = harness()
+    const address = 'dsh-resource://file/session/s-one/b.txt'
+    const tabId = controller.openContent({ kind: 'text', contentId: 'dsh-resource://file/session/s-one/a.txt', title: 'a' })
+    const kept = controller.openContent({ kind: 'text', contentId: 'dsh-resource://file/session/s-one/kept.txt', title: 'kept' })
+    domain.sync(SESSION, current())
+    const { tabActions } = domain.occurrence(SESSION, recordOf(current(), tabId))
+    const docked = current().rootId
+    tabActions.openResource(address, { preferOtherPane: true })
+    expect(navigator.openResourceIn).toHaveBeenLastCalledWith(SESSION, address, { paneId: docked, preferOtherPane: true })
+
+    controller.floatTab(tabId)
+    domain.sync(SESSION, current())
+    expect(current().tabs[kept]).toBeDefined()
+    tabActions.openResource(address, { preferOtherPane: true })
+    expect(navigator.openResourceIn).toHaveBeenLastCalledWith(SESSION, address, {})
+    // A pane the caller names is a docked origin again.
+    tabActions.openResource(address, { paneId: docked, preferOtherPane: true })
+    expect(navigator.openResourceIn).toHaveBeenLastCalledWith(SESSION, address, { paneId: docked, preferOtherPane: true })
+  })
 })
