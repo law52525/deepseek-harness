@@ -1,15 +1,16 @@
 /**
- * Workspace file service: read-only file previews, workspace directory
- * listings, creation of one empty file or directory, and the
- * filesystem-observation change feed, exposed as `workspaceFiles`.
+ * Workspace file service: file previews, version-guarded text replacement,
+ * workspace directory listings, creation of one empty file or directory, and
+ * the filesystem-observation change feed, exposed as `workspaceFiles`.
  *
  * File reads follow the composed filesystem's read access, including paths
  * outside the workspace. The selected Session header supplies the base for
  * relative paths, with the sandbox policy root as its no-cwd fallback, not a
- * read-containment restriction. Directory listings and change observations
- * remain workspace-scoped. File-kind checks and configured read caps apply to
- * every preview. `create` is the only mutation: it adds one empty entry inside
- * the workspace and never changes an existing one.
+ * read-containment restriction. Directory listings, change observations, and
+ * writes remain workspace-scoped. File-kind checks and configured caps apply
+ * to every preview. Mutations stay inside the workspace: `create` adds one
+ * empty entry and never changes an existing one, and `writeText` replaces one
+ * existing file's complete text under the version guard its caller supplies.
  *
  * A page is cut from `streamText`, which decodes and rejects non-UTF-8 as it
  * goes, so the file is read only up to the first character past the page and
@@ -86,6 +87,8 @@ export interface Config {
   readonly maxLines: number
   /** Cap on returned directory entries; the rest is dropped and reported cut. */
   readonly maxEntries: number
+  /** Inclusive byte cap on one `writeText` content; larger content is refused, never truncated. */
+  readonly maxWriteBytes: number
 }
 
 /** One page cut from a decoded text stream. */
@@ -183,7 +186,7 @@ function directoryEntry(child: FsDirEntry): WorkspaceDirectoryEntry {
   }
 }
 
-/** Host Remote file reads and workspace directory observations over the composed filesystem. */
+/** Host Remote file reads and writes and workspace directory observations over the composed filesystem. */
 export class WorkspaceFiles extends TypertRemoteService {
   static inject = ['fs', 'sandboxPolicy', 'sessions', 'typert']
 
@@ -192,6 +195,7 @@ export class WorkspaceFiles extends TypertRemoteService {
     maxFileBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER - 1).default(32 * 1024 * 1024),
     maxLines: z.number().step(1).min(1).default(5000),
     maxEntries: z.number().step(1).min(1).default(2000),
+    maxWriteBytes: z.number().step(1).min(1).default(1024 * 1024),
   })
 
   private readonly feed: WorkspaceChangeFeed
@@ -364,6 +368,61 @@ export class WorkspaceFiles extends TypertRemoteService {
   }
 
   /**
+   * Replace one existing workspace file's complete text under a version guard.
+   * The target must already be a regular file inside the workspace; this
+   * method never creates one. The caller sends LF text and the file keeps its
+   * own line ending style: the style is detected from the file before the
+   * write and restored, because the filesystem seam writes the given text
+   * verbatim. Anything else about the content, a BOM included, is written as
+   * received. A caller-supplied version that no longer matches the disk — at
+   * the initial stat or discovered by the write's own guard — refuses with
+   * `stale-version` and leaves the file untouched; there is no unconditional
+   * overwrite. The write is fenced to the Session's workspace root under every
+   * sandbox mode, because the caller is the user and not a model tool.
+   * @param workspaceFileScope - header-derived workspace root for the Session identity on the wire.
+   * @param path - absolute path or path relative to the workspace root; the resolved target must stay inside the workspace.
+   * @param content - the complete new text, LF line endings; above the configured write cap it is refused.
+   * @param expectedVersion - the version of the caller's last read; the write is guarded against it.
+   * @param signal - caller cancellation.
+   * @returns the file's absolute path, its version after the write, and the written byte size.
+   * @throws RemoteError `workspace-file/stale-version` when the file changed since the version the caller read.
+   */
+  @Remote
+  async writeText(
+    workspaceFileScope: WorkspaceFileScope,
+    path: string,
+    content: string,
+    expectedVersion: string,
+    signal: AbortSignal,
+  ): Promise<WorkspaceFileStat> {
+    const limit = this.config.maxWriteBytes
+    if (Buffer.byteLength(content, 'utf8') > limit) {
+      throw new RemoteError('workspace-file/too-large', `content for "${path}" exceeds the ${limit} byte write cap`, { path, limit })
+    }
+    const { target, info } = await this.locateFile(workspaceFileScope, path, signal, true)
+    if (info.version !== expectedVersion) throw this.staleVersion(path, info.version)
+    const sample = await this.ctx.fs.readByteRange(target, { offset: 0, length: LINE_ENDING_SAMPLE_BYTES }, signal)
+    const restored = restoreLineEndings(content, detectLineEndings(sample))
+    const sandboxPolicy = { mode: 'workspace-write', workspaceRoot: workspaceFileScope.workspaceRoot } as const
+    try {
+      const outcome = await this.ctx.fs.writeText(
+        target,
+        restored,
+        { kind: 'replaceIfVersion', version: info.version },
+        signal,
+        sandboxPolicy,
+      )
+      return { absolutePath: this.ctx.fs.processPath(target), version: outcome.version, bytes: Buffer.byteLength(restored, 'utf8') }
+    } catch (error: unknown) {
+      if (!isStaleVersionRefusal(error)) throw error
+      // The guard refused between this call's stat and its write; the fresh
+      // locate reports the version the file holds now, or its new kind.
+      const current = await this.locateFile(workspaceFileScope, path, signal, true)
+      throw this.staleVersion(path, current.info.version)
+    }
+  }
+
+  /**
    * Watch one file or a directory's direct entries in the Session's filesystem.
    * Files use the backend's read authority; directories remain workspace-scoped.
    * @param workspaceFileScope - header-derived workspace root for the Session identity on the wire.
@@ -476,18 +535,22 @@ export class WorkspaceFiles extends TypertRemoteService {
   /**
    * All gates for a regular file, ending in the one stat that names its version
    * and size. The stat re-checks what `lstat` saw: the file may have gone or
-   * changed kind in between.
+   * changed kind in between. `confineToWorkspace` adds the write-side rule
+   * that the resolved target must stay inside the workspace.
    */
   private async locateFile(
     workspaceFileScope: WorkspaceFileScope,
     path: string,
     signal: AbortSignal,
+    confineToWorkspace = false,
   ): Promise<{ target: FsTarget; info: FsInfo }> {
-    const { workspaceRoot, entry } = await this.inspect(workspaceFileScope, path, signal)
+    const { root, workspaceRoot, entry } = await this.inspect(workspaceFileScope, path, signal)
     if (entry.type !== 'file') {
       throw new RemoteError('workspace-file/not-regular-file', `"${path}" is a ${entry.type}`, { path, kind: entry.type })
     }
-    const target = await this.ctx.fs.resolve(path, { cwd: workspaceRoot, signal })
+    const target = confineToWorkspace
+      ? await this.confine(root, workspaceRoot, path, signal)
+      : await this.ctx.fs.resolve(path, { cwd: workspaceRoot, signal })
     const info = await this.ctx.fs.stat(target, signal)
     if (info === undefined) {
       throw new RemoteError('workspace-file/not-found', `no entry at "${path}"`, { path })
@@ -504,6 +567,11 @@ export class WorkspaceFiles extends TypertRemoteService {
       version: info.version,
       ...info.size === undefined ? {} : { bytes: info.size },
     }
+  }
+
+  /** The refusal for a file whose disk version no longer matches the caller's. */
+  private staleVersion(path: string, version: string): RemoteError {
+    return new RemoteError('workspace-file/stale-version', `"${path}" changed on disk since the version the caller read`, { path, version })
   }
 
   /** Stream the file as text and cut the page, classifying the backend's non-text refusal. */
@@ -526,6 +594,48 @@ export class WorkspaceFiles extends TypertRemoteService {
  */
 function isNotTextRefusal(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'FS_NOT_TEXT'
+}
+
+/** Bytes sampled from the file before a write to detect its line ending style. */
+const LINE_ENDING_SAMPLE_BYTES = 4096
+
+/**
+ * Whether a byte sample uses CRLF more often than bare LF — the local
+ * backend's rule, mirrored so a read-then-write round trip keeps the file's own
+ * style. Counted on bytes because `0x0d` and `0x0a` never occur inside a UTF-8
+ * multi-byte sequence.
+ * @param sample - the file's leading bytes.
+ * @returns the style the write restores.
+ */
+function detectLineEndings(sample: Uint8Array): 'LF' | 'CRLF' {
+  let crlf = 0
+  let lf = 0
+  for (let index = 0; index < sample.length; index += 1) {
+    if (sample[index] !== 0x0a) continue
+    if (index > 0 && sample[index - 1] === 0x0d) crlf += 1
+    else lf += 1
+  }
+  return crlf > lf ? 'CRLF' : 'LF'
+}
+
+/**
+ * Convert LF content back to the file's line ending style before writing.
+ * `LF` is returned unchanged; `CRLF` re-normalizes first so an already-CRLF
+ * sequence is never doubled to `\r\r\n`.
+ * @param content - the caller's LF text.
+ * @param lineEndings - the style detected from the file.
+ * @returns the text in the file's own style.
+ */
+function restoreLineEndings(content: string, lineEndings: 'LF' | 'CRLF'): string {
+  return lineEndings === 'LF' ? content : content.replaceAll('\r\n', '\n').split('\n').join('\r\n')
+}
+
+/**
+ * The backend's stale-version refusal, recognized by code for the reason
+ * {@link isNotTextRefusal} gives.
+ */
+function isStaleVersionRefusal(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'FS_STALE_VERSION'
 }
 
 /**
