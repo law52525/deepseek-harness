@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use this package to preview files readable through a Session's filesystem from the web client. It reads UTF-8 text by page, reads bounded byte windows or complete files, resolves related files from a base file's directory, reports file metadata, and replaces one file's complete text under the caller's version guard. Follow changes to a file or a directory's direct entries. File reads and watches may target paths outside the workspace; directory listing, watches, and writes remain workspace-scoped. Mutations stay inside the workspace: `writeText` replaces one existing regular file's text and never creates one, and `create` adds an empty file or directory and never replaces an existing entry.
+Use this package to preview files readable through a Session's filesystem from the web client. It reads UTF-8 text by page, reads bounded byte windows or complete files, resolves related files from a base file's directory, reports file metadata, and replaces one file's text under a version guard. Follow changes to a file or a directory's direct entries. File reads and watches may target paths outside the workspace; directory listing, watches, and writes remain workspace-scoped. `writeText` replaces one existing regular file's text and never creates one; `create` adds an empty file or directory and never replaces an existing entry.
 
 ## Table of Contents
 
