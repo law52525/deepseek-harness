@@ -13,7 +13,9 @@
  *
  * The disk moving under a draft (a save refused as stale, or an external write
  * the body noticed) pauses saving until the reader picks a side; nothing here
- * writes while paused.
+ * writes while paused. When the reader's chosen request fails — the disk read,
+ * or the overwrite's stat — the failure bar retries that same request, so the
+ * draft a "load the disk" choice abandoned never reaches the writer.
  */
 import type { BoundActions } from '@deepseek-ai/dsh-client-store'
 import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
@@ -87,8 +89,10 @@ export interface EditEngine {
    */
   flush(sessionId: SessionId, tabId: TabId): void
   /**
-   * Retry what the failure bar failed at: the conflict's overwrite while the
-   * disk question stands, otherwise the save.
+   * Retry what the failure bar failed at: the reader's chosen disk read while
+   * one is outstanding, the conflict's overwrite while the disk question
+   * stands, otherwise the save. A failed read is never retried as the
+   * overwrite, so the draft the reader abandoned stays unwritten.
    * @param sessionId - the Session the tab belongs to.
    * @param tabId - the tab being edited.
    */
@@ -109,7 +113,9 @@ export interface EditEngine {
    */
   reload(sessionId: SessionId, tabId: TabId, observedVersion: string | undefined): void
   /**
-   * Pause saving because the disk moved under a non-empty draft.
+   * Pause saving because the disk moved under a non-empty draft. While a
+   * failed chosen answer owns the failure bar, this keeps that bar: re-asking
+   * would hide the retry that is the only way out of the failure.
    * @param sessionId - the Session the tab belongs to.
    * @param tabId - the tab being edited.
    */
@@ -132,6 +138,15 @@ export interface EditEngine {
 /** Why saving is paused: the disk moved under the draft, or the file is gone. */
 type EditPause = 'conflict' | 'gone' | undefined
 
+/**
+ * How the disk question was last answered, while that answer's request is
+ * failed: a disk read, or the overwrite's stat. The failure bar's retry
+ * repeats the recorded side, never the other one.
+ */
+type FailedAnswer =
+  | { readonly side: 'read'; readonly failure: RemoteFailure; readonly observedVersion: string | undefined }
+  | { readonly side: 'overwrite'; readonly failure: RemoteFailure }
+
 /** One tab's live editor: its draft, its baseline, and its in-flight request. */
 interface EditRecord {
   readonly key: string
@@ -153,6 +168,8 @@ interface EditRecord {
   composing: boolean
   /** Saving is suspended until the reader answers the disk question. */
   pause: EditPause
+  /** The reader's last explicit answer, while its request is failed. */
+  failedAnswer: FailedAnswer | undefined
   /** A close started: the store is going away, but the save still finishes. */
   closing: boolean
   /** The tab record ended; nothing more is written. */
@@ -249,16 +266,19 @@ export function createEditEngine(reads: EditReads): EditEngine {
       settleSave(record, text, { ok: false, error: carrierFailure(error) })
     })
   }
-  const loadFailure = (record: EditRecord, failure: RemoteFailure): void => {
+  const loadFailure = (record: EditRecord, failure: RemoteFailure, observedVersion: string | undefined): void => {
     if (record.loaded && failure.code === 'workspace-file/not-found') {
       record.pause = 'gone'
+      record.failedAnswer = undefined
       record.actions.editGone(record.tabId)
       return
     }
-    // A read that failed mid-edit leaves the disk question standing; a loss
-    // inside an editor that never loaded falls back to the read-only body,
-    // which carries the reason on its own.
+    // A disk read that failed under the standing question is a failed answer,
+    // not a new one: its own retry re-reads, and nothing writes meanwhile.
+    // A loss inside an editor that never loaded falls back to the read-only
+    // body, which carries the reason on its own.
     if (record.loaded && record.pause === 'conflict') {
+      record.failedAnswer = { side: 'read', failure, observedVersion }
       record.actions.editFailed(record.tabId, failure)
       return
     }
@@ -269,7 +289,7 @@ export function createEditEngine(reads: EditReads): EditEngine {
     const applied = (result: RemoteResult<DocumentFileBytes>): void => {
       if (muted(record) || record.loadGeneration !== generation) return
       if (!result.ok) {
-        loadFailure(record, result.error)
+        loadFailure(record, result.error, observedVersion)
         return
       }
       const decoded = decodeEditBytes(result.value.data)
@@ -282,6 +302,7 @@ export function createEditEngine(reads: EditReads): EditEngine {
       record.version = result.value.version
       record.loaded = true
       record.pause = undefined
+      record.failedAnswer = undefined
       record.actions.editLoaded(record.tabId, decoded.text, result.value.version, observedVersion)
     }
     void reads.readAll(record.file, record.signal).then((result) => {
@@ -303,7 +324,10 @@ export function createEditEngine(reads: EditReads): EditEngine {
       if (record.controller !== controller) return
       record.controller = undefined
       if (!result.ok) {
-        if (!muted(record)) record.actions.editFailed(record.tabId, result.error)
+        if (!muted(record)) {
+          record.failedAnswer = { side: 'overwrite', failure: result.error }
+          record.actions.editFailed(record.tabId, result.error)
+        }
         retire(record)
         return
       }
@@ -312,11 +336,16 @@ export function createEditEngine(reads: EditReads): EditEngine {
       // even when it happens to match the tab's last known disk text.
       record.version = result.value.version
       record.pause = undefined
+      record.failedAnswer = undefined
       send(record)
     }, (error: unknown) => {
       if (record.controller !== controller) return
       record.controller = undefined
-      if (!muted(record)) record.actions.editFailed(record.tabId, carrierFailure(error))
+      if (!muted(record)) {
+        const failure = carrierFailure(error)
+        record.failedAnswer = { side: 'overwrite', failure }
+        record.actions.editFailed(record.tabId, failure)
+      }
       retire(record)
     })
   }
@@ -334,7 +363,8 @@ export function createEditEngine(reads: EditReads): EditEngine {
         key, tabId, address, file, actions, signal,
         draft: '', savedText: '', version: '',
         loadGeneration: 0, controller: undefined, loaded: false,
-        composing: false, pause: undefined, closing: false, aborted: false, timer: undefined,
+        composing: false, pause: undefined, failedAnswer: undefined,
+        closing: false, aborted: false, timer: undefined,
       }
       records.set(key, record)
       signal.addEventListener('abort', () => {
@@ -352,6 +382,9 @@ export function createEditEngine(reads: EditReads): EditEngine {
       if (record === undefined) return
       record.draft = text
       record.actions.editDraft(tabId, text)
+      // Typing moves the draft, not the question: the failure bar the reader
+      // still has to answer stays (the draft action clears it otherwise).
+      if (record.failedAnswer !== undefined) record.actions.editFailed(tabId, record.failedAnswer.failure)
       if (owesWrite(record) && record.controller === undefined) schedule(record)
     },
     composition: (sessionId, tabId, active) => {
@@ -371,6 +404,12 @@ export function createEditEngine(reads: EditReads): EditEngine {
       const record = live(sessionId, tabId)
       if (record === undefined) return
       if (record.pause === 'gone') return
+      // Repeat the reader's own answer: a failed disk read re-reads, and never
+      // turns into the overwrite it would then be.
+      if (record.failedAnswer?.side === 'read') {
+        load(record, record.failedAnswer.observedVersion)
+        return
+      }
       if (record.pause === 'conflict') {
         overwrite(record)
         return
@@ -391,6 +430,9 @@ export function createEditEngine(reads: EditReads): EditEngine {
     conflict: (sessionId, tabId) => {
       const record = live(sessionId, tabId)
       if (record === undefined || muted(record)) return
+      // A failed answer owns the bar: re-asking would replace its retry with
+      // the same question and hide the failure's only way out.
+      if (record.failedAnswer !== undefined) return
       clearTimer(record)
       record.pause = 'conflict'
       record.actions.editConflicted(tabId)
