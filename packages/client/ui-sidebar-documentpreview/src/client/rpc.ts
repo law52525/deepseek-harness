@@ -6,9 +6,9 @@
  * session and a workspace path while a tab carries a `dsh-resource://file/`
  * session address, so this module also owns that translation.
  */
-import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
+import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { WorkspaceFileBytes, WorkspaceFileRange, WorkspaceFileText } from '@deepseek-ai/dsh-api-workspace-files/types'
+import type { WorkspaceFileBytes, WorkspaceFileRange, WorkspaceFileStat, WorkspaceFileText } from '@deepseek-ai/dsh-api-workspace-files/types'
 import { parseFileAddress } from '@deepseek-ai/dsh-util-workspace-path'
 
 /** The slice of the Client Remote this package calls. */
@@ -72,6 +72,21 @@ export function hostFileOf(address: string): SessionFile {
 }
 
 /**
+ * The failure a rejected Remote call amounts to. Only assembly faults reject
+ * (the carrier folds its own failures into the result), and a caller that
+ * cannot await one must still record a settled failure rather than a request
+ * that never answers.
+ * @param error - the rejection value.
+ * @returns the failure to record.
+ */
+export function carrierFailure(error: unknown): RemoteFailure {
+  return Object.assign(
+    new Error(error instanceof Error ? error.message : String(error), { cause: error }),
+    { name: 'RemoteError', isDSHRemoteError: true as const, code: 'gateway/internal' as const, details: {} },
+  )
+}
+
+/**
  * Bind the paged read to one Remote face. The page length is the Host's
  * configured cap, so no `limit` travels.
  * @param remote - the Client Remote carrying the `workspaceFiles` namespace.
@@ -91,3 +106,67 @@ export type DocumentFileBytes = WorkspaceFileBytes<Uint8Array<ArrayBuffer>>
  * @returns complete native bytes, including declared failures.
  */
 export type ReadDocumentBytes = (file: SessionFile, signal: AbortSignal) => Promise<RemoteResult<DocumentFileBytes>>
+
+/** The slice of the Client Remote the editor calls, beside the paged read. */
+export interface WorkspaceFilesEditRemote {
+  readonly workspaceFiles: {
+    /**
+     * Replace one file's complete text under a version guard.
+     * @param sessionId - the session whose workspace resolves `path`.
+     * @param path - workspace path, absolute or relative to the workspace root.
+     * @param content - the complete replacement text.
+     * @param expectedVersion - the version the caller read the text at; a moved disk refuses instead of writing.
+     * @param signal - cancels the call.
+     * @returns the file's identity and freshness after the write, or the failure the Host declares.
+     */
+    writeText(
+      sessionId: SessionId,
+      path: string,
+      content: string,
+      expectedVersion: string,
+      signal?: AbortSignal,
+    ): Promise<RemoteResult<WorkspaceFileStat>>
+    /**
+     * Observe one file's identity and freshness without reading it.
+     * @param sessionId - the session whose workspace resolves `path`.
+     * @param path - workspace path, absolute or relative to the workspace root.
+     * @param signal - cancels the call.
+     * @returns the stat, or the failure the Host declares.
+     */
+    stat(
+      sessionId: SessionId,
+      path: string,
+      signal?: AbortSignal,
+    ): Promise<RemoteResult<WorkspaceFileStat>>
+  }
+}
+
+/** The version-guarded write one editor save performs. */
+export type WriteWorkspaceFileText = (
+  file: SessionFile,
+  content: string,
+  expectedVersion: string,
+  signal: AbortSignal,
+) => Promise<RemoteResult<WorkspaceFileStat>>
+
+/** The fresh stat the overwrite path performs before writing. */
+export type StatWorkspaceFile = (file: SessionFile, signal: AbortSignal) => Promise<RemoteResult<WorkspaceFileStat>>
+
+/**
+ * Bind the version-guarded write to one Remote face.
+ * @param remote - the Client Remote carrying the `workspaceFiles` namespace.
+ * @returns the write the editor performs.
+ */
+export function createWriteText(remote: WorkspaceFilesEditRemote): WriteWorkspaceFileText {
+  return (file, content, expectedVersion, signal) =>
+    remote.workspaceFiles.writeText(file.sessionId, file.path, content, expectedVersion, signal)
+}
+
+/**
+ * Bind the fresh stat to one Remote face.
+ * @param remote - the Client Remote carrying the `workspaceFiles` namespace.
+ * @returns the stat the overwrite path performs.
+ */
+export function createStatFile(remote: WorkspaceFilesEditRemote): StatWorkspaceFile {
+  return (file, signal) => remote.workspaceFiles.stat(file.sessionId, file.path, signal)
+}
