@@ -9,7 +9,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { LayoutState, TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
-import { DockController, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
+import { DockController, dockPaneIds, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
 import { TabDomain } from '../src/client/tab-domain.ts'
 import type { SidebarRightNavigator } from '../src/client/tab-domain.ts'
 
@@ -218,7 +218,8 @@ describe('TabDomain — a tab\'s own actions', () => {
     const kept = controller.openContent({ kind: 'text', contentId: 'dsh-resource://file/session/s-one/kept.txt', title: 'kept' })
     domain.sync(SESSION, current())
     const { tabActions } = domain.occurrence(SESSION, recordOf(current(), tabId))
-    const docked = current().rootId
+    const [docked] = dockPaneIds(current())
+    if (docked === undefined) throw new Error('expected a docked pane')
     tabActions.openResource(address, { preferOtherPane: true })
     expect(navigator.openResourceIn).toHaveBeenLastCalledWith(SESSION, address, { paneId: docked, preferOtherPane: true })
 
