@@ -1,6 +1,7 @@
 /**
  * The file tree's view state: which directories are expanded, what each
- * loaded level contains, and where the body is scrolled to.
+ * loaded level contains, where the body is scrolled to, and the one name row
+ * open for a new entry.
  *
  * The tree is not one resource. A directory listing per level, expanded lazily,
  * is state the type owns — so it lives in a Slot-standard exclusive store
@@ -35,6 +36,21 @@ export type LevelState =
   | { readonly kind: 'failed'; readonly failure: RemoteFailure }
 
 /**
+ * The name row open for one new entry. A tab has at most one: opening another
+ * replaces it.
+ */
+export interface CreateDraft {
+  /** Absolute path of the directory the entry will be created in. */
+  readonly parent: string
+  /** What the row will create. */
+  readonly type: 'file' | 'directory'
+  /** A submission is in flight, so the row takes no input. */
+  readonly pending: boolean
+  /** Why the last submission was refused; the row stays open for another name. */
+  readonly failure?: RemoteFailure
+}
+
+/**
  * One tab's tree: its root, the levels it has asked for, and what is open.
  *
  * Every path here is absolute: the root is the session's working directory as
@@ -50,6 +66,8 @@ export interface FilesTabState {
   expanded: string[]
   /** The body's scroll offset in px, so a remounted tree comes back where the reader was. */
   scrollTop: number
+  /** The open name row for a new entry; absent while none is open. */
+  draft?: CreateDraft
 }
 
 /** Every tab's tree, keyed by tab id. */
@@ -70,6 +88,16 @@ function bucket(state: FilesState, tabId: TabId): FilesTabState {
   return tree
 }
 
+/**
+ * Close the name row when the directory it sits in leaves the tree.
+ * @param state - the tab's tree.
+ * @param path - absolute path of the directory that was collapsed or removed.
+ */
+function closeDraftUnder(state: FilesTabState, path: string): void {
+  const parent = state.draft?.parent
+  if (parent === path || parent?.startsWith(`${path}/`) === true) delete state.draft
+}
+
 /** The tree store's write set; every action names the tab it writes. */
 type FilesActions = {
   autoRefresh: (draft: FilesState, tabId: TabId, enabled: boolean) => void
@@ -78,6 +106,10 @@ type FilesActions = {
   loaded: (draft: FilesState, tabId: TabId, path: string, level: DirLevel) => void
   failed: (draft: FilesState, tabId: TabId, path: string, failure: RemoteFailure) => void
   toggled: (draft: FilesState, tabId: TabId, path: string) => void
+  draftOpened: (draft: FilesState, tabId: TabId, parent: string, type: CreateDraft['type']) => void
+  draftPending: (draft: FilesState, tabId: TabId) => void
+  draftFailed: (draft: FilesState, tabId: TabId, failure: RemoteFailure) => void
+  draftClosed: (draft: FilesState, tabId: TabId) => void
   scrolled: (draft: FilesState, tabId: TabId, scrollTop: number) => void
   reset: (draft: FilesState, tabId: TabId) => void
   forget: (draft: FilesState, tabId: TabId) => void
@@ -130,6 +162,7 @@ export function createFilesStore(): EngineStoreHandle<FilesState, FilesActions> 
             if (entry.type !== 'directory' || directories.has(entry.name)) continue
             const removed = `${path.replace(/[/\\]+$/, '')}/${entry.name}`
             state.expanded = state.expanded.filter(value => value !== removed && !value.startsWith(`${removed}/`))
+            closeDraftUnder(state, removed)
             state.levels = Object.fromEntries(Object.entries(state.levels)
               .filter(([key]) => key !== removed && !key.startsWith(`${removed}/`)))
           }
@@ -160,8 +193,49 @@ export function createFilesStore(): EngineStoreHandle<FilesState, FilesActions> 
       toggled: (d, tabId: TabId, path: string) => {
         const state = bucket(d, tabId)
         const at = state.expanded.indexOf(path)
-        if (at >= 0) state.expanded.splice(at, 1)
-        else state.expanded.push(path)
+        if (at >= 0) {
+          state.expanded.splice(at, 1)
+          closeDraftUnder(state, path)
+        } else {
+          state.expanded.push(path)
+        }
+      },
+      /**
+       * Open the name row for a new entry, replacing any row already open.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       * @param parent - absolute path of the directory to create in.
+       * @param type - what the row will create.
+       */
+      draftOpened: (d, tabId: TabId, parent: string, type: CreateDraft['type']) => {
+        bucket(d, tabId).draft = { parent, type, pending: false }
+      },
+      /**
+       * Mark the open name row as submitted and drop its previous refusal.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       */
+      draftPending: (d, tabId: TabId) => {
+        const state = bucket(d, tabId)
+        if (state.draft !== undefined) state.draft = { parent: state.draft.parent, type: state.draft.type, pending: true }
+      },
+      /**
+       * Record why the open name row's submission was refused, keeping the row.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       * @param failure - the settled Remote failure, or the Client's own refusal of the name.
+       */
+      draftFailed: (d, tabId: TabId, failure: RemoteFailure) => {
+        const state = bucket(d, tabId)
+        if (state.draft !== undefined) state.draft = { parent: state.draft.parent, type: state.draft.type, pending: false, failure }
+      },
+      /**
+       * Remove the name row, after a creation or a cancellation.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       */
+      draftClosed: (d, tabId: TabId) => {
+        delete bucket(d, tabId).draft
       },
       /**
        * Record where one tab's body is scrolled to.

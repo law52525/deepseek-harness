@@ -22,6 +22,8 @@ import { zh } from '../src/client/locales.ts'
 import { createFilesStore } from '../src/client/store.ts'
 import { scriptedList } from './scripted-list.client.ts'
 import type { ScriptedList } from './scripted-list.client.ts'
+import { scriptedCreate } from './scripted-create.client.ts'
+import type { ScriptedCreate } from './scripted-create.client.ts'
 import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 
 export const SESSION = 's-test' as SessionId
@@ -51,6 +53,8 @@ export interface Mounted {
   readonly view: RenderResult
   readonly instance: FilesStoreInstance
   readonly script: ScriptedList
+  /** The scripted `create` the face calls, and the hand that answers it. */
+  readonly creation: ScriptedCreate
   readonly face: FilesInjected
   readonly controller: AbortController
   readonly tabActions: MockedTabActions
@@ -68,10 +72,12 @@ function harness(
 ) {
   const instance = createFilesStore().create()
   const script = scriptedList()
-  const face = filesFace(script.list, script.watch)(SESSION, instance.actions)
+  const creation = scriptedCreate()
+  const face = filesFace(script.list, script.watch, creation.create)(SESSION, instance.actions)
   const controller = new AbortController()
   onTestFinished(async () => {
     controller.abort()
+    await creation.dispose()
     await script.dispose()
   })
   const tabActions: MockedTabActions = {
@@ -102,7 +108,7 @@ function harness(
     ...(withConversation ? { addToConversation } : {}),
     t: makeTranslate(zh),
   }
-  return { instance, script, face, controller, tabActions, addToConversation, shared }
+  return { instance, script, creation, face, controller, tabActions, addToConversation, shared }
 }
 
 /**

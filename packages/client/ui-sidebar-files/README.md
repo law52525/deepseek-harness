@@ -30,7 +30,7 @@ The `workspace.files` command opens or focuses the file page in the focused pane
 - **The body** — the keyed `sidebar.right.pane.tab` seat under that id: a header row under the strip, then the tree. The shared [`PathLabel`](../ui-primitives/README.md#component-catalog) displays the root path with subdued directories and a primary final segment. A clipped path retains its trailing characters with a left-edge fade; hovering reveals the full path. The reload control stays at its right.
 - **The chip title** — the keyed `sidebar.right.pane.tab.title` seat under that id: a shared `FileTypeIcon` folder glyph at 16px before the type's label. The tree's own rows never draw this sheet.
 
-Source files under `src/client/`: `definition.tsx` (the type), `store.ts` (what it keeps), `face.ts` (Remote reads and watches), `directory-node.ts` (open directories and their lifetimes), `FilesBody.tsx` (what it draws, with its ordering and failure-line helpers), `FilesTitle.tsx` (the chip title), `locales.ts` (what it says), and `index.ts` (the wiring).
+Source files under `src/client/`: `definition.tsx` (the type), `store.ts` (what it keeps), `face.ts` (Remote reads, watches, and entry creation), `directory-node.ts` (open directories and their lifetimes), `FilesBody.tsx` (what it draws, its context menus and name row, with its ordering and failure-line helpers), `FilesTitle.tsx` (the chip title), `locales.ts` (what it says), and `index.ts` (the wiring).
 
 <a id="the-tree"></a>
 ## The tree
@@ -45,7 +45,11 @@ The root is the session's working directory, read from `useSessions().byId[sessi
 
 A level cut by the endpoint's entry cap ends with a marker; an empty level says so; a level that failed shows one line per code — `workspace-file/not-found`, `outside-workspace`, `not-directory` — and the transport's own message otherwise. Reload refreshes the root and expanded levels in place, retaining displayed entries during reads instead of resetting the whole tree; collapsed levels are fetched again when they next open. A session without a working directory shows a single line instead of a tree.
 
-State lives in the type's own store, bucketed by tab id: `root`, `levels` (loading / ready / failed per absolute path), `expanded`, `autoRefresh`, and `scrollTop`, which the body tracks locally while scrolling and commits once when it unmounts. Because the store outlives the body, switching to another sidebar tab and back remounts the tree with its levels intact and its scroll offset restored. The owner's `signal` ends a bucket: on abort the tab is forgotten, and neither a listing that settles afterwards nor the unmount's offset commit writes anything.
+A secondary press opens a context menu. A `directory` row offers New file, New folder, and Add to current conversation, in that order; a `file` row offers Add to current conversation; an `other` row has no menu; the body outside every row offers New file and New folder for the tree's root. Add to current conversation inserts the row as a reference through the Conversation package's `addToConversation` verb.
+
+A creation item expands a collapsed directory, then opens one name row at the top of that directory's level and focuses it; a tab has at most one name row. Enter submits, and Escape or loss of focus closes the row without creating anything. The face refuses an empty or whitespace-only name, `.`, `..`, and a name carrying `/`, `\`, or NUL without a request; otherwise it calls `remote.workspaceFiles.create(sessionId, parentPath, name, type)`, and the row takes no input until the call settles. On success the row closes and the face lists that level again, so the entry appears on a provider without watch support; a created file is not opened. On failure the row stays for another name and shows one line: `workspace-file/already-exists`, `invalid-name`, a parent that is gone (`not-found` or `not-directory`), or the failure's own message.
+
+State lives in the type's own store, bucketed by tab id: `root`, `levels` (loading / ready / failed per absolute path), `expanded`, `autoRefresh`, `draft` (the open name row: its directory, type, pending flag, and last failure), and `scrollTop`, which the body tracks locally while scrolling and commits once when it unmounts. Collapsing the directory a name row sits in, or losing that directory from a listing, closes the row. Because the store outlives the body, switching to another sidebar tab and back remounts the tree with its levels intact and its scroll offset restored. The owner's `signal` ends a bucket: on abort the tab is forgotten, and neither a listing or creation that settles afterwards nor the unmount's offset commit writes anything. A creation that settles after its name row was closed or replaced leaves the current row alone.
 
 Each open `DirectoryNode` owns its target watch for the Tab lifetime; collapse closes that node and its hidden descendants. Expansion changes during ancestor restoration update the store and pending nodes, so restored descendants follow the latest expansion preferences. Automatic refresh defaults to enabled; its separate toggle is hidden while state, labels, styles, and toggle logic remain. Changes received during a directory read or its completion remain pending for another refresh.
 
@@ -61,7 +65,7 @@ None; directory listings travel over the Remote and assemble no model request.
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
-- **Listing only.** No search, artifact filter, drag-and-drop, rename, context menu, or current-file highlight.
+- **Creation is the only file management.** No search, artifact filter, drag-and-drop, rename, delete, move, or current-file highlight. A new entry is empty and one path segment deep, and a taken name is refused instead of numbered.
 - **One root.** The tree is rooted at the session's working directory; there is no way to browse above it, and the Host refuses paths outside the workspace root anyway.
 
 <a id="dev-note"></a>
@@ -76,4 +80,4 @@ The page refresh shortcut refreshes the focused file tree through its ordinary d
 
 </details>
 
-**Runtime invariant:** No companion is published. The tab-owned face keeps directory reads and watches private, and writes displayed state through its Slot store; tab cancellation releases both. The package exposes no independent observation for a runtime comparison.
+**Runtime invariant:** No companion is published. The tab-owned face keeps directory reads, watches, and entry creation private, and writes displayed state through its Slot store; tab cancellation releases both. The package exposes no independent observation for a runtime comparison.
