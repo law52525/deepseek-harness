@@ -209,6 +209,20 @@ describe('editable viewer access', () => {
     const view = await mountEditor(h)
     expect(view.container.querySelector('[data-textpreview-readonly]')?.textContent).toBe('edit.readonly.tooLarge(limit=1 MB)')
   })
+
+  it('falls back to the read-only body when the editor\'s first read fails', async () => {
+    const h = harness({ 1: page(1, ['alpha'], true) }, TAB_ID, { cwd: CWD })
+    h.bytes.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'carrier fault', {}) })
+    const view = await mountEditor(h)
+    await settle()
+    // A never-loaded editor refuses without a bar or a named reason: the
+    // ordinary read-only body carries the read's failure instead.
+    expect(view.container.querySelector(EDITOR)).toBeNull()
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')).toBeNull()
+    expect(view.container.querySelector('[data-textpreview-readonly]')).toBeNull()
+    expect(editOf(h)?.blocked).toBe('unavailable')
+    expect(view.container.querySelector('[data-textpreview-plain]')?.textContent).toContain('alpha')
+  })
 })
 
 describe('editor content', () => {
@@ -346,6 +360,59 @@ describe('the disk moves under the editor', () => {
     expect(areaOf(view).value).toBe('fresh\nlines')
     expect(editOf(h)).toMatchObject({ version: 'v2', conflict: false })
     expect(view.container.querySelector('[data-textpreview-edit-status]')?.getAttribute('data-textpreview-edit-status')).toBe('saved')
+    expect(h.write).not.toHaveBeenCalled()
+  })
+
+  it('keeps the editor and draft when the silent follow read fails, then follows on retry', async () => {
+    fakeTimers()
+    const h = harness({}, TAB_ID, { cwd: CWD })
+    const disk = scriptedDisk(h, 'alpha\nbeta')
+    const view = await mountEditor(h)
+    h.bytes.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'carrier fault', {}) })
+    act(() => { disk.external('fresh\nlines'); h.setVersion(disk.version); h.instance.actions.resourceChanged(TAB_ID) })
+    await settle()
+    // A failed follow is not the loss of the editor: the draft stays, and the
+    // read's failure is a bar the reader can act on. Nothing writes meanwhile.
+    expect(areaOf(view).value).toBe('alpha\nbeta')
+    expect(editOf(h)?.blocked).toBeUndefined()
+    const bar = view.container.querySelector('[data-textpreview-edit-failed]')
+    expect(bar?.getAttribute('data-textpreview-edit-failed')).toBe('gateway/internal')
+    expect(view.container.querySelector('[data-textpreview-edit-retry]')).not.toBeNull()
+    expect(h.write).not.toHaveBeenCalled()
+    // The bar's retry repeats the read: the disk version replaces the draft.
+    fireEvent.click(view.container.querySelector('[data-textpreview-edit-retry]')!)
+    await settle()
+    expect(h.bytes).toHaveBeenCalledTimes(3)
+    expect(areaOf(view).value).toBe('fresh\nlines')
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')).toBeNull()
+    expect(editOf(h)).toMatchObject({ text: 'fresh\nlines', savedText: 'fresh\nlines', version: 'v2' })
+    expect(editOf(h)?.failure).toBeUndefined()
+    expect(h.write).not.toHaveBeenCalled()
+    // The disk version became the baseline: the next save carries it.
+    fireEvent.change(areaOf(view), { target: { value: 'fresh\nlines!' } })
+    await tick(EDIT_DEBOUNCE_MS)
+    expect(h.write).toHaveBeenCalledExactlyOnceWith(FILE, 'fresh\nlines!', 'v2', expect.any(AbortSignal))
+    expect(disk.text).toBe('fresh\nlines!')
+  })
+
+  it('recovers the editor from the toolbar refresh while the failed read bar stands', async () => {
+    const h = harness({}, TAB_ID, { cwd: CWD })
+    const disk = scriptedDisk(h, 'alpha\nbeta')
+    const view = await mountEditor(h)
+    h.bytes.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'carrier fault', {}) })
+    act(() => { disk.external('fresh\nlines'); h.setVersion(disk.version); h.instance.actions.resourceChanged(TAB_ID) })
+    await settle()
+    expect(areaOf(view).value).toBe('alpha\nbeta')
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')).not.toBeNull()
+    // The toolbar refresh stays the editor's own read — never a page walk —
+    // and a successful one is the same recovery the failure bar's retry shares.
+    fireEvent.click(view.container.querySelector('[data-textpreview-tool="reload"]')!)
+    await settle()
+    expect(h.bytes).toHaveBeenCalledTimes(3)
+    expect(h.read).not.toHaveBeenCalled()
+    expect(areaOf(view).value).toBe('fresh\nlines')
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')).toBeNull()
+    expect(editOf(h)).toMatchObject({ text: 'fresh\nlines', version: disk.version })
     expect(h.write).not.toHaveBeenCalled()
   })
 
@@ -533,6 +600,104 @@ describe('the disk moves under the editor', () => {
     await tick(EDIT_DEBOUNCE_MS)
     expect(h.write).toHaveBeenCalledTimes(2)
     expect(disk.text).toBe('alpha!!')
+  })
+
+  it('keeps a dirty draft and shows the in-flight save\'s success when the refresh read failed', async () => {
+    fakeTimers()
+    const h = harness({}, TAB_ID, { cwd: CWD })
+    scriptedDisk(h, 'alpha')
+    const calls: { content: string; expected: string; settle: (result: RemoteResult<WorkspaceFileStat>) => void }[] = []
+    h.write.mockImplementation((_file, content, expectedVersion) => new Promise((resolve) => {
+      calls.push({ content, expected: expectedVersion, settle: resolve })
+    }))
+    const view = await dirty(h, 'alpha!')
+    await tick(EDIT_DEBOUNCE_MS)
+    expect(calls).toHaveLength(1)
+    // The reader refreshes while the save is in flight, and that read fails.
+    h.bytes.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'carrier fault', {}) })
+    fireEvent.click(view.container.querySelector('[data-textpreview-tool="reload"]')!)
+    await settle()
+    expect(areaOf(view).value).toBe('alpha!')
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')).not.toBeNull()
+    expect(h.write).toHaveBeenCalledOnce()
+    // The in-flight save settles successfully: its receipt is the visible
+    // status, and the draft it wrote is not lost.
+    await act(async () => { calls[0]!.settle({ ok: true, value: { absolutePath: ABSOLUTE_PATH, version: 'v2' } }) })
+    await settle()
+    expect(areaOf(view).value).toBe('alpha!')
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')).toBeNull()
+    expect(view.container.querySelector('[data-textpreview-edit-status]')?.getAttribute('data-textpreview-edit-status')).toBe('saved')
+    expect(editOf(h)).toMatchObject({ text: 'alpha!', savedText: 'alpha!', version: 'v2', saving: false })
+    expect(editOf(h)?.failure).toBeUndefined()
+    expect(h.write).toHaveBeenCalledOnce()
+  })
+
+  it('retries the save itself when a dirty draft\'s refresh read failed and that save then failed', async () => {
+    fakeTimers()
+    const h = harness({}, TAB_ID, { cwd: CWD })
+    scriptedDisk(h, 'alpha')
+    const calls: { content: string; expected: string; settle: (result: RemoteResult<WorkspaceFileStat>) => void }[] = []
+    h.write.mockImplementation((_file, content, expectedVersion) => new Promise((resolve) => {
+      calls.push({ content, expected: expectedVersion, settle: resolve })
+    }))
+    const view = await dirty(h, 'alpha!')
+    await tick(EDIT_DEBOUNCE_MS)
+    h.bytes.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'carrier fault', {}) })
+    fireEvent.click(view.container.querySelector('[data-textpreview-tool="reload"]')!)
+    await settle()
+    expect(areaOf(view).value).toBe('alpha!')
+    // The in-flight save fails too, without the stale guard: the bar carries
+    // that failure, and the draft is still there to retry.
+    await act(async () => { calls[0]!.settle({ ok: false, error: new RemoteError('gateway/internal', 'carrier fault', {}) }) })
+    await settle()
+    expect(areaOf(view).value).toBe('alpha!')
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')?.getAttribute('data-textpreview-edit-failed')).toBe('gateway/internal')
+    expect(view.container.querySelector('[data-textpreview-edit-status]')?.getAttribute('data-textpreview-edit-status')).toBe('failed')
+    expect(h.write).toHaveBeenCalledOnce()
+    // The retry repeats the save — never a read — and the draft lands.
+    fireEvent.click(view.container.querySelector('[data-textpreview-edit-retry]')!)
+    await settle()
+    expect(h.bytes).toHaveBeenCalledTimes(2)
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toMatchObject({ content: 'alpha!', expected: 'v1' })
+    await act(async () => { calls[1]!.settle({ ok: true, value: { absolutePath: ABSOLUTE_PATH, version: 'v2' } }) })
+    await settle()
+    expect(areaOf(view).value).toBe('alpha!')
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')).toBeNull()
+    expect(view.container.querySelector('[data-textpreview-edit-status]')?.getAttribute('data-textpreview-edit-status')).toBe('saved')
+    expect(editOf(h)).toMatchObject({ text: 'alpha!', savedText: 'alpha!', version: 'v2', saving: false })
+  })
+
+  it('keeps a gone editor and answers its flaked refresh with the read\'s own retry', async () => {
+    const h = harness({}, TAB_ID, { cwd: CWD })
+    const disk = scriptedDisk(h, 'alpha\nbeta')
+    const view = await mountEditor(h)
+    // A refresh read that finds the file gone pauses saving but keeps the text.
+    h.bytes.mockResolvedValueOnce({ ok: false, error: new RemoteError('workspace-file/not-found', 'gone', { path: PATH }) })
+    fireEvent.click(view.container.querySelector('[data-textpreview-tool="reload"]')!)
+    await settle()
+    expect(areaOf(view).value).toBe('alpha\nbeta')
+    expect(view.container.querySelector('[data-textpreview-edit-gone]')).not.toBeNull()
+    // A second refresh fails transiently: the gone editor must not become a
+    // read-only body; the read failure is the bar, with its own retry.
+    h.bytes.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'carrier fault', {}) })
+    fireEvent.click(view.container.querySelector('[data-textpreview-tool="reload"]')!)
+    await settle()
+    expect(view.container.querySelector('[data-textpreview-edit-gone]')).toBeNull()
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')?.getAttribute('data-textpreview-edit-failed')).toBe('gateway/internal')
+    expect(areaOf(view).value).toBe('alpha\nbeta')
+    expect(editOf(h)?.blocked).toBeUndefined()
+    expect(h.write).not.toHaveBeenCalled()
+    // Retrying repeats the read; the file's return resumes the editor.
+    fireEvent.click(view.container.querySelector('[data-textpreview-edit-retry]')!)
+    await settle()
+    expect(h.bytes).toHaveBeenCalledTimes(4)
+    expect(areaOf(view).value).toBe('alpha\nbeta')
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')).toBeNull()
+    expect(view.container.querySelector('[data-textpreview-edit-gone]')).toBeNull()
+    expect(editOf(h)).toMatchObject({ gone: false, conflict: false, version: disk.version })
+    expect(editOf(h)?.failure).toBeUndefined()
+    expect(h.write).not.toHaveBeenCalled()
   })
 })
 
