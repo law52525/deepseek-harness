@@ -392,6 +392,95 @@ describe('the disk moves under the editor', () => {
     expect(h.write).toHaveBeenCalledExactlyOnceWith(FILE, 'theirs!', 'v2', expect.any(AbortSignal))
   })
 
+  it('retries the failed disk load without writing the draft the reader abandoned', async () => {
+    fakeTimers()
+    const h = harness({}, TAB_ID, { cwd: CWD })
+    const disk = scriptedDisk(h, 'alpha')
+    const view = await dirty(h, 'alpha!')
+    // Someone else writes; this tab's next save is refused as stale.
+    disk.external('theirs')
+    await tick(EDIT_DEBOUNCE_MS)
+    expect(view.container.querySelector('[data-textpreview-edit-conflict]')).not.toBeNull()
+    expect(disk.text).toBe('theirs')
+    // The reader picks the disk; this read fails transiently.
+    h.bytes.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'carrier fault', {}) })
+    fireEvent.click(view.container.querySelector('[data-textpreview-edit-load-disk]')!)
+    await settle()
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')).not.toBeNull()
+    expect(view.container.querySelector('[data-textpreview-edit-conflict]')).toBeNull()
+    const writes = h.write.mock.calls.length
+    // Retrying the failure repeats the read, never the abandoned draft's write.
+    h.bytes.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'carrier fault', {}) })
+    const reads = h.bytes.mock.calls.length
+    fireEvent.click(view.container.querySelector('[data-textpreview-edit-retry]')!)
+    await settle()
+    expect(h.write.mock.calls.length).toBe(writes)
+    expect(disk.text).toBe('theirs')
+    expect(h.bytes.mock.calls.length).toBe(reads + 1)
+    // The next read succeeds: the disk version replaces the draft and saving resumes.
+    fireEvent.click(view.container.querySelector('[data-textpreview-edit-retry]')!)
+    await settle()
+    expect(areaOf(view).value).toBe('theirs')
+    expect(editOf(h)).toMatchObject({ conflict: false, text: 'theirs', savedText: 'theirs', version: disk.version })
+    expect(editOf(h)?.failure).toBeUndefined()
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')).toBeNull()
+    expect(view.container.querySelector('[data-textpreview-edit-conflict]')).toBeNull()
+    const baseline = disk.version
+    fireEvent.change(areaOf(view), { target: { value: 'theirs!' } })
+    await tick(EDIT_DEBOUNCE_MS)
+    expect(h.write).toHaveBeenLastCalledWith(FILE, 'theirs!', baseline, expect.any(AbortSignal))
+    expect(disk.text).toBe('theirs!')
+  })
+
+  it('keeps an actionable bar visible when typing after the load-disk read failed', async () => {
+    fakeTimers()
+    const h = harness({}, TAB_ID, { cwd: CWD })
+    const disk = scriptedDisk(h, 'alpha')
+    const view = await dirty(h, 'alpha!')
+    disk.external('theirs')
+    await tick(EDIT_DEBOUNCE_MS)
+    h.bytes.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'carrier fault', {}) })
+    fireEvent.click(view.container.querySelector('[data-textpreview-edit-load-disk]')!)
+    await settle()
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')).not.toBeNull()
+    // Typing moves the draft, not the question: a bar must remain to act on.
+    fireEvent.change(areaOf(view), { target: { value: 'alpha!!' } })
+    const bar = view.container.querySelector('[data-textpreview-edit-conflict]')
+      ?? view.container.querySelector('[data-textpreview-edit-failed]')
+    if (bar === null) throw new Error('no conflict or failure bar is visible after typing')
+    expect(bar.querySelector('button')).not.toBeNull()
+    // Saving stays paused: neither the debounce nor the flush paths write.
+    const writes = h.write.mock.calls.length
+    await tick(EDIT_DEBOUNCE_MS)
+    fireEvent.blur(areaOf(view))
+    fireEvent.keyDown(window, { key: 's', metaKey: true })
+    expect(h.write.mock.calls.length).toBe(writes)
+    expect(disk.text).toBe('theirs')
+  })
+
+  it('retries the overwrite the reader chose when its stat failed', async () => {
+    fakeTimers()
+    const h = harness({}, TAB_ID, { cwd: CWD })
+    const disk = scriptedDisk(h, 'alpha')
+    const view = await dirty(h, 'alpha!')
+    act(() => { disk.external('theirs'); h.setVersion(disk.version); h.instance.actions.resourceChanged(TAB_ID) })
+    await settle()
+    expect(view.container.querySelector('[data-textpreview-edit-conflict]')).not.toBeNull()
+    // The reader picks the overwrite; the stat that must precede it fails.
+    h.stat.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', 'carrier fault', {}) })
+    fireEvent.click(view.container.querySelector('[data-textpreview-edit-overwrite]')!)
+    await settle()
+    expect(view.container.querySelector('[data-textpreview-edit-failed]')).not.toBeNull()
+    expect(view.container.querySelector('[data-textpreview-edit-conflict]')).toBeNull()
+    expect(h.write).not.toHaveBeenCalled()
+    // The retry continues the overwrite: stat again, then write the draft.
+    fireEvent.click(view.container.querySelector('[data-textpreview-edit-retry]')!)
+    await settle()
+    expect(h.stat).toHaveBeenCalledTimes(2)
+    expect(h.write).toHaveBeenCalledExactlyOnceWith(FILE, 'alpha!', 'v2', expect.any(AbortSignal))
+    expect(disk.text).toBe('alpha!')
+  })
+
   it('pauses when a save is refused as stale, keeping the draft', async () => {
     fakeTimers()
     const h = harness({}, TAB_ID, { cwd: CWD })
