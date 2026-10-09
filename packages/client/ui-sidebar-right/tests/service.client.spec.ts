@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { LayoutState, PaneId, TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
-import { dockPaneIds, findTabPane, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
+import { activeDockPaneId, dockPaneIds, findTabPane, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
 import { createSidebarRightController } from '../src/client/service.ts'
 import { SidebarRightTabRegistry } from '../src/client/tab-registry.ts'
 import { createSidebarRightStore } from '../src/client/stores.ts'
@@ -971,6 +971,66 @@ describe('SidebarRightController — a file tree row\'s open (P-15)', () => {
     h.publish()
     expect(dockPaneIds(h.layout())).toHaveLength(1)
     expectTreePane(h, tree)
+  })
+
+  it('opens a second page of the kind in the other pane when one exists', () => {
+    const { h, tree } = withTree()
+    click(h, tree, 'a.txt')
+    h.controller.tabDomain.occurrence(SESSION, { id: tree }).tabActions.openTab('files', { preferOtherPane: true })
+    h.publish()
+    const preview = otherPane(h, tree)
+    expect(preview.tabs.map(id => h.layout().tabs[id]?.kind)).toEqual(['text', 'files'])
+    expect(Object.values(h.layout().tabs).filter(tab => tab.kind === 'files')).toHaveLength(2)
+    expectTreePane(h, tree)
+  })
+
+  it('a floating pane named as the target is treated as it is without the option', () => {
+    const named = (preferOtherPane: boolean): { panes: number; active: PaneId; tabs: number; refusal: string } => {
+      const { h, tree } = withTree()
+      h.controller.openResource(file('kept.txt'))
+      h.publish()
+      h.controller.float(tree)
+      h.publish()
+      const floating = findTabPane(h.layout(), tree)
+      expect(floating.host).toBe('float')
+      h.instance.actions.focusPane(SESSION, activeDockPaneId(h.layout()))
+      h.publish()
+      const placement = { paneId: floating.id, ...preferOtherPane ? { preferOtherPane: true } : {} }
+      // The page the floating pane holds is focused there.
+      h.controller.openTab('files', placement)
+      h.publish()
+      expect(findTabPane(h.layout(), tree).id).toBe(floating.id)
+      // A floating pane takes no second tab: the layout refuses the open either way.
+      let refusal = ''
+      try { h.controller.openResource(file('a.txt'), placement) } catch (error) { refusal = String(error) }
+      return { panes: dockPaneIds(h.layout()).length, active: h.layout().activePaneId, tabs: Object.keys(h.layout().tabs).length, refusal }
+    }
+    expect(named(true)).toEqual(named(false))
+    expect(named(true)).toMatchObject({ panes: 1, tabs: 2, refusal: 'Error: layout: openTab requires a docked pane' })
+  })
+
+  it('replaceTab naming a floating tab wins over preferOtherPane: the open stays in the active docked pane', () => {
+    const replaced = (preferOtherPane: boolean): { landed: boolean; other: (string | undefined)[]; gone: boolean } => {
+      const { h, tree } = withTree()
+      click(h, tree, 'a.txt')
+      click(h, tree, 'b.txt')
+      h.controller.float(h.tabOf('b.txt'))
+      h.publish()
+      const floating = h.tabOf('b.txt')
+      h.instance.actions.focusPane(SESSION, findTabPane(h.layout(), tree).id)
+      h.publish()
+      const active = activeDockPaneId(h.layout())
+      expect(active).toBe(findTabPane(h.layout(), tree).id)
+      h.controller.openResource(file('c.txt'), { replaceTab: floating, ...preferOtherPane ? { preferOtherPane: true } : {} })
+      h.publish()
+      return {
+        landed: findTabPane(h.layout(), h.tabOf('c.txt')).id === active,
+        other: otherPane(h, tree).tabs.map(id => h.layout().tabs[id]?.title),
+        gone: h.layout().tabs[floating] === undefined,
+      }
+    }
+    expect(replaced(true)).toEqual({ landed: true, other: ['a.txt'], gone: true })
+    expect(replaced(true)).toEqual(replaced(false))
   })
 
   /** What the `workspace.files` command runs once it resolved with focus outside the sidebar. */
