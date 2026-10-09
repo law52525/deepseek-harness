@@ -34,7 +34,7 @@ import { CodeBody } from '../src/client/code/CodeBody.tsx'
 import { en, zh } from '../src/client/locales.ts'
 import type { textFace } from '../src/client/face.ts'
 import type { TextStore } from '../src/client/store.ts'
-import { FILE, SESSION, TAB_ID, byteResult, createResources, page } from './fixtures.client.ts'
+import { ABSOLUTE_PATH, ADDRESS, FILE, PATH, SESSION, TAB_ID, byteResult, createResources, page } from './fixtures.client.ts'
 
 interface Recorded {
   name: string
@@ -168,5 +168,53 @@ describe('ui-sidebar-documentpreview apply', () => {
     face.reloadAll(TAB_ID, FILE, controller.signal, 'v2')
     await expect.poll(() => instance.getSnapshot().byTab[TAB_ID]?.failure).toMatchObject({ code: 'workspace-file/not-found', message: 'File missing' })
     expect(instance.getSnapshot().byTab[TAB_ID]?.complete).toBeUndefined()
+  })
+
+  /**
+   * One open editor whose complete read and draft are already recorded, ready
+   * for a close. The read's bytes decode as the text, so the editor loads.
+   */
+  async function editing(registered: Recorded[], readBytes: Awaited<ReturnType<typeof boot>>['readBytes']) {
+    const registration = registered.find(entry => entry.component === TextPreview)
+    if (registration === undefined) throw new Error('missing preview registration')
+    const instance = (registration.store as TextStore).create()
+    const face = (registration.inject as ReturnType<typeof textFace>)(SESSION, instance.actions)
+    const controller = new AbortController()
+    readBytes.mockResolvedValueOnce(byteResult(new TextEncoder().encode('alpha')))
+    face.openEditor(TAB_ID, ADDRESS, FILE, controller.signal, 'v1')
+    await vi.waitFor(() => { expect(instance.getSnapshot().byTab[TAB_ID]?.edit?.text).toBe('alpha') })
+    face.editChanged(TAB_ID, 'alpha!')
+    return { instance, face, controller }
+  }
+
+  // The "close others" case of AC-17 needs P-16's close path and lands with it.
+  it('flushes a closing tab\'s last input over the tab\'s own signal (AC-17)', async () => {
+    const { registered, readBytes, writeText, closeHandlers } = await boot()
+    const { instance, controller } = await editing(registered, readBytes)
+    const pending = Promise.withResolvers<Awaited<ReturnType<ClientRemote['workspaceFiles']['writeText']>>>()
+    writeText.mockReturnValueOnce(pending.promise)
+    closeHandlers.get(TEXTPREVIEW_KIND)?.(SESSION, { id: TAB_ID, kind: TEXTPREVIEW_KIND })
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(SESSION, PATH, 'alpha!', 'v1', expect.any(AbortSignal))
+    // The tab record ends while the write is in flight; the request's own
+    // signal survives, the request still settles, and its result reaches no bucket.
+    const writeSignal = writeText.mock.calls[0]?.[4]
+    expect(writeSignal).toBeDefined()
+    expect(writeSignal).not.toBe(controller.signal)
+    controller.abort()
+    expect(writeSignal?.aborted).toBe(false)
+    expect(instance.getSnapshot().byTab[TAB_ID]).toBeUndefined()
+    pending.resolve({ ok: true, value: { absolutePath: ABSOLUTE_PATH, version: 'v2' } })
+    await vi.waitFor(() => { expect(writeText).toHaveBeenCalledOnce() })
+    expect(instance.getSnapshot().byTab[TAB_ID]).toBeUndefined()
+  })
+
+  it('writes nothing when a tab closes with the conflict question standing (AC-18)', async () => {
+    const { registered, readBytes, writeText, closeHandlers } = await boot()
+    const { instance, face, controller } = await editing(registered, readBytes)
+    face.conflictEdit(TAB_ID)
+    closeHandlers.get(TEXTPREVIEW_KIND)?.(SESSION, { id: TAB_ID, kind: TEXTPREVIEW_KIND })
+    expect(writeText).not.toHaveBeenCalled()
+    controller.abort()
+    expect(instance.getSnapshot().byTab[TAB_ID]).toBeUndefined()
   })
 })
