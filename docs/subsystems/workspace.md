@@ -418,7 +418,7 @@ Source: [`packages/api/workspace-controller/src/index.ts`](../../packages/api/wo
 
 ### `ctx.workspaceFiles` — `WorkspaceFiles`
 
-Host Remote file reads and workspace directory observations over the composed filesystem.
+Host Remote file reads and writes and workspace directory observations over the composed filesystem.
 
 ```ts cordis-catalog
 /**
@@ -475,6 +475,28 @@ Host Remote file reads and workspace directory observations over the composed fi
  *   `workspace-file/already-exists` when the name is taken.
  */
 @Remote async create( workspaceFileScope: WorkspaceFileScope, parentPath: string, name: string, type: WorkspaceEntryKind, signal: AbortSignal, ): Promise<WorkspaceCreatedEntry>
+
+/**
+ * Replace one existing workspace file's complete text under a version guard.
+ * The target must already be a regular file inside the workspace; this
+ * method never creates one. The caller sends LF text and the file keeps its
+ * own line ending style: the style is detected from the file before the
+ * write and restored, because the filesystem seam writes the given text
+ * verbatim. Anything else about the content, a BOM included, is written as
+ * received. A caller-supplied version that no longer matches the disk — at
+ * the initial stat or discovered by the write's own guard — refuses with
+ * `stale-version` and leaves the file untouched; there is no unconditional
+ * overwrite. The write is fenced to the Session's workspace root under every
+ * sandbox mode, because the caller is the user and not a model tool.
+ * @param workspaceFileScope - header-derived workspace root for the Session identity on the wire.
+ * @param path - absolute path or path relative to the workspace root; the resolved target must stay inside the workspace.
+ * @param content - the complete new text, LF line endings; above the configured write cap it is refused.
+ * @param expectedVersion - the version of the caller's last read; the write is guarded against it.
+ * @param signal - caller cancellation.
+ * @returns the file's absolute path, its version after the write, and the written byte size.
+ * @throws RemoteError `workspace-file/stale-version` when the file changed since the version the caller read.
+ */
+@Remote async writeText( workspaceFileScope: WorkspaceFileScope, path: string, content: string, expectedVersion: string, signal: AbortSignal, ): Promise<WorkspaceFileStat>
 
 /**
  * Watch one file or a directory's direct entries in the Session's filesystem.

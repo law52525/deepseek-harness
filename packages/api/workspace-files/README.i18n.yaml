@@ -9,17 +9,17 @@
   en: d2885c72d12d9924
   zh: e111f03d02383229
 /deepseek-ai-dsh-api-workspace-files/summary:
-  en: 952231beaee408fd
-  zh: e3de21f4980467de
+  en: f0cc5541f7c5ed89
+  zh: 44dd7fcd4aa8128d
 /deepseek-ai-dsh-api-workspace-files/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
 /deepseek-ai-dsh-api-workspace-files/use-this-package:
-  en: dc2e264c08dd6b86
-  zh: c116822f479fdc31
+  en: 441fb8700e9c3961
+  zh: 82bb177638853c3d
 /deepseek-ai-dsh-api-workspace-files/use-this-package/addressing-and-paths:
-  en: b9565cfa7a1da451
-  zh: fc4078a58322fc7f
+  en: ac06fa0046b10130
+  zh: 4acf03c4efe8b67f
 /deepseek-ai-dsh-api-workspace-files/use-this-package/pages:
   en: 9cd68b8be3390c80
   zh: 26049ce447f00452
@@ -27,20 +27,23 @@
   en: 93ca9e832fbfd632
   zh: 69412adba259c6f8
 /deepseek-ai-dsh-api-workspace-files/use-this-package/file-read-and-directory-checks:
-  en: aa85c7754557a22f
-  zh: c576d06749fbe0a5
+  en: cb2e697567fdde7a
+  zh: 4b7d03afe50b0d95
 /deepseek-ai-dsh-api-workspace-files/use-this-package/creating-an-entry:
   en: c7a932cd0e8369f0
   zh: 8270c52921b2fd83
+/deepseek-ai-dsh-api-workspace-files/use-this-package/replacing-a-file-s-text:
+  en: 4854d7042b877310
+  zh: b8d4c8240a426627
 /deepseek-ai-dsh-api-workspace-files/use-this-package/the-change-feed:
   en: 8bd2d820a512d461
   zh: 0614ddd842ae7526
 /deepseek-ai-dsh-api-workspace-files/use-this-package/configuration:
-  en: e606e8b22ac6e0d0
-  zh: 13a7214448036d7b
+  en: 8ec636e31d8ec2fc
+  zh: a368d755d82b241d
 /deepseek-ai-dsh-api-workspace-files/use-this-package/failures:
-  en: 7f81ec7f829b56d5
-  zh: 0025e8f5c027ae97
+  en: 8b522da498fb6105
+  zh: dc58930d7b579c2a
 /deepseek-ai-dsh-api-workspace-files/use-this-package/client-file-resources:
   en: 9b4bf7a30016f856
   zh: 30127a6ada65e715
@@ -48,11 +51,11 @@
   en: 42b15ac6321706aa
   zh: ce1d25bffb6948cd
 /deepseek-ai-dsh-api-workspace-files/understand-the-implementation/design-concept:
-  en: 4b9c63bace1bb245
-  zh: d80b6c5ec036fa1a
+  en: 78fdbbbc443ec764
+  zh: aff7b57621be5c6c
 /deepseek-ai-dsh-api-workspace-files/understand-the-implementation/source-map:
-  en: 2693097fa00e9747
-  zh: 129112f23b73937f
+  en: 68fdc93dbe82b92a
+  zh: d302e5064378e662
 /deepseek-ai-dsh-api-workspace-files/further-exploration:
   en: 71f00fb919d12181
   zh: 1e3819cd90dfca31
@@ -63,8 +66,8 @@
   en: ca75c51c89c2c9b0
   zh: 03126f3b1aac5859
 /deepseek-ai-dsh-api-workspace-files/known-limitations-and-deferred-work:
-  en: e3734940f175cfd1
-  zh: dc6667be38a10edd
+  en: 9fe48358b03b0de3
+  zh: fe3ea2bf29e31248
 /deepseek-ai-dsh-api-workspace-files/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: e88aeb617ffb74ea

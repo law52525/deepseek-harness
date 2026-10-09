@@ -8,6 +8,12 @@
  * workspace unknown — takes the same bar's place over the pages already loaded,
  * with the same reload. The type's controls, viewer choice, wrap and reload, sit at the end of
  * the path row; the Sidebar's strip carries none of them.
+ *
+ * A document the source viewers may edit (markdown, yaml — see `edit/access`)
+ * replaces its read-only rendering with the editor over the complete text,
+ * saved automatically; the viewer menu is the entry, so choosing the viewer is
+ * what starts and stops editing. The editor's own bars carry a disk change the
+ * reader has to answer, and the header carries the save state.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
@@ -24,7 +30,9 @@ import {
 import type { ContextMenuPoint, MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { pathPartsOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type { TextInjected } from './face.ts'
-import { emptyFailureRecourse, failureLine } from './failure-line.ts'
+import { emptyFailureRecourse, failureLine, humanBytes } from './failure-line.ts'
+import { EDIT_MAX_BYTES, decideEditAccess } from './edit/access.ts'
+import { EditBody, scrollEditorToLine } from './edit/EditBody.tsx'
 import { LoadingIndicator } from './LoadingIndicator.tsx'
 import { hostFileOf } from './rpc.ts'
 import type { TextStore } from './store.ts'
@@ -32,6 +40,7 @@ import type { DocumentContent } from './document/contract.ts'
 import { binaryDocumentPath, matchingDocumentPreviews } from './document/registry.ts'
 import type { DocumentPreviewDefinition } from './document/registry.ts'
 import { unviewableBinaryPath } from './document/unviewable.ts'
+import { CODE_BODY_ID } from './code/index.ts'
 import { PLAIN_BODY_ID } from './text/index.ts'
 import { loadedPages, lastLineLoaded, scrollToLine } from './text/lines.ts'
 import { buildSelectionSnippet, isSelectionAtLoadedEnd, readPreviewSelection } from './selection-snippet.ts'
@@ -60,8 +69,10 @@ export type TextPreviewProps =
  * @returns the content read so far with its controls, or a progress line.
  */
 export function TextPreview({
-  useTabInfo, useResource, useStore, actions, loadPage, reloadPages,
-  loadAll, reloadAll, prepareRenderer, useDocumentPreviews, renderSlot, addToConversation, t,
+  useTabInfo, useResource, useSessions, sessionId, useStore, actions, loadPage, reloadPages,
+  loadAll, reloadAll, prepareRenderer, openEditor, editChanged, editComposing, saveNow,
+  retryEdit, overwriteEdit, reloadEdit, conflictEdit, goneEdit,
+  useDocumentPreviews, renderSlot, addToConversation, t,
   addResource, setResources,
 }: TextPreviewProps): ReactNode {
   const { tab } = useTabInfo()
@@ -69,7 +80,9 @@ export function TextPreview({
   const meta = useResource<'file'>(tab.contentId)
   const canRead = meta.status !== 'none'
   const file = useMemo(() => hostFileOf(tab.contentId), [tab.contentId])
+  const cwd = useSessions(sessions => sessions.byId[sessionId]?.cwd)
   const state = useStore(s => s.byTab[tab.id])
+  const editState = state?.edit
   const definitions = useDocumentPreviews(value => value)
   const unviewable = useMemo(() => unviewableBinaryPath(file.path), [file.path])
   const candidates = useMemo(() => {
@@ -83,6 +96,18 @@ export function TextPreview({
   const mode = selected?.loading
   const contentRendererId = mode === 'renderer' ? selected?.id : undefined
   const current = (state?.mode ?? 'text-pages') === mode && state?.contentRendererId === contentRendererId ? state : undefined
+  // The source viewers edit the documents the edit rules accept; every other
+  // viewer and file keeps its read-only rendering, and a refusal the rules made
+  // for an otherwise editable file is named in the header.
+  const editableViewer = selected?.id === CODE_BODY_ID || selected?.id === PLAIN_BODY_ID
+  const editAccess = decideEditAccess({
+    cwd, path: file.path, editableViewer, bytes: meta.value?.bytes, blocked: editState?.blocked,
+  })
+  const inEditor = editAccess.kind === 'open'
+  const readonlyReason = editAccess.kind === 'readonly' ? editAccess.reason : undefined
+  // The editor session once its read settled; a refusal leaves it absent so the
+  // read-only rendering stands.
+  const edit = editState !== undefined && editState.blocked === undefined ? editState : undefined
   const add = useCallback((address: string) => {
     addResource(tab.id, address, signal)
   }, [addResource, tab.id, signal])
@@ -123,14 +148,30 @@ export function TextPreview({
   }, [])
 
   // First mount reads the first page; a body coming back to a tab with content
-  // reads nothing, because the store outlives the body.
-  const started = current !== undefined
+  // reads nothing, because the store outlives the body. A read records the mode
+  // it started, and an editor's bucket records none, so an editable tab reads no
+  // page at all.
+  const started = current !== undefined && current.mode !== undefined
   useEffect(() => {
-    if (started || !canRead || mode === undefined || selected === undefined) return
+    if (inEditor || started || !canRead || mode === undefined || selected === undefined) return
     if (mode === 'text-pages') loadPage(tab.id, file, 1, signal, meta.value?.version)
     else if (mode === 'bytes-complete') loadAll(tab.id, file, signal, meta.value?.version)
     else prepareRenderer(tab.id, signal, selected.id, meta.value?.version)
-  }, [started, tab.id, file, signal, loadPage, loadAll, prepareRenderer, canRead, mode, selected, meta.value?.version])
+  }, [inEditor, started, tab.id, file, signal, loadPage, loadAll, prepareRenderer, canRead, mode, selected, meta.value?.version])
+
+  // Opening the editor reads the complete file once per tab record; a body
+  // remounting over a record that already loaded reads nothing and keeps the
+  // draft, so switching viewers never loses input.
+  useEffect(() => {
+    if (!inEditor || editState !== undefined || !canRead) return
+    openEditor(tab.id, tab.contentId, file, signal, meta.value?.version)
+  }, [inEditor, editState, canRead, openEditor, tab.id, tab.contentId, file, signal, meta.value?.version])
+
+  // Query the editor's textarea, which no other body part draws.
+  const editorArea = (): HTMLTextAreaElement | undefined => {
+    const area = bodyRef.current?.querySelector('[data-textpreview-editor]')
+    return area instanceof HTMLTextAreaElement ? area : undefined
+  }
 
   // Come back where the reader was once there is content to scroll: on a remount,
   // after a reload rebuilt the content, or after the selected renderer changed.
@@ -146,7 +187,7 @@ export function TextPreview({
   // restores the reader's place instead.
   useEffect(() => {
     const body = scrollportRef.current
-    if (current === undefined || body === null || current.revision === navigation.revision) return
+    if (inEditor || current === undefined || body === null || current.revision === navigation.revision) return
     if (line === undefined || mode !== 'text-pages') {
       actions.navigated(tab.id, navigation.revision)
       return
@@ -164,27 +205,97 @@ export function TextPreview({
     // landing before any later navigation reads it.
     actions.scrolled(tab.id, body.scrollTop)
   }, [
-    navigation.revision, line, loadedThrough, current?.eof, current?.loading, current?.failure, started,
+    inEditor, navigation.revision, line, loadedThrough, current?.eof, current?.loading, current?.failure, started,
     selected?.id, mode, file, canRead, meta.value?.version,
   ])
+
+  // An editor holds the whole file, so its navigation answers as soon as the
+  // text is there: scroll the textarea to the line's measured share of the
+  // text and mark the revision answered.
+  useEffect(() => {
+    if (!inEditor || edit === undefined || current === undefined || current.revision === navigation.revision) return
+    if (line !== undefined) {
+      const area = editorArea()
+      if (area !== undefined) {
+        scrollEditorToLine(area, line, edit.text)
+        actions.scrolled(tab.id, area.scrollTop)
+      }
+    }
+    actions.navigated(tab.id, navigation.revision)
+  }, [inEditor, edit?.text, current?.revision, navigation.revision, line, actions, tab.id])
 
   const rendererReload = useCallback((): void => {
     if (canRead && selected !== undefined) prepareRenderer(tab.id, signal, selected.id, meta.value?.version, true)
   }, [canRead, prepareRenderer, tab.id, signal, selected?.id, meta.value?.version])
   const observedVersion = meta.value?.version
-  const changed = (current?.version !== undefined && observedVersion !== undefined
-    && observedVersion !== current.version && observedVersion !== current.observedVersion)
-    || state?.resourcesDirty === true
+  // The editor's own saves echo back as metadata versions; comparing against
+  // the version its text was loaded at and the one a save returned keeps the
+  // echo from reading as an external write.
+  const changed = inEditor
+    ? edit !== undefined && observedVersion !== undefined
+      && observedVersion !== edit.version && observedVersion !== edit.observedVersion
+    : (current?.version !== undefined && observedVersion !== undefined
+      && observedVersion !== current.version && observedVersion !== current.observedVersion)
+      || state?.resourcesDirty === true
   const reload = useCallback((): void => {
     if (!canRead) return
+    if (inEditor) {
+      reloadEdit(tab.id, observedVersion)
+      return
+    }
     if (mode === 'text-pages') reloadPages(tab.id, file, signal, observedVersion)
     else if (mode === 'bytes-complete') reloadAll(tab.id, file, signal, observedVersion)
     else rendererReload()
-  }, [canRead, mode, reloadPages, reloadAll, rendererReload, tab.id, file, signal, observedVersion])
+  }, [canRead, inEditor, reloadEdit, mode, reloadPages, reloadAll, rendererReload, tab.id, file, signal, observedVersion])
   useEffect(() => tab.actions.bindCommands({ refresh: reload }), [tab.actions, reload])
+  // External writes reach the editor over the same metadata channel: a clean
+  // draft follows the disk silently, a dirty one asks the reader first. The
+  // echo of this tab's own save never lands here (see `changed`).
   useEffect(() => {
-    if (state?.autoRefresh && changed && current !== undefined && !current.loading && meta.status === 'live') reload()
-  }, [state?.autoRefresh, changed, current?.loading, meta.status, reload])
+    if (!state?.autoRefresh || !changed || meta.status !== 'live') return
+    if (inEditor) {
+      if (editState === undefined || editState.saving || editState.conflict || editState.gone) return
+      if (editState.text !== editState.savedText) {
+        conflictEdit(tab.id)
+        return
+      }
+      // A failed read owns its retry: re-following now would fire a new read on
+      // every failure and replace the bar that is the way out.
+      if (editState.failure !== undefined) return
+      reloadEdit(tab.id, observedVersion)
+      return
+    }
+    if (current !== undefined && !current.loading) reload()
+  }, [
+    state?.autoRefresh, changed, inEditor, editState, current?.loading, meta.status,
+    reload, conflictEdit, reloadEdit, tab.id, observedVersion,
+  ])
+  // Metadata loss of an open editor pauses saving: the draft must not be
+  // written over a path that is gone.
+  useEffect(() => {
+    if (!inEditor || edit === undefined) return
+    if (meta.failure?.code === 'workspace-file/not-found') goneEdit(tab.id)
+  }, [inEditor, edit, meta.failure?.code, goneEdit, tab.id])
+  // Leaving the editor flushes what the debounce still holds: the window's own
+  // blur, and ⌘S / Ctrl+S without the browser's save-page dialog.
+  useEffect(() => {
+    if (!inEditor) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 's') return
+      event.preventDefault()
+      saveNow(tab.id)
+    }
+    const onBlur = (): void => { saveNow(tab.id) }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [inEditor, saveNow, tab.id])
+  // The body unmounting — the reader switched to another tab — flushes too; a
+  // record without unsaved input has nothing to write.
+  useEffect(() => () => { saveNow(tab.id) }, [saveNow, tab.id])
   const content = useMemo((): DocumentContent | undefined => {
     if (mode === 'renderer') {
       if (current === undefined) return undefined
@@ -235,14 +346,15 @@ export function TextPreview({
   const next = loadedThrough + 1
   const { name } = pathPartsOf(displayPath)
   const loadNext = (): void => {
-    if (!canRead || current?.loading || current?.eof) return
+    if (inEditor || !canRead || current?.loading || current?.eof) return
     loadPage(tab.id, file, next, signal, meta.value?.version)
   }
   // A secondary press over selected text offers Copy (the platform menu is
   // suppressed) and "add to conversation". Only the paginated text renderers
-  // take part; a binary or renderer-owned body keeps its default.
+  // take part; a binary or renderer-owned body keeps its default, and the
+  // editor's own menu handles its interior.
   const onBodyContextMenu = (event: ReactMouseEvent<HTMLDivElement>): void => {
-    if (mode !== 'text-pages') return
+    if (inEditor || mode !== 'text-pages') return
     const selection = readPreviewSelection(event.currentTarget)
     if (selection === null) return
     event.preventDefault()
@@ -273,9 +385,57 @@ export function TextPreview({
       setAddFailure(seq => seq + 1)
     }
   }
+  // The editor's own bars outrank the metadata ones: a conflict asks the reader
+  // which side wins before anything reloads or writes again.
+  const editNotice = inEditor && editState !== undefined
+    && (editState.conflict || editState.gone || editState.failure !== undefined)
+  const editStatus = !inEditor || editState === undefined || editState.blocked !== undefined
+    ? undefined
+    : editState.saving ? 'saving'
+      : editState.failure !== undefined && !editState.conflict && !editState.gone ? 'failed'
+        : editState.text === editState.savedText ? 'saved' : undefined
   return (
     <div className={css.preview} data-textpreview-state="text" data-textpreview-url={tab.contentId} data-document-preview={selected.id}>
-      {meta.failure !== undefined && hasContent
+      {inEditor && editState !== undefined && editState.conflict && (
+        <p className={css.changed} data-textpreview-edit-conflict>
+          <span>{t('edit.conflict')}</span>
+          <button
+            type="button"
+            className={css.action}
+            data-textpreview-edit-load-disk
+            onClick={() => { reloadEdit(tab.id, meta.value?.version) }}
+          >
+            {t('edit.loadDisk')}
+          </button>
+          <button
+            type="button"
+            className={css.action}
+            data-textpreview-edit-overwrite
+            onClick={() => { overwriteEdit(tab.id) }}
+          >
+            {t('edit.overwrite')}
+          </button>
+        </p>
+      )}
+      {inEditor && editState !== undefined && !editState.conflict && editState.gone && (
+        <p className={css.changed} data-textpreview-edit-gone>
+          <span>{t('edit.gone')}</span>
+        </p>
+      )}
+      {inEditor && editState !== undefined && !editState.conflict && !editState.gone && editState.failure !== undefined && (
+        <p className={css.changed} data-textpreview-edit-failed={editState.failure.code}>
+          <span>{failureLine(t, editState.failure)}</span>
+          <button
+            type="button"
+            className={css.action}
+            data-textpreview-edit-retry
+            onClick={() => { retryEdit(tab.id) }}
+          >
+            {t('retry')}
+          </button>
+        </p>
+      )}
+      {!editNotice && (meta.failure !== undefined && hasContent
         ? (
           // The file's metadata failed — gone, or its workspace unknown — which
           // outranks a pending change; the pages already read stay under it.
@@ -305,9 +465,22 @@ export function TextPreview({
               {t('reloadNow')}
             </button>
           </p>
-        )}
+        ))}
       <div className={css.header}>
         <PathLabel path={displayPath} className={css.path} data-textpreview-path />
+        {editStatus !== undefined && (
+          <span className={css.editStatus} data-textpreview-edit-status={editStatus}>
+            {t(editStatus === 'saving' ? 'edit.saving' : editStatus === 'saved' ? 'edit.saved' : 'edit.failed')}
+          </span>
+        )}
+        {readonlyReason !== undefined && (
+          <span className={css.editReason} data-textpreview-readonly={readonlyReason}>
+            {readonlyReason === 'outside' ? t('edit.readonly.outside')
+              : readonlyReason === 'too-large' ? t('edit.readonly.tooLarge', { limit: humanBytes(EDIT_MAX_BYTES) })
+                : readonlyReason === 'not-text' ? t('edit.readonly.notText')
+                  : t('edit.readonly.bom')}
+          </span>
+        )}
         {candidates.length > 1
           && (
             <Menu
@@ -319,7 +492,10 @@ export function TextPreview({
               )}
               items={candidates.map(candidate => ({ id: candidate.id, label: candidate.title() }))}
               selectedId={selected.id}
-              onSelect={(id) => { actions.selected(tab.id, id); setMenuOpen(false) }}
+              // The viewer menu is the entry to and the exit from editing:
+              // whatever the debounce still holds is saved before the body
+              // changes what it shows.
+              onSelect={(id) => { saveNow(tab.id); actions.selected(tab.id, id); setMenuOpen(false) }}
               onClose={() => { setMenuOpen(false) }}
               align="end"
               portal
@@ -385,17 +561,37 @@ export function TextPreview({
             && body.scrollTop + body.clientHeight >= body.scrollHeight - 1) loadNext()
         }}
       >
-        {mode !== 'renderer' && !hasContent && current?.failure === undefined && (
+        {inEditor && edit === undefined && (
           <LoadingIndicator label={t('loading')} />
         )}
-        {content !== undefined && renderSlot('sidebar.right.tab.document', {
+        {inEditor && edit !== undefined && (
+          <EditBody
+            text={edit.text}
+            wrap={state.wrap}
+            scrollTop={state.scrollTop}
+            absolutePath={displayPath}
+            labels={{
+              copy: t('menu.copy'), cut: t('menu.cut'), addSelection: t('menu.addSelection'),
+              addFailed: t('menu.addFailed'), truncated: t('snippet.truncated'), incomplete: t('snippet.incomplete'),
+            }}
+            addToConversation={addToConversation}
+            onDraft={(text) => { editChanged(tab.id, text) }}
+            onComposing={(active) => { editComposing(tab.id, active) }}
+            onSave={() => { saveNow(tab.id) }}
+            onScrolled={(scrollTop) => { actions.scrolled(tab.id, scrollTop) }}
+          />
+        )}
+        {!inEditor && mode !== 'renderer' && !hasContent && current?.failure === undefined && (
+          <LoadingIndicator label={t('loading')} />
+        )}
+        {!inEditor && content !== undefined && renderSlot('sidebar.right.tab.document', {
           resourceAddress: tab.contentId, content, wrap: state.wrap, scrollportRef: bindScrollport,
           addResource: add, setResources: set,
         }, {
           entryKey: selected.id, hookContext: useTabInfo,
           fallback: <p className={css.statusLine}>{t('rendererUnavailable', { name: selected.title() })}</p>,
         })}
-        {current?.failure !== undefined && (hasContent
+        {!inEditor && current?.failure !== undefined && (hasContent
           ? (
             <p className={css.statusLine} data-textpreview-failed={current.failure.code}>
               <span>{failureLine(t, current.failure)}</span>
@@ -433,7 +629,7 @@ export function TextPreview({
               )}
             </div>
           ))}
-        {mode === 'text-pages' && current !== undefined && loaded.length > 0 && !current.eof && current.failure === undefined && (
+        {!inEditor && mode === 'text-pages' && current !== undefined && loaded.length > 0 && !current.eof && current.failure === undefined && (
           <button
             type="button"
             className={css.more}

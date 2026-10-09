@@ -21,7 +21,9 @@ import type { WorkspaceFileStat, WorkspaceFileText } from '@deepseek-ai/dsh-api-
 import type { TextPreviewProps } from '../src/client/TextPreview.tsx'
 import { textFace } from '../src/client/face.ts'
 import type { TextInjected } from '../src/client/face.ts'
-import type { DocumentFileBytes, ReadDocumentBytes, ReadWorkspaceFilePage, SessionFile } from '../src/client/rpc.ts'
+import { createEditEngine } from '../src/client/edit/engine.ts'
+import type { EditEngine } from '../src/client/edit/engine.ts'
+import type { DocumentFileBytes, ReadDocumentBytes, ReadWorkspaceFilePage, SessionFile, StatWorkspaceFile, WriteWorkspaceFileText } from '../src/client/rpc.ts'
 import { createTextStore } from '../src/client/store.ts'
 import type { TextStore } from '../src/client/store.ts'
 import type { DocumentPreviewProps } from '../src/client/document/contract.ts'
@@ -42,6 +44,11 @@ export function documentSlots(body: BodySlot): TextPreviewProps['renderSlot'] {
   return (name: string, owner: unknown, options?: unknown) => name === 'sidebar.right.tab.document'
     ? body(name, owner as Parameters<BodySlot>[1], options as Parameters<BodySlot>[2])
     : null
+}
+
+/** An editor with no disk behind it, for specs that only drive the read half of the face. */
+export function idleEditor(): EditEngine {
+  return createEditEngine({ readAll: vi.fn(), write: vi.fn(), stat: vi.fn() })
 }
 
 export const TAB_ID = 'tab-1' as TabId
@@ -100,10 +107,16 @@ export interface Harness {
   instance: ReturnType<TextStore['create']>
   /** The face bound to the scripted read. */
   face: TextInjected
+  /** The editor engine the face drives, for a spec assembling its own face. */
+  editor: EditEngine
   /** The scripted paged read. */
   read: Mock<ReadWorkspaceFilePage>
-  /** The complete byte reader. */
+  /** The complete byte reader; the editor's own read and the renderers' whole-file read. */
   bytes: Mock<ReadDocumentBytes>
+  /** The scripted version-guarded write. */
+  write: Mock<WriteWorkspaceFileText>
+  /** The scripted stat. */
+  stat: Mock<StatWorkspaceFile>
   /** The tab record's lifetime. */
   controller: AbortController
   /** Current file metadata. */
@@ -114,6 +127,8 @@ export interface Harness {
   props: (navigation?: { params?: unknown; revision: number }) => TextPreviewProps
   /** Script what one offset resolves to from now on. */
   script(offset: number, result: RemoteResult<WorkspaceFileText>): void
+  /** Script what the complete byte read resolves to from now on. */
+  scriptBytes(result: RemoteResult<DocumentFileBytes>): void
   /** Publish another metadata version without acknowledging any tab's content. */
   setVersion(version: string | undefined): void
   /** Script the next render's `useResource` as failed with `failure`, or live again with `undefined`. */
@@ -124,18 +139,30 @@ export interface Harness {
  * One tab record's harness.
  * @param script - the page each offset resolves to; an unscripted offset fails `not-found`.
  * @param tabId - owning tab record.
+ * @param options - the addressed path and the Session's workspace root, which decide whether an editor opens.
  * @returns the store, the scripted faces, and a props builder.
  */
-export function harness(script: Record<number, RemoteResult<WorkspaceFileText>> = {}, tabId = TAB_ID): Harness {
+export function harness(
+  script: Record<number, RemoteResult<WorkspaceFileText>> = {},
+  tabId = TAB_ID,
+  options: { cwd?: string; path?: string } = {},
+): Harness {
   const instance = createTextStore().create()
+  const filePath = options.path ?? PATH
+  const address = `dsh-resource://file/session/${SESSION}/${filePath}`
   const pages: Record<number, RemoteResult<WorkspaceFileText>> = { ...script }
   const read = vi.fn<ReadWorkspaceFilePage>((_session, _path, offset) =>
     Promise.resolve(pages[offset] ?? failure('workspace-file/not-found', { path: PATH })))
   const bytes = vi.fn<ReadDocumentBytes>()
-  const face = textFace(read, bytes, createResources())(SESSION, instance.actions)
+  const write = vi.fn<WriteWorkspaceFileText>()
+  const stat = vi.fn<StatWorkspaceFile>()
+  const editor = createEditEngine({ readAll: bytes, write, stat })
+  const face = textFace(read, bytes, createResources(), editor)(SESSION, instance.actions)
   const current = { version: 'v1' as string | undefined, failure: undefined as RemoteFailure | undefined, snapshot: meta('v1', undefined) }
   const refresh = (): void => { current.snapshot = meta(current.version, current.failure) }
   const useResource = vi.fn<() => ResourceSnapshot<WorkspaceFileStat>>(() => current.snapshot)
+  const sessions = { byId: options.cwd === undefined ? {} : { [SESSION]: { cwd: options.cwd } } }
+  const useSessions = (select: (state: typeof sessions) => unknown): unknown => select(sessions)
   const controller = new AbortController()
   onTestFinished(() => { controller.abort() })
   const tabActions = { bindCommands: vi.fn(() => vi.fn()), openResource: vi.fn(), openTab: vi.fn(), close: vi.fn(), replace: vi.fn() }
@@ -156,14 +183,15 @@ export function harness(script: Record<number, RemoteResult<WorkspaceFileText>> 
       sidebar: { expanded: true, fullscreen: false },
       panel: { id: 'pane-1' },
       tab: {
-        id: tabId, kind: 'text', contentId: ADDRESS, title: 'notes.md', visible: true,
-        navigation: { address: ADDRESS, params: navigation.params, revision: navigation.revision },
+        id: tabId, kind: 'text', contentId: address, title: 'notes.md', visible: true,
+        navigation: { address, params: navigation.params, revision: navigation.revision },
         signal: controller.signal,
         actions: tabActions,
       },
     }),
     sessionId: SESSION,
     useResource,
+    useSessions,
     useStore: hookOf(instance),
     actions: instance.actions,
     loadPage: face.loadPage,
@@ -171,6 +199,9 @@ export function harness(script: Record<number, RemoteResult<WorkspaceFileText>> 
     prepareRenderer: face.prepareRenderer, loadAll: face.loadAll,
     reloadAll: face.reloadAll,
     addResource: face.addResource, setResources: face.setResources,
+    openEditor: face.openEditor, editChanged: face.editChanged, editComposing: face.editComposing,
+    saveNow: face.saveNow, retryEdit: face.retryEdit, overwriteEdit: face.overwriteEdit,
+    reloadEdit: face.reloadEdit, conflictEdit: face.conflictEdit, goneEdit: face.goneEdit,
     useDocumentPreviews: () => definitions,
     renderSlot,
     t,
@@ -178,13 +209,17 @@ export function harness(script: Record<number, RemoteResult<WorkspaceFileText>> 
   return {
     instance,
     face,
+    editor,
     read,
     bytes,
+    write,
+    stat,
     controller,
     get file() { return current.snapshot.value },
     useResource,
     props,
     script(offset, result) { pages[offset] = result },
+    scriptBytes(result) { bytes.mockImplementation(() => Promise.resolve(result)) },
     setVersion(version) { current.version = version; refresh() },
     setFailure(failure) { current.failure = failure; refresh() },
   }

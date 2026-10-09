@@ -8,6 +8,7 @@ import WorkspaceFiles from '../src/index.ts'
 const CAPS = {
   maxBytes: 1024,
   maxFileBytes: 1024,
+  maxWriteBytes: 1024 * 1024,
   maxLines: 100,
   maxEntries: 100,
 }

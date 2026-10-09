@@ -3575,8 +3575,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'workspaceFiles',
-    summary: 'Host Remote file reads and workspace directory observations over the composed filesystem.',
-    description: 'Host Remote file reads and workspace directory observations over the composed filesystem.',
+    summary: 'Host Remote file reads and writes and workspace directory observations over the composed filesystem.',
+    description: 'Host Remote file reads and writes and workspace directory observations over the composed filesystem.',
     methods: [
       {
         signature: '@Remote async read( workspaceFileScope: WorkspaceFileScope, path: string, range: WorkspaceFileRange, signal: AbortSignal, ): Promise<WorkspaceFileText>',
@@ -3608,6 +3608,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'workspaceFileScope', description: 'header-derived workspace root for the Session identity on the wire.' }, { name: 'parentPath', description: 'existing workspace directory, absolute or relative to the workspace root; a final link is followed as `list` follows it.' }, { name: 'name', description: 'the new entry\'s single path segment.' }, { name: 'type', description: 'whether to create a regular file or a directory.' }, { name: 'signal', description: 'caller cancellation.' }],
         returns: 'the created entry\'s absolute path and type.',
         throws: ['RemoteError `workspace-file/invalid-name` for a name that is not one path segment, and `workspace-file/already-exists` when the name is taken.'],
+      },
+      {
+        signature: '@Remote async writeText( workspaceFileScope: WorkspaceFileScope, path: string, content: string, expectedVersion: string, signal: AbortSignal, ): Promise<WorkspaceFileStat>',
+        description: 'Replace one existing workspace file\'s complete text under a version guard. The target must already be a regular file inside the workspace; this method never creates one. The caller sends LF text and the file keeps its own line ending style: the style is detected from the file before the write and restored, because the filesystem seam writes the given text verbatim. Anything else about the content, a BOM included, is written as received. A caller-supplied version that no longer matches the disk — at the initial stat or discovered by the write\'s own guard — refuses with `stale-version` and leaves the file untouched; there is no unconditional overwrite. The write is fenced to the Session\'s workspace root under every sandbox mode, because the caller is the user and not a model tool.',
+        parameters: [{ name: 'workspaceFileScope', description: 'header-derived workspace root for the Session identity on the wire.' }, { name: 'path', description: 'absolute path or path relative to the workspace root; the resolved target must stay inside the workspace.' }, { name: 'content', description: 'the complete new text, LF line endings; above the configured write cap it is refused.' }, { name: 'expectedVersion', description: 'the version of the caller\'s last read; the write is guarded against it.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'the file\'s absolute path, its version after the write, and the written byte size.',
+        throws: ['RemoteError `workspace-file/stale-version` when the file changed since the version the caller read.'],
       },
       {
         signature: '@Remote({ mode: \'stream\' }) changes(workspaceFileScope: WorkspaceFileScope, path: string, signal: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame>',

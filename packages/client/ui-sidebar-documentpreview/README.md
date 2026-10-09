@@ -9,13 +9,14 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Preview files in the right Sidebar and choose among registered renderers. Markdown and code support paged text; PDF, HTML, common images, and spreadsheets receive complete bytes; unknown extensions use plain text. Word and PowerPoint documents convert locally to PDF; spreadsheets open in the browser. The tab provides file status, renderer selection, wrap, and automatic or manual reload. Plugins can add local opening controls to the header and unsupported-preview empty state.
+Preview files in the right Sidebar and choose among registered renderers. Markdown and code support paged text; PDF, HTML, common images, and spreadsheets receive complete bytes; unknown extensions use plain text. Workspace Markdown and YAML edit in place under the Code and Plain text viewers with autosave. Word and PowerPoint documents convert locally to PDF; spreadsheets open in the browser. The tab provides file status, renderer selection, wrap, and automatic or manual reload. Plugins can add local opening controls to the header and unsupported-preview empty state.
 
 ## Table of Contents
 
 - [What it registers](#what-it-registers)
 - [Addresses](#addresses)
 - [How it reads](#how-it-reads)
+- [Editing](#editing)
 - [Excel preview](#excel-preview)
 - [Office preview](#office-preview)
 - [Navigation](#navigation)
@@ -64,6 +65,15 @@ PNG, JPEG, GIF, WebP, BMP, ICO, and SVG render through Blob URLs in an `<img>` s
 Shared copy comes from `sidebarDocumentPreview`; each builtin renderer owns its localized labels. PDF and converted Office previews use a cool light-grey background in light mode and a matte-black background in dark mode, with subtle page shadows and original document colors. PDF and image previews share a floating control with **Fit width**, 25%, 50%, 100%, 150%, and 200% choices plus 25% incremental zoom across the 25%–400% fixed range. Fit width is the default and tracks pane resizing; 100% means the PDF's 96-DPI page size or the image's intrinsic CSS-pixel size. On fine pointers, the control starts hidden, slides up when the pointer enters the bottom 72 CSS pixels, and slides down after a 420 ms leave delay; hover, keyboard focus, an open menu, and an active gesture keep it visible, while devices without hover keep it visible continuously. Chromium maps a macOS trackpad pinch to the same live, pointer-anchored path as Ctrl+wheel; the control displays the gesture percentage, and the settled value survives body remounts until the tab closes. HTML previews do not expose zoom controls. After zoom settles or fit width changes, nearby PDF pages redraw at the resolved scale multiplied by the device pixel ratio. The previous bitmap and selectable text stay visible until the replacement bitmap is ready; offscreen pages refresh when they approach the viewport.
 
 Initial reads and renderer preparation, including Office conversion, share a centered 28px ongoing `StateDot` with the visible localized status “Rendering document...”. The status exposes the same accessible name and respects reduced-motion preferences. Additional text pages keep a compact inline spinner while loaded content stays visible. The PDF body loads its package-local `client.pdf.js` chunk only when a PDF preview mounts; PDF.js, its Worker source, and embedded support data stay out of the startup `client.js`. PDF and converted Word/PowerPoint pages form a vertical sequence with 12px page gaps and a 12px outer inset showing the theme-specific document background; fit width reserves this inset, and pages render lazily near the viewport; an unrendered page holds its place as a quiet 3:4 placeholder block. PDF.js’s official TextLayerBuilder manages selection boundaries and normalized copying over an aligned text layer. Its companion styles keep blank line breaks unhighlighted; alignment accounts for PDF page units, page rotation, and viewport resizing, and page disposal cancels both layers. Image-only PDFs contain no selectable text. Code previews show a tertiary-colored language label and a copy icon with a tooltip; wrapping remains in the document toolbar. They show source line numbers by default without including them in copied text; plain text uses the same font size and line height as code. Code sits on the pane's own background rather than the chat card's fill; its banner is adjacent to a full-height inner scrollport, so both scrollbars begin below the copy control.
+
+<a id="editing"></a>
+## Editing
+
+Workspace Markdown and YAML edit in place through the **Code** and **Plain text** viewers: `.md`, `.markdown`, `.yaml`, and `.yml` files inside the Session workspace render a monospace `<textarea>` over the complete file, read once per tab record with `readBytes` and kept with the returned version as the save baseline. The viewer menu is the only entry — **Markdown** stays read-only — and files outside the workspace, over 1 MiB, not valid UTF-8 without NUL bytes, or carrying a byte-order mark keep their read-only rendering, with the header naming the reason. Switching between Code and Plain text shares one draft and baseline and reads no page. Tab inserts two spaces, an input-method composition suspends saving, and undo/redo is the browser's.
+
+Input saves 800 ms after it rests; blur, window blur, ⌘S/Ctrl+S (the browser's save dialog is suppressed), a viewer switch, and a closing tab flush it immediately. One write is in flight at a time — input during one is written by its settlement, and text unchanged from the last saved text sends nothing — and each write carries the baseline version to `workspaceFiles.writeText`, adopting the returned version so the tab's own save echo never reloads or moves the caret. The header reports Saving, Saved, or Save failed, and a failed save keeps the draft behind a Retry. The disk moving under a dirty draft pauses saving behind a bar offering **Load the disk version** (replace the draft) and **Overwrite with my version** (`stat`, then write); a removed file pauses saving and keeps the text for copying.
+
+Right-pressing a non-empty selection opens the editor's own menu — Copy, Cut, and Add selection to the current conversation, whose `path:line-line` snippet reuses the read-only renderers' format with lines counted from the textarea offsets; without a selection the platform menu stays. The closing flush starts before the tab record ends and rides its own signal, so the write outlives the tab, its result reaches no store bucket, and a close with the conflict question unanswered writes nothing.
 
 <a id="excel-preview"></a>
 ## Excel preview
@@ -135,7 +145,8 @@ No direct effect; what the user reads here never enters a model request.
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
-- **Preview, not editing.** The viewers provide no file editing or shared search interface; a directory address fails with `not-regular-file`. Unknown extensions use the plain-text reader and remain subject to its UTF-8/NUL checks.
+- **Editing covers workspace Markdown and YAML only.** The Code and Plain text viewers edit `.md`, `.markdown`, `.yaml`, and `.yml` inside the Session workspace and autosave them; every other file and viewer stays read-only, and there is no shared search interface. A directory address fails with `not-regular-file`, and unknown extensions use the plain-text reader under its UTF-8/NUL checks.
+- **Exit relies on blur saves.** App exit, window reload, and Session switches rely on the window-blur and textarea-blur immediate saves; input typed within the last 800 ms before an abrupt exit can be lost.
 - **Office conversion limits.** The preview does not launch native Office editors or download an engine. Binary `.doc` and `.ppt` files return no missing-font diagnostics. Conversion fidelity and resource limits belong to the [LibreOffice provider](../../document/office-to-pdf/README.md).
 - **Sequential text and bounded complete files.** Deep source lines require the preceding pages; PDF, HTML, and images require a complete result within the Host's `maxFileBytes` cap.
 - **PDF raster allocation is bounded.** Each page bitmap is capped at 16,777,216 pixels; very large pages or high zoom on high-density displays can still render below device resolution.

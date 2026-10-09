@@ -10,6 +10,9 @@
  *   same path.
  * - `create` takes its parent directory in the syntax `list` accepts and
  *   answers with the created entry's absolute path.
+ * - `writeText` names its file the same way `create` names a parent — absolute
+ *   or relative to the workspace root — and, unlike the reads, refuses a
+ *   target outside the workspace.
  * - `list` speaks workspace paths — the same syntax its `path` argument accepts —
  *   because its consumer is a tree rooted at the workspace root.
  *
@@ -189,5 +192,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'workspace-file/already-exists': { readonly path: string }
     /** The name given to `create` is not exactly one path segment. */
     'workspace-file/invalid-name': { readonly name: string }
+    /**
+     * The file's version no longer matches `writeText`'s `expectedVersion`;
+     * `version` is the file's current version and nothing was written.
+     */
+    'workspace-file/stale-version': { readonly path: string; readonly version: string }
   }
 }
