@@ -118,6 +118,47 @@
   background: transparent;
 }
 
+/* The name row for a new entry sits where a row would, at the row's inset. */
+.draft {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  padding: 3px 10px;
+}
+
+.draftInput {
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 1px 6px;
+  color: inherit;
+  font: inherit;
+  background: var(--dsw-alias-bg-layer-1);
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-sm);
+  outline: none;
+}
+
+.draftInput:focus {
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.draftInput[aria-invalid='true'] {
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
+.draftInput::placeholder {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.draftError {
+  margin: 0;
+  padding: 0 10px 3px 32px;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+}
+
 .note {
   margin: 0;
   padding: 3px 10px;

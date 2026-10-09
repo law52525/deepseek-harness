@@ -221,6 +221,35 @@ describe('the per-call policy override (escalation)', () => {
   })
 })
 
+describe('directory creation', () => {
+  it('read-only denies it, leaving no directory on disk', async () => {
+    await boot('read-only')
+    const path = join(workspace, 'denied')
+    await expect(fs.createDirectory(await target(path))).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    expect(existsSync(path)).toBe(false)
+  })
+
+  it('workspace-write creates inside the workspace and denies outside it, directly or through a link', async () => {
+    await boot('workspace-write')
+    await fs.createDirectory(await target(join(workspace, 'made')))
+    expect(existsSync(join(workspace, 'made'))).toBe(true)
+    await expect(fs.createDirectory(await target(join(outside, 'escape')))).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    await symlink(outside, join(workspace, 'link'))
+    await expect(fs.createDirectory(await target(join(workspace, 'link', 'escape')))).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    expect(existsSync(join(outside, 'escape'))).toBe(false)
+  })
+
+  it('a per-call workspace-write policy fences by its own root under any default mode', async () => {
+    await boot('danger-full-access')
+    const policy = { mode: 'workspace-write', workspaceRoot: workspace } as const
+    await fs.createDirectory(await target(join(workspace, 'made')), undefined, policy)
+    expect(existsSync(join(workspace, 'made'))).toBe(true)
+    await expect(fs.createDirectory(await target(join(outside, 'escape')), undefined, policy))
+      .rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    expect(existsSync(join(outside, 'escape'))).toBe(false)
+  })
+})
+
 describe('registration and HMR safety', () => {
   it('registers as ctx.fs and unregisters cleanly from a child fiber', async () => {
     await boot('workspace-write')

@@ -145,5 +145,5 @@ Client 导出向 `ctx.resources` 注册一个 `ResourceProvider<'file'>`，存�
 ## Deferred
 
 - 给 `changes` 一代流的队列加上限。
-- 写入和搜索操作；本服务只读。
+- 内容写入和搜索操作；唯一的修改操作是 `create`，它新建一个空文件或空目录。
 - 文件地址中 `session` 之外的作用域；语法留有余地，提供者只服务一个。

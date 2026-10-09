@@ -37,6 +37,8 @@ kind: "package-reference"
 
 `watch(target, changed, signal)` 报告单个文件或目录直接子项的失效通知。观察就绪后，它返回调用方必须等待完成的异步关闭函数。signal 取消初始化；不支持监听的提供方直接拒绝，不使用轮询。
 
+`createDirectory(target, signal?, sandboxPolicy?)` 只创建一级目录。父目录不存在时以 `FS_NOT_FOUND` 失败；目标处已有任何条目时以 `FS_NOT_OBSERVED` 失败，已有条目保持不变。基类以 `FS_IO_ERROR` 拒绝，因此没有覆盖该方法的提供方不会创建任何东西；沙箱提供方按 `sandboxPolicy` 约束这次创建，方式与约束 `writeText` 相同。
+
 -----
 
 <a id="understand-the-implementation"></a>

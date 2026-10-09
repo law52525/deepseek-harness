@@ -145,5 +145,5 @@ Host specs in `packages/api/workspace-files/tests` exercise header-only scope re
 ## Deferred
 
 - A bound on a `changes` generation's queue.
-- Write and search operations; the service is read-only.
+- Content writes and search operations; the only mutation is `create`, which adds one empty file or directory.
 - Scopes other than `session` in the file address; the grammar leaves room, the provider serves one.

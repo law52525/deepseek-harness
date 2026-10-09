@@ -4,7 +4,7 @@
  * text-storage mechanics — resolve, stat, read/stream, list, the atomic
  * write and the read-match-write edit critical section — are the local
  * implementation's, verbatim; this package adds only the per-call POLICY fence
- * on the two mutations. Reads pass through untouched: every mode permits
+ * on the mutations: write, edit, and directory creation. Reads pass through untouched: every mode permits
  * reading.
  *
  * The fence is a policy check in TRUSTED code over a MODEL-CONTROLLED path,
@@ -106,6 +106,19 @@ export class SandboxedFileSystem extends LocalFileSystem {
     sandboxPolicy?: SandboxExecutionPolicy,
   ): Promise<FsEditOutcome> {
     return super.editText(await this.checkedTarget(target, sandboxPolicy), edit, expected, signal)
+  }
+
+  /**
+   * Fence the directory creation by the per-call policy, then delegate to the
+   * inherited single-level creation. See {@link checkedTarget}.
+   * @param target - the resolved target to create.
+   * @param signal - aborts before the directory is created.
+   * @param sandboxPolicy - the per-call mode and workspace root; omit to use
+   *   the deployment fallback.
+   * @returns once the inherited backend has created the directory.
+   */
+  override async createDirectory(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<void> {
+    return super.createDirectory(await this.checkedTarget(target, sandboxPolicy), signal)
   }
 
   /**

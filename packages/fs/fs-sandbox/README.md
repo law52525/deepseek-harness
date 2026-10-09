@@ -47,7 +47,7 @@ The effective mode comes from the calling session's override or escalation grant
 
 ### Observable success and failures
 
-Reads, listings, metadata, and read-only watches work exactly as with `fs-local`; the mutation fence does not restrict observation. A denied mutation returns an `FS_SANDBOX_DENIED` error carrying the effective mode; through the tools the model sees `[sandbox: file access denied under <mode> mode]` plus the one-approved-wider retry hint, identical to bash's denials. A session with an approved escalation may retry the same operation at a strictly wider mode for that one call.
+Reads, listings, metadata, and read-only watches work exactly as with `fs-local`; the mutation fence does not restrict observation. The fence covers `writeText`, `editText`, and `createDirectory`. A denied mutation returns an `FS_SANDBOX_DENIED` error carrying the effective mode; through the tools the model sees `[sandbox: file access denied under <mode> mode]` plus the one-approved-wider retry hint, identical to bash's denials. A session with an approved escalation may retry the same operation at a strictly wider mode for that one call.
 
 -----
 
@@ -67,7 +67,7 @@ The fence is a policy check in trusted code over a model-controlled path — not
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | `SandboxedFileSystem`: mode fence on `writeText`/`editText`, `sandboxMode` fact |
+| [`src/index.ts`](src/index.ts) | `SandboxedFileSystem`: mode fence on `writeText`/`editText`/`createDirectory`, `sandboxMode` fact |
 | [`src/containment.ts`](src/containment.ts) | Ancestor containment check with lexical fast path and identity-based fallback |
 
 ### How a mutation is fenced

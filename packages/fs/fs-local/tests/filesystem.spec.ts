@@ -14,7 +14,7 @@ import { join, parse, relative } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
-import { FsVersion } from '@deepseek-ai/dsh-fs'
+import { FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
 
 let dir: string
@@ -355,6 +355,48 @@ describe('readByteRange', () => {
     const controller = new AbortController()
     controller.abort()
     await expect(fs.readByteRange(await fs.resolve('a.bin'), { offset: 0, length: 1 }, controller.signal)).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+})
+
+describe('createDirectory', () => {
+  it('creates exactly one empty directory level', async () => {
+    const target = await fs.resolve('made')
+    await fs.createDirectory(target)
+    expect((await stat(join(dir, 'made'))).isDirectory()).toBe(true)
+    expect(await fs.listDir(target)).toEqual([])
+    expect(lockCount(fs)).toBe(0)
+  })
+
+  it('rejects an existing directory, file, or dangling link and leaves each untouched', async () => {
+    await mkdir(join(dir, 'held'))
+    await writeFile(join(dir, 'held', 'child.txt'), 'kept')
+    await writeFile(join(dir, 'file.txt'), 'kept')
+    await symlink(join(dir, 'missing'), join(dir, 'dangling'))
+    for (const name of ['held', 'file.txt', 'dangling']) {
+      await expect(fs.createDirectory(await fs.resolve(name))).rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
+    }
+    expect(await readFile(join(dir, 'held', 'child.txt'), 'utf8')).toBe('kept')
+    expect(await readFile(join(dir, 'file.txt'), 'utf8')).toBe('kept')
+    await expect(stat(join(dir, 'missing'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('does not create a missing parent', async () => {
+    await expect(fs.createDirectory(await fs.resolve('absent/child'))).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+    await expect(stat(join(dir, 'absent'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.skipIf(process.platform === 'win32')('reports a file parent and an unusable name through the typed codes', async () => {
+    await writeFile(join(dir, 'file.txt'), 'kept')
+    const underFile: FsTarget = { targetKey: FsTargetKey(join(dir, 'file.txt', 'child')), displayPath: join(dir, 'file.txt', 'child') }
+    await expect(fs.createDirectory(underFile)).rejects.toMatchObject({ code: 'FS_NOT_DIRECTORY' })
+    const overlong = join(dir, 'n'.repeat(4096))
+    await expect(fs.createDirectory({ targetKey: FsTargetKey(overlong), displayPath: 'overlong' })).rejects.toMatchObject({ code: 'FS_IO_ERROR' })
+    expect(await readFile(join(dir, 'file.txt'), 'utf8')).toBe('kept')
+  })
+
+  it('rejects an already-aborted signal without creating anything', async () => {
+    await expect(fs.createDirectory(await fs.resolve('made'), AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
+    await expect(stat(join(dir, 'made'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })
 

@@ -7,6 +7,10 @@
  * file opens through the owner's `tabActions` for a `file:` viewer to claim, and
  * anything else is shown but refuses to open. The header uses the shared
  * PathLabel for the root, followed by reload for the expanded directories.
+ *
+ * A secondary press on a directory row, or on the body outside every row,
+ * offers a new file or folder there; the choice opens one name row at the top
+ * of that directory's level.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -25,7 +29,7 @@ import type { WorkspaceDirectoryEntry } from '@deepseek-ai/dsh-api-workspace-fil
 import { childPath } from './face.ts'
 import type { FilesInjected } from './face.ts'
 import type {} from './locales.ts'
-import type { FilesTabState, createFilesStore } from './store.ts'
+import type { CreateDraft, FilesTabState, createFilesStore } from './store.ts'
 import css from './FilesBody.module.css'
 
 /** The body's composed props: the tab it draws, its store, its face, and its copy. */
@@ -69,8 +73,28 @@ export function failureLine(t: TranslateNS<'sidebarFiles'>, failure: RemoteFailu
   }
 }
 
+/**
+ * Say why a new entry could not be created, in terms of the name row.
+ * @param t - namespace-bound translate.
+ * @param failure - the settled Remote failure, or the Client's own refusal of the name.
+ * @returns the line to show under the name row.
+ */
+export function createFailureLine(t: TranslateNS<'sidebarFiles'>, failure: RemoteFailure): string {
+  switch (failure.code) {
+    case 'workspace-file/already-exists': return t('create.exists')
+    case 'workspace-file/invalid-name': return t('create.invalidName')
+    case 'workspace-file/not-found':
+    case 'workspace-file/not-directory': return t('create.parentGone')
+    // A provider that cannot create, a sandbox refusal, and a transport
+    // failure reach the reader as themselves.
+    default: return t('create.failed', { message: failure.message })
+  }
+}
+
 /** One entry the reader can offer to the current conversation. */
 interface RowTarget {
+  /** Absolute path of the level the row is listed in. */
+  readonly parent: string
   readonly path: string
   readonly name: string
   readonly kind: 'file' | 'directory'
@@ -83,6 +107,10 @@ interface TreeContext {
   readonly onOpen: (path: string) => void
   /** Open the row's context menu at the pointer. */
   readonly onRowMenu: (target: RowTarget, point: ContextMenuPoint) => void
+  /** Submit the open name row. */
+  readonly onCreate: (draft: CreateDraft, name: string) => void
+  /** Close the open name row without creating anything. */
+  readonly onCancelCreate: () => void
   readonly t: TranslateNS<'sidebarFiles'>
 }
 
@@ -100,7 +128,7 @@ function Entry({ parent, entry, tree }: { parent: string; entry: WorkspaceDirect
           onClick={() => { tree.onToggle(parent, path) }}
           onContextMenu={(event) => {
             event.preventDefault()
-            tree.onRowMenu({ path, name: entry.name, kind: 'directory' }, { x: event.clientX, y: event.clientY })
+            tree.onRowMenu({ parent, path, name: entry.name, kind: 'directory' }, { x: event.clientX, y: event.clientY })
           }}
         >
           {expanded ? <IconFolderOpenRegular className={css.icon} /> : <IconFolderCloseRegular className={css.icon} />}
@@ -119,7 +147,7 @@ function Entry({ parent, entry, tree }: { parent: string; entry: WorkspaceDirect
           onClick={() => { tree.onOpen(path) }}
           onContextMenu={(event) => {
             event.preventDefault()
-            tree.onRowMenu({ path, name: entry.name, kind: 'file' }, { x: event.clientX, y: event.clientY })
+            tree.onRowMenu({ parent, path, name: entry.name, kind: 'file' }, { x: event.clientX, y: event.clientY })
           }}
         >
           <FileTypeIcon kind={classifyFileType(entry.name)} size={16} className={css.fileIcon} />
@@ -137,23 +165,91 @@ function Entry({ parent, entry, tree }: { parent: string; entry: WorkspaceDirect
   )
 }
 
-/** One directory's rows: its state while listing, its entries once listed. */
+/**
+ * The name row for one new entry: Enter submits, Escape or losing focus closes
+ * it, and neither does anything while a submission is in flight.
+ */
+function DraftRow({ draft, tree }: { draft: CreateDraft; tree: TreeContext }): ReactNode {
+  const { t } = tree
+  const [name, setName] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  // Focus on open, and again when a refused submission hands the row back:
+  // the browser drops focus from an input while it is disabled.
+  useEffect(() => {
+    if (!draft.pending) inputRef.current?.focus()
+  }, [draft.pending])
+  return (
+    <li className={css.item} data-files-draft={draft.type}>
+      <span className={css.draft}>
+        {draft.type === 'directory'
+          ? <IconFolderCloseRegular className={css.icon} />
+          : <FileTypeIcon kind={classifyFileType(name)} size={16} className={css.fileIcon} />}
+        <input
+          ref={inputRef}
+          className={css.draftInput}
+          value={name}
+          disabled={draft.pending}
+          placeholder={t('create.placeholder')}
+          aria-label={t(draft.type === 'directory' ? 'menu.newFolder' : 'menu.newFile')}
+          aria-invalid={draft.failure !== undefined}
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => { setName(event.target.value) }}
+          onKeyDown={(event) => {
+            // Enter and Escape that settle an IME composition belong to the IME.
+            if (event.nativeEvent.isComposing) return
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              tree.onCreate(draft, name)
+            } else if (event.key === 'Escape') {
+              event.preventDefault()
+              event.stopPropagation()
+              tree.onCancelCreate()
+            }
+          }}
+          onBlur={() => {
+            if (!draft.pending) tree.onCancelCreate()
+          }}
+        />
+      </span>
+      {draft.failure !== undefined && (
+        <p className={css.draftError} role="alert" data-files-draft-error={draft.failure.code}>
+          {createFailureLine(t, draft.failure)}
+        </p>
+      )}
+    </li>
+  )
+}
+
+/** One directory's rows: its open name row first, then its state while listing or its entries once listed. */
 function Level({ path, tree }: { path: string; tree: TreeContext }): ReactNode {
   const { state, t } = tree
   const level = state.levels[path]
+  const draft = state.draft?.parent === path
+    ? <DraftRow key={state.draft.type} draft={state.draft} tree={tree} />
+    : null
   if (level === undefined || level.kind === 'loading') {
-    return <li className={css.note} data-files-row="loading">{t('loading')}</li>
+    return (
+      <>
+        {draft}
+        <li className={css.note} data-files-row="loading">{t('loading')}</li>
+      </>
+    )
   }
   if (level.kind === 'failed') {
     return (
-      <li className={css.note} data-files-row="failed" data-files-code={level.failure.code}>
-        {failureLine(t, level.failure)}
-      </li>
+      <>
+        {draft}
+        <li className={css.note} data-files-row="failed" data-files-code={level.failure.code}>
+          {failureLine(t, level.failure)}
+        </li>
+      </>
     )
   }
   const entries = orderEntries(level.level.entries)
   return (
     <>
+      {draft}
       {level.failure !== undefined && <li className={css.note} data-files-row="failed">{failureLine(t, level.failure)}</li>}
       {entries.length === 0 && <li className={css.note} data-files-row="empty">{t('empty')}</li>}
       {entries.map(entry => <Entry key={entry.name} parent={path} entry={entry} tree={tree} />)}
@@ -164,7 +260,8 @@ function Level({ path, tree }: { path: string; tree: TreeContext }): ReactNode {
 
 /** The file tree's body: the workspace root and whatever the reader has opened under it. */
 export function FilesBody({
-  useTabInfo, sessionId, useSessions, useStore, actions, start, refresh, setAutoRefresh, toggle, addToConversation, t,
+  useTabInfo, sessionId, useSessions, useStore, actions, start, refresh, setAutoRefresh, toggle, beginCreate, cancelCreate, create,
+  addToConversation, t,
 }: FilesBodyProps): ReactNode {
   const { tab } = useTabInfo()
   useEffect(() => tab.actions.bindCommands({ refresh: () => { refresh(tab.id) } }), [tab.actions, tab.id, refresh])
@@ -172,6 +269,8 @@ export function FilesBody({
   const cwd = useSessions(sessions => sessions.byId[sessionId]?.cwd)
   const state = useStore(store => store.byTab[tab.id])
   const [rowMenu, setRowMenu] = useState<{ target: RowTarget; point: ContextMenuPoint } | null>(null)
+  // The menu for a press on the body outside every row; its target is the root.
+  const [bodyMenu, setBodyMenu] = useState<ContextMenuPoint | null>(null)
   // Counts failed adds so the same refusal replays the banner (0 = none shown).
   const [addFailure, setAddFailure] = useState(0)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -213,15 +312,30 @@ export function FilesBody({
     onToggle: (parent, path) => { toggle(tab.id, parent, path, state.expanded, signal) },
     // Every row is under the tree's root, so its address is session-relative.
     onOpen: (path) => { tabActions.openResource(fileAddressFor(sessionId, state.root, path), { preferOtherPane: true }) },
-    onRowMenu: (target, point) => { setRowMenu({ target, point }) },
+    onRowMenu: (target, point) => {
+      setBodyMenu(null)
+      setRowMenu({ target, point })
+    },
+    onCreate: (draft, name) => { create(tab.id, draft.parent, name, draft.type, signal) },
+    onCancelCreate: () => { cancelCreate(tab.id, signal) },
     t,
   }
   const reload = (): void => {
     refresh(tab.id)
   }
-  const rowItems: readonly MenuItem[] = [
+  const createItems: readonly MenuItem[] = [
+    { id: 'new-file', label: t('menu.newFile') },
+    { id: 'new-folder', label: t('menu.newFolder') },
+  ]
+  const addItems: readonly MenuItem[] = [
     { id: 'add-to-conversation', label: t('menu.addToConversation'), disabled: addToConversation === undefined },
   ]
+  const rowItems = rowMenu?.target.kind === 'directory' ? [...createItems, ...addItems] : addItems
+  /** Open the name row in one directory, expanding that directory first when it is a collapsed row. */
+  const startCreate = (parent: string, path: string, id: string): void => {
+    if (!state.expanded.includes(path)) toggle(tab.id, parent, path, state.expanded, signal)
+    beginCreate(tab.id, path, id === 'new-folder' ? 'directory' : 'file', signal)
+  }
   const addRow = (target: RowTarget): void => {
     /* v8 ignore next -- the row is disabled when the verb is absent, so this guard is belt-and-braces. */
     if (addToConversation === undefined) return
@@ -264,6 +378,13 @@ export function FilesBody({
         className={css.body}
         data-files-body
         onScroll={(event) => { scrollTopRef.current = event.currentTarget.scrollTop }}
+        onContextMenu={(event) => {
+          // A row answers for itself, and the name row keeps the platform's text menu.
+          if ((event.target as Element).closest('[data-files-entry], [data-files-draft]') !== null) return
+          event.preventDefault()
+          setRowMenu(null)
+          setBodyMenu({ x: event.clientX, y: event.clientY })
+        }}
       >
         <ul className={css.level}><Level path={state.root} tree={tree} /></ul>
       </div>
@@ -271,10 +392,23 @@ export function FilesBody({
         <ContextMenu
           point={rowMenu.point}
           items={rowItems}
-          onSelect={() => { addRow(rowMenu.target); setRowMenu(null) }}
+          onSelect={(id) => {
+            if (id === 'add-to-conversation') addRow(rowMenu.target)
+            else startCreate(rowMenu.target.parent, rowMenu.target.path, id)
+            setRowMenu(null)
+          }}
           onClose={() => { setRowMenu(null) }}
         />
       )}
+      <ContextMenu
+        point={bodyMenu}
+        items={createItems}
+        onSelect={(id) => {
+          startCreate(state.root, state.root, id)
+          setBodyMenu(null)
+        }}
+        onClose={() => { setBodyMenu(null) }}
+      />
       {addFailure > 0 && (
         <Toast
           key={addFailure}
