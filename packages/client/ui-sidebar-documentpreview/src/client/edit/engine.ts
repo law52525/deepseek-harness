@@ -13,9 +13,12 @@
  *
  * The disk moving under a draft (a save refused as stale, or an external write
  * the body noticed) pauses saving until the reader picks a side; nothing here
- * writes while paused. When the reader's chosen request fails — the disk read,
+ * writes while paused. When a request the reader needs fails — the disk read,
  * or the overwrite's stat — the failure bar retries that same request, so the
- * draft a "load the disk" choice abandoned never reaches the writer.
+ * draft a "load the disk" choice abandoned never reaches the writer. A failed
+ * complete read never costs a loaded editor either: the draft stays on screen
+ * with the read's failure on its bar, and only a record that never loaded
+ * falls back to the read-only body.
  */
 import type { BoundActions } from '@deepseek-ai/dsh-client-store'
 import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
@@ -89,10 +92,10 @@ export interface EditEngine {
    */
   flush(sessionId: SessionId, tabId: TabId): void
   /**
-   * Retry what the failure bar failed at: the reader's chosen disk read while
-   * one is outstanding, the conflict's overwrite while the disk question
-   * stands, otherwise the save. A failed read is never retried as the
-   * overwrite, so the draft the reader abandoned stays unwritten.
+   * Retry what the failure bar failed at: a failed disk read while one owns
+   * the bar, the conflict's overwrite while the disk question stands,
+   * otherwise the save. A failed read is never retried as the overwrite, so
+   * the draft the reader abandoned stays unwritten.
    * @param sessionId - the Session the tab belongs to.
    * @param tabId - the tab being edited.
    */
@@ -114,8 +117,8 @@ export interface EditEngine {
   reload(sessionId: SessionId, tabId: TabId, observedVersion: string | undefined): void
   /**
    * Pause saving because the disk moved under a non-empty draft. While a
-   * failed chosen answer owns the failure bar, this keeps that bar: re-asking
-   * would hide the retry that is the only way out of the failure.
+   * failed answer owns the failure bar, this keeps that bar: re-asking would
+   * hide the retry that is the only way out of the failure.
    * @param sessionId - the Session the tab belongs to.
    * @param tabId - the tab being edited.
    */
@@ -139,9 +142,10 @@ export interface EditEngine {
 type EditPause = 'conflict' | 'gone' | undefined
 
 /**
- * How the disk question was last answered, while that answer's request is
- * failed: a disk read, or the overwrite's stat. The failure bar's retry
- * repeats the recorded side, never the other one.
+ * The request the failure bar's retry must repeat, while that request is
+ * failed: a complete read (the silent follow's, or the one a disk choice
+ * started), or the overwrite's stat. The retry repeats the recorded side,
+ * never the other one.
  */
 type FailedAnswer =
   | { readonly side: 'read'; readonly failure: RemoteFailure; readonly observedVersion: string | undefined }
@@ -168,7 +172,7 @@ interface EditRecord {
   composing: boolean
   /** Saving is suspended until the reader answers the disk question. */
   pause: EditPause
-  /** The reader's last explicit answer, while its request is failed. */
+  /** A failed request whose bar's retry repeats it; a save's outcome supersedes it. */
   failedAnswer: FailedAnswer | undefined
   /** A close started: the store is going away, but the save still finishes. */
   closing: boolean
@@ -229,6 +233,9 @@ export function createEditEngine(reads: EditReads): EditEngine {
   }
   const settleSave = (record: EditRecord, text: string, result: RemoteResult<WorkspaceFileStat>): void => {
     record.controller = undefined
+    // A save's outcome is newer than a failed read's bar: the retry it owned
+    // is the save's again.
+    record.failedAnswer = undefined
     if (result.ok) {
       record.savedText = text
       record.version = result.value.version
@@ -273,11 +280,11 @@ export function createEditEngine(reads: EditReads): EditEngine {
       record.actions.editGone(record.tabId)
       return
     }
-    // A disk read that failed under the standing question is a failed answer,
-    // not a new one: its own retry re-reads, and nothing writes meanwhile.
-    // A loss inside an editor that never loaded falls back to the read-only
-    // body, which carries the reason on its own.
-    if (record.loaded && record.pause === 'conflict') {
+    // A failed complete read inside a loaded editor is a failed answer, not the
+    // loss of the editor: the draft stays and the bar's retry repeats the read,
+    // so nothing writes meanwhile. A record that never loaded falls back to the
+    // read-only body, which carries the failure on its own.
+    if (record.loaded) {
       record.failedAnswer = { side: 'read', failure, observedVersion }
       record.actions.editFailed(record.tabId, failure)
       return
@@ -403,13 +410,14 @@ export function createEditEngine(reads: EditReads): EditEngine {
     retry: (sessionId, tabId) => {
       const record = live(sessionId, tabId)
       if (record === undefined) return
-      if (record.pause === 'gone') return
-      // Repeat the reader's own answer: a failed disk read re-reads, and never
-      // turns into the overwrite it would then be.
+      // Repeat the failed request: a failed read re-reads — a gone editor's
+      // too, whose file may be back — and never turns into the overwrite it
+      // would then be.
       if (record.failedAnswer?.side === 'read') {
         load(record, record.failedAnswer.observedVersion)
         return
       }
+      if (record.pause === 'gone') return
       if (record.pause === 'conflict') {
         overwrite(record)
         return

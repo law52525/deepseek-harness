@@ -259,6 +259,9 @@ export function TextPreview({
         conflictEdit(tab.id)
         return
       }
+      // A failed read owns its retry: re-following now would fire a new read on
+      // every failure and replace the bar that is the way out.
+      if (editState.failure !== undefined) return
       reloadEdit(tab.id, observedVersion)
       return
     }
