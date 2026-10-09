@@ -3603,6 +3603,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the directory\'s children in the backend\'s stable name order, bounded by the entry cap.',
       },
       {
+        signature: '@Remote async create( workspaceFileScope: WorkspaceFileScope, parentPath: string, name: string, type: WorkspaceEntryKind, signal: AbortSignal, ): Promise<WorkspaceCreatedEntry>',
+        description: 'Create one empty file or one empty directory inside a workspace directory. An entry of any type already at that name fails the call and stays untouched. The write is fenced to the Session\'s workspace root under every sandbox mode, because the caller is the user and not a model tool.',
+        parameters: [{ name: 'workspaceFileScope', description: 'header-derived workspace root for the Session identity on the wire.' }, { name: 'parentPath', description: 'existing workspace directory, absolute or relative to the workspace root; a final link is followed as `list` follows it.' }, { name: 'name', description: 'the new entry\'s single path segment.' }, { name: 'type', description: 'whether to create a regular file or a directory.' }, { name: 'signal', description: 'caller cancellation.' }],
+        returns: 'the created entry\'s absolute path and type.',
+        throws: ['RemoteError `workspace-file/invalid-name` for a name that is not one path segment, and `workspace-file/already-exists` when the name is taken.'],
+      },
+      {
         signature: '@Remote({ mode: \'stream\' }) changes(workspaceFileScope: WorkspaceFileScope, path: string, signal: AbortSignal): AsyncIterable<WorkspaceFileWatchFrame>',
         description: 'Watch one file or a directory\'s direct entries in the Session\'s filesystem. Files use the backend\'s read authority; directories remain workspace-scoped.',
         parameters: [{ name: 'workspaceFileScope', description: 'header-derived workspace root for the Session identity on the wire.' }, { name: 'path', description: 'target path; the Host determines its type and confines directories to the workspace.' }, { name: 'signal', description: 'generation cancellation.' }],
@@ -7937,6 +7944,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WorkspaceChangesSummary {\n    turn: number;\n    cwd: string;\n    files: WorkspaceChangedFile[];\n    total: number;\n    added: number;\n    deleted: number;\n    snapshot?: {\n        before: string;\n        after: string;\n    };\n}',
   },
   {
+    name: 'WorkspaceCreatedEntry',
+    declaration: 'export interface WorkspaceCreatedEntry {\n    readonly absolutePath: string;\n    readonly type: WorkspaceEntryKind;\n}',
+  },
+  {
     name: 'WorkspaceCreateRequest',
     declaration: 'export interface WorkspaceCreateRequest {\n    readonly path: string;\n}',
   },
@@ -7963,6 +7974,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceDirectoryListing',
     declaration: 'export interface WorkspaceDirectoryListing {\n    readonly path: string;\n    readonly entries: readonly WorkspaceDirectoryEntry[];\n    readonly truncated: boolean;\n}',
+  },
+  {
+    name: 'WorkspaceEntryKind',
+    declaration: 'export type WorkspaceEntryKind = \'file\' | \'directory\';',
   },
   {
     name: 'WorkspaceFileBytes',

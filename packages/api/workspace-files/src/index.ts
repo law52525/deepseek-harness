@@ -1,14 +1,15 @@
 /**
  * Workspace file service: read-only file previews, workspace directory
- * listings, and the filesystem-observation change feed, exposed as
- * `workspaceFiles`.
+ * listings, creation of one empty file or directory, and the
+ * filesystem-observation change feed, exposed as `workspaceFiles`.
  *
  * File reads follow the composed filesystem's read access, including paths
  * outside the workspace. The selected Session header supplies the base for
  * relative paths, with the sandbox policy root as its no-cwd fallback, not a
  * read-containment restriction. Directory listings and change observations
  * remain workspace-scoped. File-kind checks and configured read caps apply to
- * every preview; this service exposes no mutations.
+ * every preview. `create` is the only mutation: it adds one empty entry inside
+ * the workspace and never changes an existing one.
  *
  * A page is cut from `streamText`, which decodes and rejects non-UTF-8 as it
  * goes, so the file is read only up to the first character past the page and
@@ -30,11 +31,14 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { Remote, RemoteError, TypertRemoteService, type TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
 import { WorkspaceChangeFeed } from './changes.ts'
+import { isEntryName } from './name.ts'
 import type {
+  WorkspaceCreatedEntry,
   WorkspaceByteRange,
   WorkspaceByteReadOptions,
   WorkspaceDirectoryEntry,
   WorkspaceDirectoryListing,
+  WorkspaceEntryKind,
   WorkspaceFileBytes,
   WorkspaceFileRange,
   WorkspaceFileStat,
@@ -301,30 +305,62 @@ export class WorkspaceFiles extends TypertRemoteService {
    */
   @Remote
   async list(workspaceFileScope: WorkspaceFileScope, path: string, signal: AbortSignal): Promise<WorkspaceDirectoryListing> {
-    const { root, workspaceRoot, entry } = await this.inspect(workspaceFileScope, path, signal)
-    // A final link — a Windows junction or a symlink — is listed through the
-    // directory it resolves to, matching the child type `listDir` reports for
-    // that entry; `read` keeps its own no-follow gate on the final component.
-    if (entry.type !== 'directory' && entry.type !== 'symlink') {
-      throw new RemoteError(
-        'workspace-file/not-directory',
-        `"${path}" is a ${entry.type}`,
-        { path, kind: entry.type },
-      )
-    }
-    const target = await this.confine(root, workspaceRoot, path, signal)
-    if (entry.type === 'symlink') {
-      const info = await this.ctx.fs.stat(target, signal)
-      if (info?.type !== 'directory') {
-        throw new RemoteError('workspace-file/not-directory', `"${path}" does not resolve to a directory`, { path, kind: 'symlink' })
-      }
-    }
+    const { root, target } = await this.locateDirectory(workspaceFileScope, path, signal)
     const children = await this.ctx.fs.listDir(target, signal)
     return {
       path: workspacePathOf(this.ctx.fs.fileUrl(root), this.ctx.fs.fileUrl(target)),
       entries: children.slice(0, this.config.maxEntries).map(directoryEntry),
       truncated: children.length > this.config.maxEntries,
     }
+  }
+
+  /**
+   * Create one empty file or one empty directory inside a workspace directory.
+   * An entry of any type already at that name fails the call and stays
+   * untouched. The write is fenced to the Session's workspace root under every
+   * sandbox mode, because the caller is the user and not a model tool.
+   * @param workspaceFileScope - header-derived workspace root for the Session identity on the wire.
+   * @param parentPath - existing workspace directory, absolute or relative to the workspace root; a final
+   *   link is followed as `list` follows it.
+   * @param name - the new entry's single path segment.
+   * @param type - whether to create a regular file or a directory.
+   * @param signal - caller cancellation.
+   * @returns the created entry's absolute path and type.
+   * @throws RemoteError `workspace-file/invalid-name` for a name that is not one path segment, and
+   *   `workspace-file/already-exists` when the name is taken.
+   */
+  @Remote
+  async create(
+    workspaceFileScope: WorkspaceFileScope,
+    parentPath: string,
+    name: string,
+    type: WorkspaceEntryKind,
+    signal: AbortSignal,
+  ): Promise<WorkspaceCreatedEntry> {
+    const { root, workspaceRoot, target: parent } = await this.locateDirectory(workspaceFileScope, parentPath, signal)
+    const parentAbsolute = this.ctx.fs.processPath(parent)
+    const paths = parentAbsolute.startsWith('/') ? posix : win32
+    // Checked here whatever the Client checked: the name is joined to a path this service writes.
+    if (!isEntryName(name, paths === win32)) {
+      throw new RemoteError('workspace-file/invalid-name', 'name must be one path segment', { name })
+    }
+    const path = paths.join(parentAbsolute, name)
+    // The name can itself be a link that leaves the workspace.
+    const target = await this.confine(root, workspaceRoot, path, signal)
+    const taken = (cause?: unknown): RemoteError =>
+      new RemoteError('workspace-file/already-exists', `an entry already exists at "${path}"`, { path }, { cause })
+    // Names an existing entry, a dangling link included, before the provider is
+    // asked; the provider's no-replace creation decides when one appears later.
+    if (await this.ctx.fs.lstat(path, { cwd: workspaceRoot }, signal) !== undefined) throw taken()
+    const sandboxPolicy = { mode: 'workspace-write', workspaceRoot } as const
+    try {
+      if (type === 'file') await this.ctx.fs.writeText(target, '', { kind: 'createIfAbsent' }, signal, sandboxPolicy)
+      else await this.ctx.fs.createDirectory(target, signal, sandboxPolicy)
+    } catch (error: unknown) {
+      if (isCreationCollision(error)) throw taken(error)
+      throw error
+    }
+    return { absolutePath: this.ctx.fs.processPath(target), type }
   }
 
   /**
@@ -398,6 +434,36 @@ export class WorkspaceFiles extends TypertRemoteService {
     return { root, workspaceRoot, entry }
   }
 
+  /**
+   * All gates for a workspace directory: the path exists, is a directory or a
+   * link resolving to one, and resolves inside the workspace.
+   */
+  private async locateDirectory(
+    workspaceFileScope: WorkspaceFileScope,
+    path: string,
+    signal: AbortSignal,
+  ): Promise<{ root: FsTarget; workspaceRoot: string; target: FsTarget }> {
+    const { root, workspaceRoot, entry } = await this.inspect(workspaceFileScope, path, signal)
+    // A final link — a Windows junction or a symlink — is listed through the
+    // directory it resolves to, matching the child type `listDir` reports for
+    // that entry; `read` keeps its own no-follow gate on the final component.
+    if (entry.type !== 'directory' && entry.type !== 'symlink') {
+      throw new RemoteError(
+        'workspace-file/not-directory',
+        `"${path}" is a ${entry.type}`,
+        { path, kind: entry.type },
+      )
+    }
+    const target = await this.confine(root, workspaceRoot, path, signal)
+    if (entry.type === 'symlink') {
+      const info = await this.ctx.fs.stat(target, signal)
+      if (info?.type !== 'directory') {
+        throw new RemoteError('workspace-file/not-directory', `"${path}" does not resolve to a directory`, { path, kind: 'symlink' })
+      }
+    }
+    return { root, workspaceRoot, target }
+  }
+
   /** Resolve an inspected path and refuse it unless the workspace contains it. */
   private async confine(root: FsTarget, workspaceRoot: string, path: string, signal: AbortSignal): Promise<FsTarget> {
     const target = await this.ctx.fs.resolve(path, { cwd: workspaceRoot, signal })
@@ -460,6 +526,17 @@ export class WorkspaceFiles extends TypertRemoteService {
  */
 function isNotTextRefusal(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'FS_NOT_TEXT'
+}
+
+/**
+ * The backend's refusal to create over an existing entry, recognized by code
+ * for the reason {@link isNotTextRefusal} gives: a guarded creation reports
+ * `FS_NOT_OBSERVED`, and a guarded file write over an entry that is not a
+ * regular file reports `FS_NOT_REGULAR_FILE`.
+ */
+function isCreationCollision(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error
+    && (error.code === 'FS_NOT_OBSERVED' || error.code === 'FS_NOT_REGULAR_FILE')
 }
 
 export default WorkspaceFiles

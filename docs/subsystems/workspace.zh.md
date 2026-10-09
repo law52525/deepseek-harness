@@ -460,6 +460,23 @@ Host Remote file reads and workspace directory observations over the composed fi
 @Remote async list(workspaceFileScope: WorkspaceFileScope, path: string, signal: AbortSignal): Promise<WorkspaceDirectoryListing>
 
 /**
+ * Create one empty file or one empty directory inside a workspace directory.
+ * An entry of any type already at that name fails the call and stays
+ * untouched. The write is fenced to the Session's workspace root under every
+ * sandbox mode, because the caller is the user and not a model tool.
+ * @param workspaceFileScope - header-derived workspace root for the Session identity on the wire.
+ * @param parentPath - existing workspace directory, absolute or relative to the workspace root; a final
+ *   link is followed as `list` follows it.
+ * @param name - the new entry's single path segment.
+ * @param type - whether to create a regular file or a directory.
+ * @param signal - caller cancellation.
+ * @returns the created entry's absolute path and type.
+ * @throws RemoteError `workspace-file/invalid-name` for a name that is not one path segment, and
+ *   `workspace-file/already-exists` when the name is taken.
+ */
+@Remote async create( workspaceFileScope: WorkspaceFileScope, parentPath: string, name: string, type: WorkspaceEntryKind, signal: AbortSignal, ): Promise<WorkspaceCreatedEntry>
+
+/**
  * Watch one file or a directory's direct entries in the Session's filesystem.
  * Files use the backend's read authority; directories remain workspace-scoped.
  * @param workspaceFileScope - header-derived workspace root for the Session identity on the wire.
