@@ -151,8 +151,10 @@ describe('FilesBody', () => {
     await act(() => script.settle({ ok: true, value: ROOT_LEVEL }))
     fireEvent.click(view.container.querySelector(`[data-files-path="${ROOT}/README.md"] > button`)!)
     // Every row sits under the tree's root, so the address is the path relative to it.
-    expect(tabActions.openResource).toHaveBeenCalledWith(fileAddressFor(SESSION, ROOT, `${ROOT}/README.md`))
-    expect(tabActions.openResource).toHaveBeenCalledWith('dsh-resource://file/session/s-test/README.md')
+    // The preview is asked into the other pane, so the tree's pane keeps showing the tree.
+    expect(tabActions.openResource).toHaveBeenCalledTimes(1)
+    expect(tabActions.openResource).toHaveBeenCalledWith(fileAddressFor(SESSION, ROOT, `${ROOT}/README.md`), { preferOtherPane: true })
+    expect(tabActions.openResource).toHaveBeenCalledWith('dsh-resource://file/session/s-test/README.md', { preferOtherPane: true })
     const other = view.container.querySelector(`[data-files-path="${ROOT}/pipe"]`)!
     expect(other.querySelector('button')).toBeNull()
     expect(other.querySelector('[aria-disabled="true"]')?.getAttribute('title')).toBe(zh['entry.other'])

@@ -125,6 +125,18 @@ export interface SidebarRightTabPlacement {
   /** Prefer a new pane for new content; use the target pane when splitting is unavailable. */
   readonly preferNewPane?: boolean
   /**
+   * Keep the open out of this tab's pane: it lands in the other docked pane
+   * when the surface has one, in a new pane split off this tab's pane when it
+   * has none, and in this tab's pane when that pane cannot split. A floating
+   * tab that names no `paneId` drops the preference: its open lands in the
+   * active docked pane, as it does without it. A copy of the resource in this
+   * tab's pane is neither revealed nor moved unless the open stays in that
+   * pane. A page opens in the other docked pane even when this tab's pane
+   * holds one of its kind; with this tab's pane alone, a page it holds is
+   * focused there instead of splitting. Ignored with `replaceTab: true`.
+   */
+  readonly preferOtherPane?: boolean
+  /**
    * Resource tabs reveal content already open in the target pane by default;
    * `false` permits duplicates and a copy parked in another pane is never
    * revealed. Pages always deduplicate within the target pane.
