@@ -569,8 +569,14 @@
   cursor: pointer;
 }
 
-.menuItem:hover {
+.menuItem:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Same treatment as the shared menus' disabled rows. */
+.menuItem:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* No padding of its own: a tab's body reaches the pane's edges and the strip's

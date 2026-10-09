@@ -34,7 +34,7 @@ import { sidebarTargetFromElement, type SidebarRightTarget } from './focus.ts'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { FloatRect, PaneId, TabId, TabRecord } from '@deepseek-ai/dsh-client-ui-dockkit'
-import { activeDockPaneId, canSplit, findPaneContentTab, dockPaneIds, findTabPane, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
+import { activeDockPaneId, canSplit, findPaneContentTab, dockPaneIds, findTabPane, getPane, getTab } from '@deepseek-ai/dsh-client-ui-dockkit'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SidebarRightNavigationParams, SidebarRightResourceParams, SidebarRightTabParamsFor } from './contract/params.ts'
@@ -383,6 +383,30 @@ export class SidebarRightController implements ISidebarRight {
     const tab = surface.layout.tabs[tabId]
     if (tab === undefined || !canCloseTab(surface, tabId)) return
     this.removeAfterCleanup(sessionId, tab, () => { actions.closeTab(sessionId, tabId) })
+  }
+
+  /**
+   * Close every other closable tab of one tab's pane in one session, as one
+   * entry that keeps `tabId` focused with its pane. The gesture is the kit
+   * menu's close-others: a tab that may not close is left in place rather than
+   * failing the intent, and each removed tab passes its kind's close handler
+   * first — a handler that throws preserves every tab. Nothing happens for a
+   * session whose store was never adopted or whose adoption was released. Not
+   * part of `ISidebarRight`: the kit's tab-menu path.
+   * @param sessionId - the session the tab is in.
+   * @param tabId - the tab whose menu asked; the one that stays.
+   */
+  closeOthersIn(sessionId: SessionId, tabId: TabId): void {
+    const actions = this.actionsFor(sessionId)
+    const surface = this.adopted.get(sessionId)?.store.getSnapshot().bySession[sessionId]
+    if (actions === undefined || surface === undefined || surface.layout.tabs[tabId] === undefined) return
+    const closing = findTabPane(surface.layout, tabId).tabs.filter(id => id !== tabId && canCloseTab(surface, id))
+    if (closing.length === 0) return
+    for (const id of closing) {
+      const tab = getTab(surface.layout, id)
+      this.closeHandlers.get(tab.kind)?.(sessionId, tab)
+    }
+    actions.closeTabs(sessionId, closing, tabId)
   }
 
   private removeAfterCleanup(sessionId: SessionId, tab: TabRecord, commit: () => void): void {
