@@ -1,9 +1,10 @@
 /**
  * The per-tab context menu, opened by a secondary press on the chip. It carries
- * the close gesture and whatever the embedder appends; the copy and float
- * gestures have no menu item — copying is an embedder API, floating is a drag
- * released clear of the surface. A menu that would hold no item at all renders
- * no popup, so a secondary press on a chip with nothing to offer shows nothing.
+ * the close gesture, close-others while the embedder offers it, and whatever
+ * the embedder appends; the copy and float gestures have no menu item — copying
+ * is an embedder API, floating is a drag released clear of the surface. A menu
+ * that would hold no item at all renders no popup, so a secondary press on a
+ * chip with nothing to offer shows nothing.
  * Presentational — it renders what its props supply and dismisses itself on
  * outside presses or an unmodified Escape, returning menu focus to its tab.
  *
@@ -32,6 +33,10 @@ export interface TabMenuProps {
   readonly anchor: HTMLElement
   /** Close the tab; `undefined` removes the kit's item, leaving the extras only. */
   readonly onClose: (() => void) | undefined
+  /** Close the pane's other closable tabs; `undefined` removes the item, as on an embedder without the intent. */
+  readonly onCloseOthers: (() => void) | undefined
+  /** Whether another closable tab exists beside this one; a disabled item stays visible rather than vanishing. */
+  readonly canCloseOthers: boolean
   /** Dismiss without acting. */
   readonly onDismiss: () => void
   /** Embedder items, rendered after the kit's own; absent means none. */
@@ -52,10 +57,11 @@ function placeMenu(anchor: HTMLElement, menu: HTMLElement): CSSProperties {
 }
 
 /** The actions menu body, anchored to the control that opened it. */
-export function TabMenu({ labels, anchor, onClose, onDismiss, extras }: TabMenuProps): ReactNode {
+export function TabMenu({ labels, anchor, onClose, onCloseOthers, canCloseOthers, onDismiss, extras }: TabMenuProps): ReactNode {
   const self = useRef<HTMLDivElement | null>(null)
   const [position, setPosition] = useState<CSSProperties | undefined>(undefined)
-  const hasItems = onClose !== undefined || Children.toArray(extras).some(item => item !== '')
+  const hasItems = onClose !== undefined || onCloseOthers !== undefined
+    || Children.toArray(extras).some(item => item !== '')
 
   useLayoutEffect(() => {
     if (self.current === null) return
@@ -116,6 +122,18 @@ export function TabMenu({ labels, anchor, onClose, onDismiss, extras }: TabMenuP
       {onClose !== undefined && (
         <button type="button" role="menuitem" className={css.menuItem} data-dockkit-menu-close onClick={onClose}>
           {labels.closeTab}
+        </button>
+      )}
+      {onCloseOthers !== undefined && (
+        <button
+          type="button"
+          role="menuitem"
+          className={css.menuItem}
+          data-dockkit-menu-close-others
+          disabled={!canCloseOthers}
+          onClick={onCloseOthers}
+        >
+          {labels.closeOtherTabs}
         </button>
       )}
       {/* Embedder items last: the kit's own item is the same in every menu, so

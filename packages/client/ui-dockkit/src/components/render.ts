@@ -17,6 +17,8 @@ export interface PaneCallbacks {
   readonly onSplitPane: (paneId: PaneId) => void
   readonly onAddTab: (paneId: PaneId) => void
   readonly onCloseTab: (tabId: TabId) => void
+  /** Close a pane's other closable tabs from `tabId`'s menu; `undefined` when the embedder offers no such intent. */
+  readonly onCloseOthers: ((tabId: TabId) => void) | undefined
   /** Begin dragging a tab; the surface owns the gesture from here. */
   readonly onTabPressed: (tabId: TabId, event: ReactPointerEvent<HTMLElement>) => void
   /** Begin dragging a divider inside `splitId`, at the boundary after `index`. */
