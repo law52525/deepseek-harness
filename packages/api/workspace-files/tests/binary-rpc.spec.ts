@@ -21,7 +21,7 @@ beforeEach(async () => {
   await ctx.plugin(TypertRegistry)
   await ctx.plugin(TypertGateway)
   await ctx.plugin((scope) => { new HostConnectionService(scope, [], {} as BrowserAuth) })
-  await ctx.plugin(WorkspaceFiles, { maxBytes: 8, maxFileBytes: 4, maxLines: 100, maxEntries: 100 })
+  await ctx.plugin(WorkspaceFiles, { maxBytes: 8, maxFileBytes: 4, maxWriteBytes: 1024 * 1024, maxLines: 100, maxEntries: 100 })
   ctx.sessions.create(harness.scope.sessionId, { meta: { cwd: harness.workspace, origin: 'subagent' } })
   const handler = (ctx.get('connection') as HostConnectionService).createSharedFetchHandler('/api')
   rpc = createWebConnectionRpc(async (path, init) => handler.fetch(new Request(new URL(path, 'http://host'), init)))
