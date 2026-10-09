@@ -69,15 +69,25 @@ async function boot() {
   }
   const read = vi.fn().mockResolvedValue(page(1, ['first'], true))
   const readBytes = vi.fn<ClientRemote['workspaceFiles']['readBytes']>(async () => byteResult())
+  const writeText = vi.fn<ClientRemote['workspaceFiles']['writeText']>()
+  const stat = vi.fn<ClientRemote['workspaceFiles']['stat']>()
+  const closeHandlers = new Map<string, (sessionId: typeof SESSION, tab: { id: typeof TAB_ID; kind: string }) => void>()
+  const sidebarRight = {
+    registerCloseHandler: vi.fn((kind: string, handler: (sessionId: typeof SESSION, tab: { id: typeof TAB_ID; kind: string }) => void) => {
+      closeHandlers.set(kind, handler)
+      return () => { closeHandlers.delete(kind) }
+    }),
+  }
   ctx.provide('sidebarRightTabs', tabs as never)
+  ctx.provide('sidebarRight', sidebarRight as never)
   ctx.provide('slots', slots as never)
   ctx.provide('locale', locale as never)
-  ctx.provide('remote', { workspaceFiles: { read, readBytes } } as never)
-  ctx.provide('remote.workspaceFiles', { read, readBytes } as never)
+  ctx.provide('remote', { workspaceFiles: { read, readBytes, writeText, stat } } as never)
+  ctx.provide('remote.workspaceFiles', { read, readBytes, writeText, stat } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   onTestFinished(async () => { await fiber.dispose() })
   await fiber.await()
-  return { ctx, tabs, registered, dictionaries, fiber, read, readBytes }
+  return { ctx, tabs, registered, dictionaries, fiber, read, readBytes, writeText, closeHandlers }
 }
 
 describe('ui-sidebar-documentpreview apply', () => {
