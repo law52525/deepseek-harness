@@ -111,9 +111,14 @@ function scriptedDisk(h: Harness, initial: string, version = 'v1') {
     ok: true,
     value: { absolutePath: ABSOLUTE_PATH, version: current, offset: 0, eof: true, bytes: bytes(text).byteLength, data: bytes(text) },
   }))
-  h.write.mockImplementation(async (_file, content, expectedVersion) => expectedVersion === current
-    ? (text = content, bump(), { ok: true, value: { absolutePath: ABSOLUTE_PATH, version: current } })
-    : ({ ok: false, error: new RemoteError('workspace-file/stale-version', 'disk moved', { path: PATH, version: current }) }))
+  h.write.mockImplementation(async (_file, content, expectedVersion) => {
+    if (expectedVersion !== current) {
+      return { ok: false, error: new RemoteError('workspace-file/stale-version', 'disk moved', { path: PATH, version: current }) }
+    }
+    text = content
+    bump()
+    return { ok: true, value: { absolutePath: ABSOLUTE_PATH, version: current } }
+  })
   h.stat.mockImplementation(async () => ({ ok: true, value: { absolutePath: ABSOLUTE_PATH, version: current } }))
   return {
     get text() { return text },
@@ -261,7 +266,8 @@ describe('autosave', () => {
     }))
     const view = await dirty(h, 'a')
     await tick(EDIT_DEBOUNCE_MS)
-    expect(calls).toEqual([{ content: 'a', expected: 'v1', settle: expect.any(Function) }])
+    expect(calls.map(call => [call.content, call.expected])).toEqual([['a', 'v1']])
+    expect(typeof calls[0]?.settle).toBe('function')
     fireEvent.change(areaOf(view), { target: { value: 'ab' } })
     await tick(EDIT_DEBOUNCE_MS)
     fireEvent.blur(areaOf(view))
@@ -408,7 +414,7 @@ describe('the disk moves under the editor', () => {
     fakeTimers()
     const h = harness({}, TAB_ID, { cwd: CWD })
     const disk = scriptedDisk(h, 'alpha')
-    h.write.mockResolvedValueOnce({ ok: false, error: new RemoteError('workspace-file/too-large', 'too big', { limit: 1024 * 1024 }) })
+    h.write.mockResolvedValueOnce({ ok: false, error: new RemoteError('workspace-file/too-large', 'too big', { path: PATH, limit: 1024 * 1024 }) })
     const view = await dirty(h, 'alpha!')
     await tick(EDIT_DEBOUNCE_MS)
     await settle()
