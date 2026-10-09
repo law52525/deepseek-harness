@@ -239,6 +239,7 @@ type SidebarRightActions = {
   ) => void
   duplicateTab: (draft: SidebarRightState, sessionId: string, tabId: TabId) => void
   closeTab: (draft: SidebarRightState, sessionId: string, tabId: TabId) => void
+  closeTabs: (draft: SidebarRightState, sessionId: string, tabIds: readonly TabId[], focusTabId: TabId) => void
   focusTab: (draft: SidebarRightState, sessionId: string, tabId: TabId) => void
   focusPane: (draft: SidebarRightState, sessionId: string, paneId: PaneId) => void
   placeTab: (draft: SidebarRightState, sessionId: string, tabId: TabId, toPaneId: PaneId, index: number) => void
@@ -381,6 +382,19 @@ export function createSidebarRightStore(
           // The collapse also leaves fullscreen: the reopened column shows only
           // the reseeded default page, which never earns the whole window.
           return [{ type: 'closeTab', tabId }, ...planSetMode(state, 'push'), ...planSetExpanded(state, false)]
+        }, seed))
+      },
+      // The menu's close-others: every listed tab that may close, plus the kept
+      // tab focused with its pane, all in one entry — one undo brings every tab
+      // back and restores the surface's selection as it was. The kept tab
+      // survives by construction, so the sole-docked-tab rule stays untriggered;
+      // a listed tab that may not close — the sole docked guide — is left in
+      // place rather than failing the intent.
+      closeTabs: (d, sessionId: string, tabIds: readonly TabId[], focusTabId: TabId) => {
+        d.bySession = seat(d, sessionId, s => advance(s, (state) => {
+          const closing = tabIds.filter(id => id !== focusTabId && canCloseTab(s, id))
+          if (closing.length === 0) return []
+          return [...closing.map(id => ({ type: 'closeTab' as const, tabId: id })), ...planFocusTab(state, focusTabId)]
         }, seed))
       },
       focusTab: (d, sessionId: string, tabId: TabId) => {

@@ -749,6 +749,119 @@ describe('explicit tab resource cleanup', () => {
   })
 })
 
+describe('SidebarRightController — close others (P-16)', () => {
+  /** Adopt the seat's store, expand, and open a/b/c aside the seeded guide; returns the surface's pane. */
+  function withPane(h: ReturnType<typeof harness>): PaneId {
+    h.adopt(SESSION, h.instance)
+    h.expand()
+    h.publish()
+    for (const name of ['a.txt', 'b.txt', 'c.txt']) {
+      h.controller.openResource(`dsh-resource://file/session/s-test/${name}`)
+      h.publish()
+    }
+    return h.layout().activePaneId
+  }
+
+  it('closes the pane\'s other tabs, keeping the asked tab focused in its pane, as one entry', () => {
+    const h = harness()
+    const pane = withPane(h)
+    const asked = h.tabOf('b.txt')
+    // The seeded guide plus three opens, b not the last one opened.
+    expect(getPane(h.layout(), pane).tabs).toHaveLength(4)
+    expect(getPane(h.layout(), pane).activeTabId).not.toBe(asked)
+    const before = h.entries()
+
+    h.controller.closeOthersIn(SESSION, asked)
+
+    expect(getPane(h.layout(), pane).tabs).toEqual([asked])
+    expect(getPane(h.layout(), pane).activeTabId).toBe(asked)
+    expect(h.layout().activePaneId).toBe(pane)
+    expect(h.layout().expanded).toBe(true)
+    expect(h.entries()).toBe(before + 1)
+  })
+
+  it('leaves another pane and a floating panel untouched', () => {
+    const h = harness()
+    h.adopt(SESSION, h.instance)
+    h.expand()
+    h.publish()
+    h.controller.openResource('dsh-resource://file/session/s-test/a.txt')
+    h.publish()
+    h.instance.actions.splitPane(SESSION)
+    h.publish()
+    const [left, right] = dockPaneIds(h.layout())
+    if (left === undefined || right === undefined) throw new Error('expected two panes')
+    h.controller.openResource('dsh-resource://file/session/s-test/b.txt')
+    h.publish()
+    h.instance.actions.floatTab(SESSION, h.tabOf('a.txt'))
+    h.publish()
+    const leftBefore = getPane(h.layout(), left)
+    const floatsBefore = h.layout().floats
+    expect(floatsBefore).toHaveLength(1)
+    const asked = h.tabOf('b.txt')
+    expect(getPane(h.layout(), right).tabs.length).toBeGreaterThan(1)
+
+    h.controller.closeOthersIn(SESSION, asked)
+
+    expect(getPane(h.layout(), right).tabs).toEqual([asked])
+    expect(getPane(h.layout(), right).activeTabId).toBe(asked)
+    expect(h.layout().activePaneId).toBe(right)
+    expect(getPane(h.layout(), left)).toEqual(leftBefore)
+    expect(h.layout().floats).toEqual(floatsBefore)
+    expect(findTabPane(h.layout(), h.tabOf('a.txt')).host).toBe('float')
+  })
+
+  it('runs each removed tab\'s close handler exactly once with its own record, never the asked tab\'s', () => {
+    const h = harness()
+    const pane = withPane(h)
+    const asked = h.tabOf('b.txt')
+    const a = h.tabOf('a.txt')
+    const c = h.tabOf('c.txt')
+    const seed = getPane(h.layout(), pane).tabs.find(id => h.layout().tabs[id]?.kind === 'guide')
+    if (seed === undefined) throw new Error('expected the seeded guide')
+    const records = { ...h.layout().tabs }
+    const text = vi.fn()
+    const guide = vi.fn()
+    const releaseText = h.controller.registerCloseHandler('text', text)
+    const releaseGuide = h.controller.registerCloseHandler('guide', guide)
+    try {
+      h.controller.closeOthersIn(SESSION, asked)
+    } finally {
+      releaseText()
+      releaseGuide()
+    }
+    expect(guide).toHaveBeenCalledExactlyOnceWith(SESSION, records[seed])
+    // Pane order: the guide, a, the asked b, c — the handler sees a and c, never b.
+    expect(text.mock.calls).toEqual([[SESSION, records[a]], [SESSION, records[c]]])
+    expect(getPane(h.layout(), pane).tabs).toEqual([asked])
+  })
+
+  it('does nothing without an adopted surface, without the tab, or with nothing else closable', () => {
+    const h = harness()
+    // Never adopted: no store to act on.
+    expect(() => { h.controller.closeOthersIn(SESSION, 'tab-1' as TabId) }).not.toThrow()
+    // Adopted but never written: no surface for the session yet.
+    const idle = createSidebarRightStore(() => ({ kind: 'guide', title: 'seed' })).create()
+    const release = h.adopt(SESSION, idle)
+    try {
+      expect(() => { h.controller.closeOthersIn(SESSION, 'tab-1' as TabId) }).not.toThrow()
+    } finally {
+      release()
+    }
+    // A surface whose layout holds no such tab, then a sole guide with no other tab.
+    h.adopt(SESSION, h.instance)
+    h.expand()
+    h.publish()
+    const before = h.entries()
+    expect(() => { h.controller.closeOthersIn(SESSION, 'tab-1' as TabId) }).not.toThrow()
+    const seed = Object.values(h.layout().tabs)[0]
+    if (seed === undefined) throw new Error('expected the seeded guide')
+    h.controller.closeOthersIn(SESSION, seed.id)
+    expect(h.layout().tabs[seed.id]).toBeDefined()
+    expect(h.entries()).toBe(before)
+  })
+})
+
 describe('SidebarRightController — a file tree row\'s open (P-15)', () => {
   /** The address a row click produces. */
   const file = (path: string): string => `dsh-resource://file/session/s-test/${path}`
