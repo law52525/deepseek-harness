@@ -131,11 +131,13 @@ export interface SidebarRightPlacement {
   /**
    * Keep the open out of the target pane. With another docked pane on the
    * surface the open lands there, under that pane's own reveal rule; with the
-   * target pane alone it splits as `preferNewPane` does, and falls back to the
-   * target pane when no split is available or the target pane floats. A copy
-   * of the resource in the target pane is neither revealed nor moved unless
-   * the open falls back; a page the target pane already holds is focused
-   * there instead of splitting. Ignored with `replaceTab`.
+   * target pane alone it splits as `preferNewPane` does, and stays in the
+   * target pane when no split is available. A floating target pane is treated
+   * as it is without the preference. A copy of the resource in the target pane
+   * is neither revealed nor moved unless the open stays in that pane. A page
+   * opens in the other docked pane even when the target pane holds one of its
+   * kind; with the target pane alone, a page it holds is focused there instead
+   * of splitting. Ignored with `replaceTab`.
    */
   readonly preferOtherPane?: boolean
   /** Take this tab's place — its pane and its strip slot — and close it in the same step. */
@@ -552,6 +554,28 @@ export class SidebarRightController implements ISidebarRight {
     const held = tabId === undefined ? undefined : this.tabDomain.occurrence(binding.sessionId, { id: tabId })
     return { sessionId: binding.sessionId, paneId: pane.id, host: pane.host, tabId,
       occurrence: held, navigationRevision: held?.navigation.getSnapshot().revision }
+  }
+
+  /**
+   * Redirect a captured target to the docked pane that already holds `kind`'s page,
+   * so a command reveals that page instead of adding one to another pane.
+   * @param kind - page kind held at most once per pane.
+   * @param target - target captured by `commandTarget` or `focusedTarget`.
+   * @returns `target` unchanged when its own docked pane holds the page or no docked pane does;
+   *   otherwise the first docked pane holding it, with the page as the captured tab.
+   */
+  dockedPageTarget(kind: string, target: SidebarRightTarget): SidebarRightTarget {
+    const layout = this.mountedSurface()?.layout
+    if (layout === undefined) return target
+    const holders = dockPaneIds(layout).flatMap((paneId) => {
+      const tabId = findPaneContentTab(layout, paneId, pageAddress(kind), kind)
+      return tabId === undefined ? [] : [{ paneId, tabId }]
+    })
+    const holder = holders.find(held => held.paneId === target.paneId) ?? holders[0]
+    if (holder === undefined || holder.paneId === target.paneId) return target
+    const occurrence = this.tabDomain.occurrence(target.sessionId, { id: holder.tabId })
+    return { sessionId: target.sessionId, paneId: holder.paneId, host: 'dock', tabId: holder.tabId,
+      occurrence, navigationRevision: occurrence.navigation.getSnapshot().revision }
   }
 
   /**

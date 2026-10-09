@@ -81,7 +81,7 @@ export function apply(ctx: Context): void {
 | `replaceTab` | 占用这个 tab 的 pane 与条上位置，并在同一步关闭它；浮窗里的 tab 让不出位置，新 tab 按未指定位置落位。 |
 | `revealIfOpened` | 缺省 `true`：已显示同一 `(kind, address)` 的 tab 被聚焦并收到 `params`——但仅在目标分栏内；停在其它分栏的副本不动，本次打开落在目标分栏。`false` 则无论如何再开一个。 |
 | `preferNewPane` | 在普通格数预算与空间规则下优先新建停靠格；不能分栏时回退到目标格。与 `replaceTab` 一起使用时忽略。 |
-| `preferOtherPane` | 让打开的内容离开目标格：已有另一个停靠格时落在那一格，目标格是唯一一格时按 `preferNewPane` 的方式分栏，不能分栏或发起打开的 tab 处于浮动面板时回退到目标格。除回退外，目标格里的副本既不被 reveal 也不被移动；目标格已持有的页面在原处聚焦。与 `replaceTab` 一起使用时忽略。 |
+| `preferOtherPane` | 让打开的内容离开目标格：已有另一个停靠格时落在那一格，目标格是唯一一格时按 `preferNewPane` 的方式分栏，不能分栏时留在目标格。除留在目标格的情形外，目标格里的副本既不被 reveal 也不被移动。目标格是浮动面板时按不带该选项处理；浮动 tab 的 tab 动作未指定格时丢弃该选项，打开的内容落在活动停靠格。已有另一个停靠格时页面开在那一格，即使目标格已持有同类页面；目标格是唯一一格时，它已持有的页面在原处聚焦，不分栏。与 `replaceTab` 一起使用时忽略。 |
 | `kind`（仅 `openResource`） | 点名打开类型而不排候选；该 kind 的生效实现打开地址，它的 `canOpen` 仍生效。 |
 | `params` | 给正文的导航参数，作为 `navigation.params` 送达。`openResource` 按资源类型经声明合并表 `SidebarRightResourceParamsMap` 定型（文本预览声明 `{ line?: number }`）；`openTab<K>` 按 kind 经 `SidebarRightTabParamsMap` 定型，未声明的 kind 为 `undefined`；正文读到的是二者联合 `SidebarRightNavigationParams`。值按约定为 JSON 形状，运行时不校验。 |
 
@@ -91,7 +91,7 @@ export function apply(ctx: Context): void {
 
 `focus(tabId)` 让一个 tab 成为其 pane 的活动 tab；`split(paneId?)` 分割活动的停靠 pane 或点名的 pane，返回新 pane 的 id——pane 数预算或列宽不允许时返回 `undefined` 且不记账；`float(tabId, rect?)` 把一个 tab 浮出为浮窗 pane；`dock(paneId)` 把浮窗 pane 收回停靠区。四者都走 store 既有动作、各记一条历史；目标不存在或已处于目标状态时是空操作，与 `open` 一样在没有已挂载会话面时抛错。`TabId`、`PaneId`、`TabRecord`、`FloatRect` 自本包 `/client` 入口再导出，调用方无需引 dockkit。
 
-`focusedTarget(element?)` 从实时 DOM 焦点（包括内嵌 iframe）捕获可见页面；侧栏外部或过期的侧栏标记不产生目标。`commandTarget(element?)` 还允许侧栏外部发起的打开操作使用已挂载 Session 的活动停靠窗格。`SidebarRightTarget` 捕获 Session、窗格、host、tab occurrence 和导航 revision。`isTargetCurrent(target)` 在执行前检查这些身份，因此重新打开记录或再次导航都会使已捕获的动作失效；它不会改为操作其他页面。关闭与落位结果见[控制器方法](../../packages/client/ui-sidebar-right/src/client/service.ts)。
+`focusedTarget(element?)` 从实时 DOM 焦点（包括内嵌 iframe）捕获可见页面；侧栏外部或过期的侧栏标记不产生目标。`commandTarget(element?)` 还允许侧栏外部发起的打开操作使用已挂载 Session 的活动停靠窗格。`dockedPageTarget(kind, target)` 把已捕获的目标改指向已持有该类页面的停靠窗格，优先使用捕获的窗格；没有停靠窗格持有该页面时原样返回目标；`workspace.files` 命令经它解析。`SidebarRightTarget` 捕获 Session、窗格、host、tab occurrence 和导航 revision。`isTargetCurrent(target)` 在执行前检查这些身份，因此重新打开记录或再次导航都会使已捕获的动作失效；它不会改为操作其他页面。关闭与落位结果见[控制器方法](../../packages/client/ui-sidebar-right/src/client/service.ts)。
 
 ## Slot 与 owner props
 

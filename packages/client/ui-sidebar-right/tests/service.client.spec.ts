@@ -972,6 +972,60 @@ describe('SidebarRightController — a file tree row\'s open (P-15)', () => {
     expect(dockPaneIds(h.layout())).toHaveLength(1)
     expectTreePane(h, tree)
   })
+
+  /** What the `workspace.files` command runs once it resolved with focus outside the sidebar. */
+  const filesCommand = (h: ReturnType<typeof harness>): void => {
+    const captured = h.controller.commandTarget(null)
+    if (captured === undefined) throw new Error('expected a command target')
+    h.controller.openTabFromTarget('files', h.controller.dockedPageTarget('files', captured))
+    h.publish()
+  }
+
+  it('AC-8: after a row click, the files command reveals the tree in its own pane and adds no second files page', () => {
+    const { h, tree } = withTree()
+    click(h, tree, 'a.txt')
+    const preview = otherPane(h, tree)
+    expect(h.layout().activePaneId).toBe(preview.id)
+    filesCommand(h)
+    expect(Object.values(h.layout().tabs).filter(tab => tab.kind === 'files')).toHaveLength(1)
+    expect(h.layout().activePaneId).toBe(findTabPane(h.layout(), tree).id)
+    expectTreePane(h, tree)
+    expect(otherPane(h, tree).tabs).toEqual(preview.tabs)
+    expect(otherPane(h, tree).activeTabId).toBe(h.tabOf('a.txt'))
+  })
+
+  it('dockedPageTarget leaves a target alone when its own pane holds the page or no docked pane does', () => {
+    const unmounted = { sessionId: SESSION, paneId: 'pane1' as PaneId, host: 'dock' as const,
+      tabId: undefined, occurrence: undefined, navigationRevision: undefined }
+    expect(harness().controller.dockedPageTarget('files', unmounted)).toBe(unmounted)
+
+    const { h, tree } = withTree()
+    const own = h.controller.commandTarget(null)
+    if (own === undefined) throw new Error('expected a command target')
+    expect(own.tabId).toBe(tree)
+    expect(h.controller.dockedPageTarget('files', own)).toBe(own)
+    expect(h.controller.dockedPageTarget('text', own)).toBe(own)
+
+    // Two panes each holding the page: the captured pane keeps the command.
+    click(h, tree, 'a.txt')
+    h.controller.openTab('files', { paneId: otherPane(h, tree).id })
+    h.publish()
+    const second = h.controller.commandTarget(null)
+    if (second === undefined) throw new Error('expected a command target')
+    expect(second.paneId).toBe(otherPane(h, tree).id)
+    expect(h.controller.dockedPageTarget('files', second)).toBe(second)
+  })
+
+  it('dockedPageTarget captures the page held by the other docked pane', () => {
+    const { h, tree } = withTree()
+    click(h, tree, 'a.txt')
+    const captured = h.controller.commandTarget(null)
+    if (captured === undefined) throw new Error('expected a command target')
+    const target = h.controller.dockedPageTarget('files', captured)
+    expect(target).toMatchObject({ sessionId: SESSION, paneId: findTabPane(h.layout(), tree).id, host: 'dock', tabId: tree })
+    expect(target.occurrence).toBe(h.controller.tabDomain.occurrence(SESSION, { id: tree }))
+    expect(h.controller.isTargetCurrent(target)).toBe(true)
+  })
 })
 
 describe('SidebarRightController — a service-level open\'s reveal scope (P-12)', () => {

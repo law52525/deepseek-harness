@@ -57,8 +57,10 @@ export function apply(ctx: ClientContext): void {
       /* jscpd:ignore-start */
       regions: ['page', 'editable', 'terminal'], modals: [],
       resolve: ({ target: element }) => {
-        const target = ctx.sidebarRight.commandTarget(element)
-        if (target === undefined) return { status: 'blocked', reason: t('shortcut.noSession') }
+        const captured = ctx.sidebarRight.commandTarget(element)
+        if (captured === undefined) return { status: 'blocked', reason: t('shortcut.noSession') }
+        // A docked files page is revealed wherever it is; the command never adds a second one.
+        const target = ctx.sidebarRight.dockedPageTarget('files', captured)
         return { status: 'handled', run: () => { ctx.sidebarRight.openTabFromTarget('files', target) } }
       },
       /* jscpd:ignore-end */
