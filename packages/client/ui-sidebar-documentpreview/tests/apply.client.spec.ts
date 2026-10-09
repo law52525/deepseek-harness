@@ -10,9 +10,12 @@
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { SidebarRightTabRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/tab-registry.ts'
+import { createSidebarRightController } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/service.ts'
+import { createSidebarRightStore } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/stores.ts'
 import { TEXTPREVIEW_ID, TEXTPREVIEW_KIND } from '../src/client/definition.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { OfficeFontAction } from '../src/client/office/OfficeFontAction.tsx'
@@ -45,7 +48,13 @@ interface Recorded {
   component: unknown
 }
 
-async function boot() {
+/**
+ * Load the plugin over recorder faces.
+ * @param options - `sidebarRight: 'real'` provides the package's own controller,
+ *   so a case driving an actual close path (AC-17's close others) reaches the
+ *   handler the plugin registered rather than a recorder.
+ */
+async function boot(options: { sidebarRight?: 'real' } = {}) {
   const ctx = new Context()
   ctx.provide('resources', createResources())
   ctx.provide('configForms', { developerTools: { enabled: createSnapshotStore(true) } } as never)
@@ -72,14 +81,17 @@ async function boot() {
   const writeText = vi.fn<ClientRemote['workspaceFiles']['writeText']>()
   const stat = vi.fn<ClientRemote['workspaceFiles']['stat']>()
   const closeHandlers = new Map<string, (sessionId: typeof SESSION, tab: { id: typeof TAB_ID; kind: string }) => void>()
-  const sidebarRight = {
+  const sidebarRightRecorder = {
     registerCloseHandler: vi.fn((kind: string, handler: (sessionId: typeof SESSION, tab: { id: typeof TAB_ID; kind: string }) => void) => {
       closeHandlers.set(kind, handler)
       return () => { closeHandlers.delete(kind) }
     }),
   }
+  const realSidebarRight = options.sidebarRight === 'real'
+    ? createSidebarRightController(tabs, vi.fn<(address: string, signal: AbortSignal) => void>())
+    : undefined
   ctx.provide('sidebarRightTabs', tabs as never)
-  ctx.provide('sidebarRight', sidebarRight as never)
+  ctx.provide('sidebarRight', (realSidebarRight?.controller ?? sidebarRightRecorder) as never)
   ctx.provide('slots', slots as never)
   ctx.provide('locale', locale as never)
   ctx.provide('remote', { workspaceFiles: { read, readBytes, writeText, stat } } as never)
@@ -87,7 +99,7 @@ async function boot() {
   const fiber = ctx.plugin({ inject: [...inject], apply })
   onTestFinished(async () => { await fiber.dispose() })
   await fiber.await()
-  return { ctx, tabs, registered, dictionaries, fiber, read, readBytes, writeText, closeHandlers }
+  return { ctx, tabs, registered, dictionaries, fiber, read, readBytes, writeText, closeHandlers, realSidebarRight }
 }
 
 describe('ui-sidebar-documentpreview apply', () => {
@@ -172,22 +184,67 @@ describe('ui-sidebar-documentpreview apply', () => {
 
   /**
    * One open editor whose complete read and draft are already recorded, ready
-   * for a close. The read's bytes decode as the text, so the editor loads.
+   * for a close. The read's bytes decode as the text, so the editor loads. The
+   * tab and its lifetime default to the single-close case; a batch close hands
+   * in the record and signal the real Sidebar store minted.
    */
-  async function editing(registered: Recorded[], readBytes: Awaited<ReturnType<typeof boot>>['readBytes']) {
+  async function editing(
+    registered: Recorded[],
+    readBytes: Awaited<ReturnType<typeof boot>>['readBytes'],
+    tabId: TabId = TAB_ID,
+    lifetime?: AbortSignal,
+  ) {
     const registration = registered.find(entry => entry.component === TextPreview)
     if (registration === undefined) throw new Error('missing preview registration')
     const instance = (registration.store as TextStore).create()
     const face = (registration.inject as ReturnType<typeof textFace>)(SESSION, instance.actions)
     const controller = new AbortController()
     readBytes.mockResolvedValueOnce(byteResult(new TextEncoder().encode('alpha')))
-    face.openEditor(TAB_ID, ADDRESS, FILE, controller.signal, 'v1')
-    await vi.waitFor(() => { expect(instance.getSnapshot().byTab[TAB_ID]?.edit?.text).toBe('alpha') })
-    face.editChanged(TAB_ID, 'alpha!')
+    face.openEditor(tabId, ADDRESS, FILE, lifetime ?? controller.signal, 'v1')
+    await vi.waitFor(() => { expect(instance.getSnapshot().byTab[tabId]?.edit?.text).toBe('alpha') })
+    face.editChanged(tabId, 'alpha!')
     return { instance, face, controller }
   }
 
-  // The "close others" case of AC-17 needs P-16's close path and lands with it.
+  it('flushes a tab exited by the pane\'s "close others" over that tab\'s own lifetime (AC-17)', async () => {
+    const { registered, readBytes, writeText, realSidebarRight } = await boot({ sidebarRight: 'real' })
+    if (realSidebarRight === undefined) throw new Error('expected the real Sidebar controller')
+    const store = createSidebarRightStore(() => ({ kind: 'guide', title: 'seed' })).create()
+    const release = realSidebarRight.adopt(SESSION, store)
+    onTestFinished(() => { release() })
+    store.actions.setExpanded(SESSION, true)
+    let notes: TabId | undefined
+    store.actions.openContent(SESSION, { kind: TEXTPREVIEW_KIND, contentId: ADDRESS, title: 'notes.md' }, (id) => { notes = id })
+    let asked: TabId | undefined
+    store.actions.openContent(SESSION, { kind: TEXTPREVIEW_KIND, contentId: 'dsh-resource://file/session/s-1/work/other.md', title: 'other.md' }, (id) => { asked = id })
+    if (notes === undefined || asked === undefined) throw new Error('expected both tabs to land')
+    // The editor holds the lifetime the real store minted for this record, so
+    // the batch close is what ends it.
+    const tabSignal = realSidebarRight.controller.tabDomain.occurrence(SESSION, { id: notes }).signal
+    const { instance } = await editing(registered, readBytes, notes, tabSignal)
+    const pending = Promise.withResolvers<Awaited<ReturnType<ClientRemote['workspaceFiles']['writeText']>>>()
+    writeText.mockReturnValueOnce(pending.promise)
+
+    realSidebarRight.controller.closeOthersIn(SESSION, asked)
+
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(SESSION, PATH, 'alpha!', 'v1', expect.any(AbortSignal))
+    // The batch close committed: the record left the surface, and its lifetime
+    // aborted with it.
+    expect(store.getSnapshot().bySession[SESSION]?.layout.tabs[notes]).toBeUndefined()
+    expect(tabSignal.aborted).toBe(true)
+    // The request rides its own signal, never the tab's: the tab ending does
+    // not cancel it, and its result reaches no bucket of the destroyed editor.
+    const writeSignal = writeText.mock.calls[0]?.[4]
+    expect(writeSignal).toBeDefined()
+    expect(writeSignal).not.toBe(tabSignal)
+    expect(writeSignal?.aborted).toBe(false)
+    expect(instance.getSnapshot().byTab[notes]).toBeUndefined()
+    pending.resolve({ ok: true, value: { absolutePath: ABSOLUTE_PATH, version: 'v2' } })
+    await pending.promise
+    await Promise.resolve()
+    expect(instance.getSnapshot().byTab[notes]).toBeUndefined()
+  })
+
   it('flushes a closing tab\'s last input over the tab\'s own signal (AC-17)', async () => {
     const { registered, readBytes, writeText, closeHandlers } = await boot()
     const { instance, controller } = await editing(registered, readBytes)
