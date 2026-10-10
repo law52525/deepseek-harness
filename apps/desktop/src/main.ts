@@ -1,3 +1,4 @@
+import { createRemoteWindowShell } from './remote-window-shell.ts'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 /** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
 
@@ -434,12 +435,15 @@ async function main(): Promise<void> {
   }
   const platformView = new DesktopPlatformView(join(app.getAppPath(), 'lib', 'preload-platform-account.cjs'),
     () => locale.id === 'zh-CN' ? 'zh_CN' : 'en_US', process.platform === 'win32' ? 'win32' : 'darwin')
+  let remoteWindow = createRemoteWindowShell(currentMainWindow)
   const backend = new DesktopBackendController((onFailure) => {
+    remoteWindow.dispose()
+    remoteWindow = createRemoteWindowShell(currentMainWindow)
     const hostInspectPort = developmentHostInspectPort(development)
     const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
       hostInspectPort, process.env, onFailure,
       primaryRuntime,
-      resources, (next) => { platformView.setSession(next) })
+      resources, (next) => { platformView.setSession(next) }, remoteWindow.handle)
     return {
       start: async () => {
         const ready = await host.start()
@@ -511,6 +515,7 @@ async function main(): Promise<void> {
         })
       },
       stop: async () => {
+        remoteWindow.dispose()
         try { await host.stop(requireCleanStop) }
         catch (error) {
           if (!requireCleanStop || !(error instanceof DesktopHostUncleanExitError)) throw error
@@ -522,7 +527,7 @@ async function main(): Promise<void> {
       inspectQuit: () => host.inspectQuit(),
     }
   }, (state) => {
-    if (state.phase === 'error') reportFatal(state.failure, 'host')
+    if (state.phase === 'error') { remoteWindow.dispose(); reportFatal(state.failure, 'host') }
     else if (!shuttingDown) backendReady = state.phase === 'ready'
   })
 
@@ -1238,6 +1243,7 @@ async function main(): Promise<void> {
   })
   if (process.platform !== 'win32') powerMonitor.on('shutdown', () => { sessionEnding = true })
   const finishQuit = (): void => {
+    remoteWindow.dispose()
     quitting = true
     shuttingDown = true
     updateJournal?.action('quit-requested')
@@ -1257,6 +1263,7 @@ async function main(): Promise<void> {
   }
   app.on('before-quit', (event) => {
     if (shellInstallerOwnsQuit) {
+      remoteWindow.dispose()
       shuttingDown = true
       quitConfirmation.dispose()
       backgroundNotice?.dispose()
