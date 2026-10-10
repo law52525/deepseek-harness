@@ -22,4 +22,6 @@ const executable = windows ? join(application, `${productName}.exe`) : join(appl
 const descriptor = await verifyDesktopRuntime(paths.dsh, readDesktopRuntime(paths.dsh).release.version,
   resolveDesktopPackageTarget(target))
 if (windows && !values.unsigned) await verifyWindowsCode(application)
-await smokePreparedRuntime(join(resources, 'app.asar', 'dsh'), executable, join(resources, 'runtime'), descriptor)
+if (process.env.DSH_DESKTOP_DEFER_RUNTIME_SMOKE !== '1') {
+  await smokePreparedRuntime(join(resources, 'app.asar', 'dsh'), executable, join(resources, 'runtime'), descriptor)
+}
