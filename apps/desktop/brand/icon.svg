@@ -1,11 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!--
-    Single brand source (decision #21): v2 Wandox W mark.
-    Glyph bbox x 0.40921.56 / y 3.7620.287, center (10.98, 12.02).
-    scale 40 ’ width H 846px H 83% of the 1024 canvas.
-    Derived platform assets are produced by `pnpm run derive:brand-icons` (derive-brand-icons.ts and derive-installer-brand.ts).
-  -->
-  <g transform="translate(512 512) scale(40) translate(-10.98 -12.02)">
-    <path fill="#000" d="M 0.409 5.581 L 5.602 20.287 L 10.984 11.827 L 16.367 20.287 L 21.56 5.581 A 1.47 1.47 0 0 1 18.738 4.759 L 15.977 17.373 L 10.984 8.888 L 5.992 17.373 L 3.231 4.759 A 1.47 1.47 0 0 1 0.409 5.581 Z"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 4 96 96"><rect x="0" y="4" width="96" height="96" rx="23" fill="#4D6BFE"/>
+<path d="M8 57C9 40 22 25 37 27C47 27 48 39 61 38C76 35 85 38 89 52C96 78 77 91 49 91C24 91 7 81 8 57Z" fill="white"/>
+<ellipse cx="31" cy="59" rx="5" ry="10" fill="#4D6BFE"/><ellipse cx="68" cy="59" rx="5" ry="10" fill="#4D6BFE"/>
+<path d="M41 75Q49 82 57 75" fill="none" stroke="#4D6BFE" stroke-width="4" stroke-linecap="round"/>
 </svg>
