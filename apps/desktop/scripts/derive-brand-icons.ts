@@ -1,9 +1,11 @@
 /**
- * Derive every desktop brand bitmap the official packager expects from one SVG.
+ * Derive every desktop brand bitmap the official packager expects from the committed brand sources.
  *
- * Input: a square glyph SVG (the v2 W mark). Output: mac 1024 PNG with a solid
- * rounded plate, Windows PNG + multi-size ICO, tray ICO (official sizes),
- * installer sidebar 164×314 BMP, and the welcome-window wordmark SVG.
+ * Inputs live under `brand/`: the primary blue mark `icon.svg`, the ink mark `icon-ink.svg`, the
+ * 200x24 lockups `single-{light,dark}.svg` (installer page artwork) and the 282x82 stacked lockup
+ * `double-light.svg` (welcome-window brand). Output: mac 1024 PNG with a solid rounded plate,
+ * Windows PNG + multi-size ICO, tray ICO (official sizes), uninstaller sidebar 164x314 BMP, and
+ * the welcome-brand SVG.
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -12,21 +14,24 @@ import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { packIco, renderTrayIconEntries, TRAY_ICON_SIZES } from './render-tray-icon.ts'
 
-/** W glyph from v2 `BrandWordmark` / `icon.svg`; keep in lockstep with `brand/icon.svg`. */
-export const W_PATH = 'M 0.409 5.581 L 5.602 20.287 L 10.984 11.827 L 16.367 20.287 L 21.56 5.581 A 1.47 1.47 0 0 1 18.738 4.759 L 15.977 17.373 L 10.984 8.888 L 5.992 17.373 L 3.231 4.759 A 1.47 1.47 0 0 1 0.409 5.581 Z'
-
 /** Official tray bitmap edges; reused so Windows scale picks a crisp size. */
 export { TRAY_ICON_SIZES }
 
 /** Windows application ICO edges (electron-builder also generates from PNG; this ICO is the committed source). */
 export const WINDOWS_APP_ICO_SIZES = [16, 24, 32, 48, 64, 128, 256] as const
 
-/** Solid plate behind the glyph so the Dock / taskbar stays readable in light and dark. */
-export const PLATE_FILL = '#1C1C1E'
-
-/** Path layout relative to `apps/desktop`. */
+/** Brand source SVGs and the directory that receives derived files, relative to `apps/desktop`. */
 export const BRAND_PATHS = {
-  source: fileURLToPath(new URL('../brand/icon.svg', import.meta.url)),
+  /** Primary blue square mark; the uninstaller sidebar embeds it whole. */
+  mark: fileURLToPath(new URL('../brand/icon.svg', import.meta.url)),
+  /** Ink square mark; the macOS / Windows application icons and the Windows tray derive from it. */
+  markInk: fileURLToPath(new URL('../brand/icon-ink.svg', import.meta.url)),
+  /** Light-mode 200x24 lockup for the installer page artwork. */
+  installerLight: fileURLToPath(new URL('../brand/single-light.svg', import.meta.url)),
+  /** Dark-mode 200x24 lockup for the installer page artwork. */
+  installerDark: fileURLToPath(new URL('../brand/single-dark.svg', import.meta.url)),
+  /** Stacked 282x82 lockup projected into the welcome-window brand SVG. */
+  welcomeLockup: fileURLToPath(new URL('../brand/double-light.svg', import.meta.url)),
   derived: fileURLToPath(new URL('../brand/derived', import.meta.url)),
 } as const
 
@@ -34,42 +39,97 @@ const SOURCE_EDGE = 1024
 const SOURCE_DENSITY = 72
 const SIDEBAR_WIDTH = 164
 const SIDEBAR_HEIGHT = 314
+/** Undo the 1.2 tray-glyph enlargement `render-tray-icon.ts` applies around the tile centre. */
+const TRAY_GLYPH_COMPENSATION = 1 / 1.2
+/** Rounded plate drawn at the macOS icon proportions; the mark artwork scales into it. */
+const ICON_TILE = { x: 72, y: 72, edge: 880, radius: 196 } as const
+const UNINSTALLER_TILE = { x: 22, y: 72, edge: 120 } as const
+const INK_ON_LIGHT = '#111216'
 
-function platformGlyphSvg(options: { fill: string; plate: string; trayGlyph: boolean }): string {
-  const inner = `<g transform="translate(512 512) scale(32) translate(-10.98 -12.02)"><path fill="${options.fill}" d="${W_PATH}"/></g>`
-  const glyph = options.trayGlyph ? `<g id="tray-glyph">${inner}</g>` : inner
+/** Attributes of the SVG root element of one brand source. */
+export function svgAttributes(svg: string): string {
+  const root = /<svg\b([^>]*)>/u.exec(svg)
+  if (root?.[1] === undefined) throw new Error('derive-brand-icons: source SVG has no root element')
+  return root[1]
+}
+
+/**
+ * Value of one attribute on the SVG root element.
+ * @param svg - SVG document text.
+ * @param name - Attribute name, matched as a whole word.
+ * @returns the attribute value.
+ */
+export function svgAttribute(svg: string, name: string): string {
+  const match = new RegExp(`\\b${name}="([^"]+)"`, 'u').exec(svgAttributes(svg))
+  if (match?.[1] === undefined) throw new Error(`derive-brand-icons: source SVG root has no ${name} attribute`)
+  return match[1]
+}
+
+/**
+ * Markup between the SVG root element's tags.
+ * @param svg - SVG document text.
+ * @returns inner markup with no root element.
+ */
+export function svgInner(svg: string): string {
+  const open = /<svg\b[^>]*>/u.exec(svg)
+  const close = svg.lastIndexOf('</svg>')
+  if (open === null || close < 0) throw new Error('derive-brand-icons: source SVG has no root element')
+  return svg.slice(open.index + open[0].length, close).trim()
+}
+
+/** Split a square mark source into its plate fill and the artwork that sits on the plate. */
+function markPlateAndFace(markSource: string): { plate: string; face: string } {
+  const plate = /<rect\b[^>]*\bfill="(#[0-9A-Fa-f]{6})"[^>]*\/>/u.exec(markSource)
+  if (plate?.[1] === undefined) throw new Error('derive-brand-icons: mark source has no filled plate rect')
+  const face = svgInner(markSource).replace(plate[0], '').trim()
+  if (face === '') throw new Error('derive-brand-icons: mark source has no face artwork next to the plate')
+  return { plate: plate[1], face }
+}
+
+/** Scale the mark artwork into the 72..952 tile on the 1024 canvas. */
+function iconCanvasSvg(mark: { plate: string; face: string; viewBox: string }, trayGlyph: boolean): string {
+  const { x, y, edge, radius } = ICON_TILE
+  const face = `<svg x="${x}" y="${y}" width="${edge}" height="${edge}" viewBox="${mark.viewBox}">${mark.face}</svg>`
+  const tile = `<rect x="${x}" y="${y}" width="${edge}" height="${edge}" rx="${radius}" fill="${mark.plate}"/>${face}`
+  const glyph = trayGlyph
+    ? `<g id="tray-glyph"><g transform="translate(552 544) scale(${String(TRAY_GLYPH_COMPENSATION)}) translate(-552 -544)">${tile}</g></g>`
+    : tile
   return [
     '<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">',
-    `<rect x="72" y="72" width="880" height="880" rx="196" fill="${options.plate}"/>`,
     glyph,
     '</svg>',
     '',
   ].join('\n')
 }
 
-function welcomeBrandSvg(): string {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="472" height="40" viewBox="0 0 472 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-<style>
-  :root {
-    --dsw-alias-label-primary: #0f1115;
-    --dsw-alias-label-primary-inverted: #fff;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --dsw-alias-label-primary: #f9fafb;
-      --dsw-alias-label-primary-inverted: #353638;
-    }
-  }
-</style>
-<g transform="translate(128 7) scale(1.2)">
-  <path d="${W_PATH}" fill="var(--dsw-alias-label-primary)"/>
-</g>
-<text x="164" y="29" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="25" font-weight="700" letter-spacing="-0.2" fill="var(--dsw-alias-label-primary)">Wandox</text>
-<rect x="272" y="10" width="54" height="20" rx="3" fill="var(--dsw-alias-label-primary)"/>
-<text x="299" y="24.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="700" letter-spacing="0.8" fill="var(--dsw-alias-label-primary-inverted)">WORK</text>
-</svg>
-`
+/** Embed the whole primary mark in the 164x314 uninstaller sidebar. */
+function uninstallerSidebarSvg(mark: { inner: string; viewBox: string }): string {
+  const { x, y, edge } = UNINSTALLER_TILE
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${SIDEBAR_WIDTH}" height="${SIDEBAR_HEIGHT}" viewBox="0 0 ${SIDEBAR_WIDTH} ${SIDEBAR_HEIGHT}">`,
+    `<rect width="${SIDEBAR_WIDTH}" height="${SIDEBAR_HEIGHT}" fill="#F4F4F5"/>`,
+    `<svg x="${x}" y="${y}" width="${edge}" height="${edge}" viewBox="${mark.viewBox}">${mark.inner}</svg>`,
+    '</svg>',
+    '',
+  ].join('\n')
+}
+
+/** Project the stacked lockup into a theme-aware welcome-window SVG: letters follow the colour scheme, blue accents stay fixed. */
+function welcomeBrandSvg(lockup: string): string {
+  const artwork = svgInner(lockup).replaceAll(INK_ON_LIGHT, 'currentColor')
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    `<svg width="${svgAttribute(lockup, 'width')}" height="${svgAttribute(lockup, 'height')}" viewBox="${svgAttribute(lockup, 'viewBox')}" xmlns="http://www.w3.org/2000/svg">`,
+    '<style>',
+    `  :root { color: ${INK_ON_LIGHT}; }`,
+    '  @media (prefers-color-scheme: dark) {',
+    '    :root { color: #FFFFFF; }',
+    '  }',
+    '</style>',
+    artwork,
+    '</svg>',
+    '',
+  ].join('\n')
 }
 
 /** Pack a 24-bit BMP (no compression, bottom-up). */
@@ -105,34 +165,29 @@ async function rasterPng(svg: string, edge: number): Promise<Buffer> {
 }
 
 /**
- * Derive every committed brand asset from `brand/icon.svg`.
- * @param source - Glyph SVG; default the committed v2 W mark.
- * @param outputDir - Directory that receives derived files.
+ * Derive every committed brand asset from the `brand/` sources.
+ * @param outputDir - Directory that receives derived files; defaults to `brand/derived`.
+ * @returns derived file names mapped to the paths written.
  */
-export async function deriveBrandIcons(
-  source: string = BRAND_PATHS.source,
-  outputDir: string = BRAND_PATHS.derived,
-): Promise<Readonly<Record<string, string>>> {
-  const glyph = await readFile(source, 'utf8')
-  if (!glyph.includes(W_PATH)) throw new Error('derive-brand-icons: source SVG must contain the W glyph path')
+export async function deriveBrandIcons(outputDir: string = BRAND_PATHS.derived): Promise<Readonly<Record<string, string>>> {
+  const [blueMark, inkMark, welcomeLockup] = await Promise.all([
+    readFile(BRAND_PATHS.mark, 'utf8'),
+    readFile(BRAND_PATHS.markInk, 'utf8'),
+    readFile(BRAND_PATHS.welcomeLockup, 'utf8'),
+  ])
+  const ink = { ...markPlateAndFace(inkMark), viewBox: svgAttribute(inkMark, 'viewBox') }
+  const blue = { inner: svgInner(blueMark), viewBox: svgAttribute(blueMark, 'viewBox') }
   await mkdir(outputDir, { recursive: true })
-  const macosSvg = platformGlyphSvg({ fill: '#FFFFFF', plate: PLATE_FILL, trayGlyph: false })
-  const windowsSvg = platformGlyphSvg({ fill: '#FFFFFF', plate: PLATE_FILL, trayGlyph: true })
-  const macosPng = await rasterPng(macosSvg, SOURCE_EDGE)
-  const windowsPng = await rasterPng(windowsSvg, SOURCE_EDGE)
+  const appSvg = iconCanvasSvg(ink, false)
+  const traySvg = iconCanvasSvg(ink, true)
+  const macosPng = await rasterPng(appSvg, SOURCE_EDGE)
+  const windowsPng = await rasterPng(appSvg, SOURCE_EDGE)
   const windowsIco = packIco(await Promise.all(WINDOWS_APP_ICO_SIZES.map(async size => ({
     size,
-    png: await rasterPng(windowsSvg, size),
+    png: await rasterPng(appSvg, size),
   }))))
-  const trayIco = packIco(await renderTrayIconEntries(Buffer.from(windowsSvg)))
-  const sidebarSvg = [
-    '<svg xmlns="http://www.w3.org/2000/svg" width="164" height="314" viewBox="0 0 164 314">',
-    '<rect width="164" height="314" fill="#F4F4F5"/>',
-    `<rect x="22" y="72" width="120" height="120" rx="28" fill="${PLATE_FILL}"/>`,
-    `<g transform="translate(82 132) scale(4.2) translate(-10.98 -12.02)"><path fill="#FFFFFF" d="${W_PATH}"/></g>`,
-    '</svg>',
-    '',
-  ].join('\n')
+  const trayIco = packIco(await renderTrayIconEntries(Buffer.from(traySvg)))
+  const sidebarSvg = uninstallerSidebarSvg(blue)
   const sidebarPng = await sharp(Buffer.from(sidebarSvg))
     .resize(SIDEBAR_WIDTH, SIDEBAR_HEIGHT)
     .ensureAlpha()
@@ -142,12 +197,12 @@ export async function deriveBrandIcons(
   const files = {
     'icon-macos.png': macosPng,
     'icon-windows.png': windowsPng,
-    'icon-windows.svg': Buffer.from(windowsSvg),
+    'icon-windows.svg': Buffer.from(appSvg),
     'icon-windows.ico': windowsIco,
     'tray-windows.ico': trayIco,
     'uninstaller-sidebar.png': await sharp(Buffer.from(sidebarSvg)).resize(SIDEBAR_WIDTH, SIDEBAR_HEIGHT).png().toBuffer(),
     'uninstaller-sidebar.bmp': sidebarBmp,
-    'welcome-brand.svg': Buffer.from(welcomeBrandSvg()),
+    'welcome-brand.svg': Buffer.from(welcomeBrandSvg(welcomeLockup)),
   } as const
   const written: Record<string, string> = {}
   for (const [name, bytes] of Object.entries(files)) {
