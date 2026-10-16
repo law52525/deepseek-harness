@@ -262,3 +262,54 @@ describe('BlockAssembler.interruptedBlocks', () => {
     expect(assembler.interruptedBlocks()).toEqual([])
   })
 })
+
+describe('D-26 AC-2 ★★ 空 id 续片不覆盖真 id（含 block-end 冻结）', () => {
+  it('block-start + 真 id delta + 空 id 续片 + block-end(id:"") → 块 id 保持真 id', () => {
+    const assembler = new BlockAssembler()
+    assembler.push({ type: 'block-start', index: 0, blockType: 'tool-call' })
+    assembler.push({ type: 'tool-call-delta', index: 0, id: ToolCallId('call_ABC123'), name: 'bash', argumentsDelta: '' })
+    assembler.push({ type: 'tool-call-delta', index: 0, id: ToolCallId(''), name: 'bash', argumentsDelta: '{"command":' })
+    assembler.push({ type: 'tool-call-delta', index: 0, id: ToolCallId(''), name: 'bash', argumentsDelta: '"echo hi"}' })
+    assembler.push({
+      type: 'block-end',
+      index: 0,
+      block: { type: 'tool-call', id: ToolCallId(''), name: 'bash', arguments: '{"command":"echo hi"}' },
+    })
+    assembler.push({ type: 'finish', reason: { kind: 'tool-calls' } })
+    expect(assembler.blocks()).toEqual([
+      { type: 'tool-call', id: ToolCallId('call_ABC123'), name: 'bash', arguments: '{"command":"echo hi"}' },
+    ])
+  })
+})
+
+describe('D-26 AC-3 ★ 全程空 id 合成 call-${index} 兜底', () => {
+  it('deltas 与 block-end 全空 id → 块 id 为非空合成值', () => {
+    const assembler = new BlockAssembler()
+    assembler.push({ type: 'block-start', index: 1, blockType: 'tool-call' })
+    assembler.push({ type: 'tool-call-delta', index: 1, id: ToolCallId(''), name: 'bash', argumentsDelta: '{"command":' })
+    assembler.push({ type: 'tool-call-delta', index: 1, id: ToolCallId(''), name: 'bash', argumentsDelta: '"echo hi"}' })
+    assembler.push({
+      type: 'block-end',
+      index: 1,
+      block: { type: 'tool-call', id: ToolCallId(''), name: 'bash', arguments: '{"command":"echo hi"}' },
+    })
+    const block = assembler.blocks()[0]
+    expect(block?.type).toBe('tool-call')
+    if (block?.type === 'tool-call') {
+      expect(block.id.length).toBeGreaterThan(0)
+      expect(block.id).toBe('call-1')
+    }
+  })
+
+  it('无 block-end（空 id deltas 即流结束）→ 块 id 为非空合成值', () => {
+    const assembler = new BlockAssembler()
+    assembler.push({ type: 'block-start', index: 1, blockType: 'tool-call' })
+    assembler.push({ type: 'tool-call-delta', index: 1, id: ToolCallId(''), name: 'bash', argumentsDelta: '{"command":"echo hi"}' })
+    const block = assembler.blocks()[0]
+    expect(block?.type).toBe('tool-call')
+    if (block?.type === 'tool-call') {
+      expect(block.id.length).toBeGreaterThan(0)
+      expect(block.id).toBe('call-1')
+    }
+  })
+})
