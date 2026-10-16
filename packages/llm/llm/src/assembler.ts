@@ -69,7 +69,9 @@ export class BlockAssembler {
       case 'tool-call-delta': {
         const partial = this.ensure(chunk.index, 'tool-call')
         if (partial.block) return // closed by block-end; ignore stragglers
-        partial.toolCallId = chunk.id
+        // Continuation chunks may repeat the id as empty; only a non-empty id
+        // updates the id captured from the call's first chunk.
+        if (chunk.id) partial.toolCallId = chunk.id
         if (chunk.name) partial.toolCallName = chunk.name
         partial.toolCallArguments += chunk.argumentsDelta
         return
@@ -106,13 +108,18 @@ export class BlockAssembler {
   }
 
   private assemble(partial: PartialBlock, index: number): ContentBlock {
-    if (partial.block) return partial.block
+    if (partial.block) {
+      // A `block-end`-frozen tool call may carry an empty id; normalize it the
+      // same way the open path does so an assembled tool call never has one.
+      if (partial.block.type !== 'tool-call' || partial.block.id.length > 0) return partial.block
+      return { ...partial.block, id: partial.toolCallId || brandString<ToolCallId>(`call-${index}`) }
+    }
     switch (partial.blockType) {
       case 'text': return { type: 'text', text: partial.text }
       case 'reasoning': return { type: 'reasoning', text: partial.text }
       case 'tool-call': return {
         type: 'tool-call',
-        id: partial.toolCallId ?? brandString<ToolCallId>(`call-${index}`),
+        id: partial.toolCallId || brandString<ToolCallId>(`call-${index}`),
         name: partial.toolCallName ?? '',
         arguments: partial.toolCallArguments,
       }
