@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { NotarizeOptions } from '@electron/notarize'
 import {
@@ -44,6 +45,13 @@ describe('desktop macOS release signature', () => {
     expect(config.protocols).toEqual([{ name: 'DeepSeek Harness', schemes: ['dsh'] }])
     expect(portablePath(config.directories.output)).toContain('/.desktop-build/targets/mac-arm64/artifacts')
     expect(config.mac.extendInfo.NSMicrophoneUsageDescription).toContain('microphone')
+    expect(portablePath(config.mac.entitlements)).toMatch(/\/resources\/entitlements\.mac\.plist$/u)
+    expect(portablePath(config.mac.entitlementsInherit)).toMatch(/\/resources\/entitlements\.mac\.inherit\.plist$/u)
+    for (const file of [config.mac.entitlements, config.mac.entitlementsInherit]) {
+      const plist = readFileSync(file, 'utf8')
+      expect(plist).toContain('com.apple.security.device.audio-input')
+      expect(plist).toContain('com.apple.security.cs.allow-jit')
+    }
     expect(config.extraResources).toHaveLength(2)
     expect(config.extraResources[0]?.to).toBe('runtime')
     expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')

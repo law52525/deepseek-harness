@@ -301,6 +301,9 @@ export function createElectronBuilderConfig(
       identity: macOSSigning?.signingIdentity,
       forceCodeSigning: true,
       hardenedRuntime: true,
+      // Hardened Runtime denies microphone capture without audio-input; helper processes inherit the same set.
+      entitlements: fileURLToPath(new URL('../resources/entitlements.mac.plist', import.meta.url)),
+      entitlementsInherit: fileURLToPath(new URL('../resources/entitlements.mac.inherit.plist', import.meta.url)),
       // macOS matches the application locale against this bundle, not Electron Framework resources.
       extendInfo: {
         CFBundleLocalizations: ['en', 'zh_CN'],

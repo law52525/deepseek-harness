@@ -40,6 +40,8 @@ export interface DesktopElectronBuilderConfig {
   ]
   readonly mac: {
     readonly icon?: string
+    readonly entitlements: string
+    readonly entitlementsInherit: string
     readonly extendInfo: {
       readonly NSMicrophoneUsageDescription: string
       readonly CFBundleLocalizations: readonly string[]
