@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -51,7 +51,7 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve }
 }
 
-async function harness(options: { systemDocuments?: boolean } = {}) {
+async function harness(options: { systemDocuments?: boolean; productDirectory?: string } = {}) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-workspace-controller-')))
   tempDirs.push(root)
   const ctx = new Context()
@@ -71,7 +71,9 @@ async function harness(options: { systemDocuments?: boolean } = {}) {
     resources: { register: vi.fn(() => dispose) },
   } as never)
   new RemoteAccessService(ctx)
-  const controller = new WorkspaceController(ctx, options.systemDocuments === true ? {} : { documentsDirectory: root })
+  const controller = new WorkspaceController(ctx, options.systemDocuments === true
+    ? { productDirectory: options.productDirectory }
+    : { documentsDirectory: root, productDirectory: options.productDirectory })
   return { controller, ctx, root, storageDomain }
 }
 
@@ -599,6 +601,28 @@ describe('first-use Remote', () => {
     expect(existsSync(result!.workspace.path)).toBe(true)
     expect(ctx.sessions.list()).toEqual([])
     expect(await controller.initializeDefault(signal)).toEqual(result)
+  })
+
+  it('defaults productDirectory to the official folder name and rejects illegal values', () => {
+    expect(WorkspaceController.Config({}).productDirectory).toBe('deepseek-harness')
+    expect(() => WorkspaceController.Config({ productDirectory: '' })).toThrow()
+    expect(() => WorkspaceController.Config({ productDirectory: 'a/b' })).toThrow()
+    expect(() => WorkspaceController.Config({ productDirectory: 'a\\b' })).toThrow()
+    expect(() => WorkspaceController.Config({ productDirectory: '..' })).toThrow()
+    expect(() => WorkspaceController.Config({ productDirectory: '.' })).toThrow()
+  })
+
+  it('places the default Workspace under a configured product directory and reuses it', async () => {
+    const { controller, ctx, root } = await harness({ productDirectory: 'Product Name' })
+    const path = join(root, 'Product Name', DEFAULT_WORKSPACE_DIRECTORY)
+    mkdirSync(path, { recursive: true })
+    const marker = join(path, 'existing.txt')
+    writeFileSync(marker, 'keep')
+    const first = await controller.initializeDefault(new AbortController().signal)
+    expect(first!.workspace.path).toBe(path)
+    expect(await controller.initializeDefault(new AbortController().signal)).toEqual(first)
+    expect(readFileSync(marker, 'utf8')).toBe('keep')
+    expect(ctx.workspaceRegistry.list()).toHaveLength(1)
   })
 
   it('skips ineligible first use and propagates preparation failures', async () => {
