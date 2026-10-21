@@ -1508,6 +1508,17 @@ describe('first-use Workspace preparation', () => {
     expect(storedState(h.pool).defaultWorkspaceId).toBeUndefined()
   })
 
+  it('reuses its durable identity across restart when allowExistingSessions is set', async () => {
+    const h = await firstUse({ liveSessions: [header('existing')] })
+    const workspace = (await h.registry.initializeDefault(h.resolveDirectory, { allowExistingSessions: true }))!
+    await h.ctx.fiber.dispose()
+    const restarted = await firstUse({ pool: h.pool, sessions: [header('persisted')] })
+    await expect(restarted.registry.initializeDefault(restarted.resolveDirectory, { allowExistingSessions: true }))
+      .resolves.toMatchObject({ id: workspace.id })
+    expect(restarted.resolveDirectory).not.toHaveBeenCalled()
+    expect(restarted.registry.list()).toHaveLength(1)
+  })
+
   it('does not recreate a deleted default Workspace when allowExistingSessions is set', async () => {
     const h = await firstUse({ liveSessions: [header('existing')] })
     const workspace = (await h.registry.initializeDefault(h.resolveDirectory, { allowExistingSessions: true }))!
