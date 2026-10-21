@@ -1,6 +1,9 @@
 /** Environment variable that carries the build version through one packaging and upload run. */
 export const DESKTOP_BUILD_VERSION_ENV: 'DSH_DESKTOP_BUILD_VERSION'
 
+/** Environment variable that publishes a product version distinct from the bundled dsh version. */
+export const DESKTOP_PRODUCT_VERSION_ENV: 'DSH_DESKTOP_PRODUCT_VERSION'
+
 /**
  * Validate a build version against the product version it extends.
  * @param buildVersion - Version this build publishes.
@@ -8,6 +11,14 @@ export const DESKTOP_BUILD_VERSION_ENV: 'DSH_DESKTOP_BUILD_VERSION'
  * @returns The version as semver normalizes it, which is what the artifacts will carry.
  */
 export function validateDesktopBuildVersion(buildVersion: string, productVersion: string): string
+
+/**
+ * Resolve the product version a build publishes.
+ * @param env - Packaging environment.
+ * @param declaredVersion - Version the desktop and dsh manifests declare.
+ * @returns Product version the artifacts publish.
+ */
+export function resolveDesktopProductVersion(env: NodeJS.ProcessEnv, declaredVersion: string): string
 
 /**
  * Resolve the version a build publishes.

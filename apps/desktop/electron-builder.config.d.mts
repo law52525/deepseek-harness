@@ -3,8 +3,9 @@ import type { AfterPackContext, BeforePackContext } from 'app-builder-lib'
 /** Electron-builder fields asserted by the Desktop release tests. */
 export interface DesktopElectronBuilderConfig {
   readonly appId: string
+  readonly productName: string
   readonly artifactName: string
-  readonly protocols: readonly [{ readonly name: 'DeepSeek Harness'; readonly schemes: readonly ['dsh'] }]
+  readonly protocols: readonly [{ readonly name: string; readonly schemes: readonly [string] }]
   readonly directories: {
     readonly output: string
   }
@@ -13,7 +14,22 @@ export interface DesktopElectronBuilderConfig {
     { readonly from: string, readonly to: 'dsh', readonly filter: readonly ['**/*'] },
     { readonly from: string, readonly to: 'dsh/node_modules', readonly filter: readonly ['**/*'] },
   ]
-  readonly extraMetadata: { readonly dshDesktopAppId: string }
+  readonly extraMetadata: {
+    readonly dshDesktopAppId: string
+    readonly dshDesktopUpdateChannel: 'nightly' | 'latest'
+    readonly version?: string
+    readonly name?: string
+    readonly dshDesktopProfileName?: string
+    readonly dshDesktopExtraBundles?: readonly string[]
+    readonly dshDesktopProductName?: string
+    readonly dshDesktopProtocolScheme?: string
+    readonly dshDesktopInAppAuth?: Readonly<{
+      readonly origins: readonly string[]
+      readonly callbackPrefix: string
+      readonly forwardPath: string
+    }>
+    readonly dshDesktopWelcomeApiKey?: string
+  }
   readonly asarUnpack: readonly string[]
   readonly extraResources: readonly [
     { readonly from: string, readonly to: 'runtime' },
@@ -21,7 +37,11 @@ export interface DesktopElectronBuilderConfig {
     ...{ readonly from: string, readonly to: 'tray.ico' }[],
   ]
   readonly mac: {
-    readonly extendInfo: { readonly NSMicrophoneUsageDescription: string }
+    readonly icon?: string
+    readonly extendInfo: {
+      readonly NSMicrophoneUsageDescription: string
+      readonly CFBundleLocalizations?: readonly string[]
+    }
     readonly entitlements: string
     readonly entitlementsInherit: string
     readonly identity: string | undefined
@@ -55,7 +75,7 @@ export interface DesktopElectronBuilderConfig {
   readonly afterPack: (context: AfterPackContext) => Promise<void>
   readonly afterSign: (context: AfterPackContext) => Promise<void>
   readonly artifactBuildCompleted: (artifact: { readonly file: string }) => Promise<void> | undefined
-  readonly publish: readonly [{ readonly provider: 'generic', readonly url: string }] | null
+  readonly publish: readonly [{ readonly provider: 'generic', readonly url: string, readonly channel?: 'nightly' | 'latest' }] | null
 }
 
 /**

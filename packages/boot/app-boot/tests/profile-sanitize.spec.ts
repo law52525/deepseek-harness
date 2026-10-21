@@ -25,7 +25,7 @@ function fixture() {
   const bundles = PROFILE_TEMPLATES.web!.bundles
   initProfile(dir, [...bundles, 'broken-plugin'])
   const manifestPath = join(dir, 'package.json')
-  const manifest = { ...readProfileManifest('test', dir), dependencies: { 'broken-plugin': '1.2.3' }, custom: 'retained' }
+  const manifest = { ...readProfileManifest('test', dir), dependencies: { 'broken-plugin': '1.2.3' }, custom: 'retained', managedBy: 'desktop-app' }
   writeFileSync(manifestPath, JSON.stringify(manifest))
   const patch = join(dir, PROFILE_PATCH_FILENAME)
   writeFileSync(patch, ': broken YAML')

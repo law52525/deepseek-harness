@@ -1,8 +1,8 @@
 import { officePackageDirectories } from '../../../scripts/libreoffice-packages.mjs'
 import { X509Certificate } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { basename, dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -21,7 +21,7 @@ import {
 } from './windows-sign.mjs'
 import { resolveDesktopAutoUpdateConfig } from './desktop-auto-update-environment.mjs'
 import { resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
-import { resolveDesktopBuildVersion } from './desktop-build-version.mjs'
+import { resolveDesktopBuildVersion, resolveDesktopProductVersion } from './desktop-build-version.mjs'
 import { resolveDesktopPolicyEnvironment } from './desktop-policy-environment.mjs'
 import { desktopArtifactOutput, desktopTargetBuildPaths, resolveDesktopBuildTarget } from './desktop-build-paths.mjs'
 import { installWindowsDirectoryInstaller } from './windows-directory-installer.mjs'
@@ -33,6 +33,95 @@ import {
   verifyMacOSAppUpdateConfig,
   writeMacOSAppUpdateConfig,
 } from './macos-app-update-config.mjs'
+
+const PRODUCT_APP_ID_ENV = 'DSH_DESKTOP_PRODUCT_APP_ID'
+const PACKAGE_NAME_ENV = 'DSH_DESKTOP_PACKAGE_NAME'
+const PROFILE_NAME_ENV = 'DSH_DESKTOP_PROFILE_NAME'
+const EXTRA_BUNDLES_ENV = 'DSH_DESKTOP_EXTRA_BUNDLES'
+const PRODUCT_NAME_ENV = 'DSH_DESKTOP_PRODUCT_NAME'
+const PROTOCOL_SCHEME_ENV = 'DSH_DESKTOP_PROTOCOL_SCHEME'
+const ARTIFACT_PREFIX_ENV = 'DSH_DESKTOP_ARTIFACT_PREFIX'
+const BRAND_RESOURCES_ENV = 'DSH_DESKTOP_BRAND_RESOURCES'
+const IN_APP_AUTH_ENV = 'DSH_DESKTOP_IN_APP_AUTH'
+const WELCOME_API_KEY_ENV = 'DSH_DESKTOP_WELCOME_API_KEY'
+const DEFAULT_PRODUCT_NAME = 'DeepSeek Harness'
+const DEFAULT_PROTOCOL_SCHEME = 'dsh'
+const DEFAULT_ARTIFACT_PREFIX = 'deepseek-harness'
+const ARTIFACT_PREFIX_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const PROTOCOL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*$/
+
+function commaSeparatedNames(value) {
+  if (value === undefined) return []
+  const names = []
+  const seen = new Set()
+  for (const part of value.split(',')) {
+    const name = part.trim()
+    if (name === '' || seen.has(name)) continue
+    seen.add(name)
+    names.push(name)
+  }
+  return names
+}
+
+function trimmed(env, name) {
+  const value = env[name]?.trim()
+  return value === undefined || value === '' ? undefined : value
+}
+
+function parseInAppAuthMetadata(env) {
+  const raw = trimmed(env, IN_APP_AUTH_ENV)
+  if (raw === undefined) return undefined
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error(`desktop package: ${IN_APP_AUTH_ENV} must be JSON`)
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)
+    || !Array.isArray(parsed.origins) || parsed.origins.length === 0
+    || typeof parsed.callbackPrefix !== 'string' || typeof parsed.forwardPath !== 'string') {
+    throw new Error(`desktop package: ${IN_APP_AUTH_ENV} must include origins, callbackPrefix, and forwardPath`)
+  }
+  return {
+    origins: parsed.origins.map((item) => {
+      if (typeof item !== 'string') {
+        throw new Error(`desktop package: ${IN_APP_AUTH_ENV} origins must be https origins`)
+      }
+      return item.trim()
+    }),
+    callbackPrefix: parsed.callbackPrefix.trim(),
+    forwardPath: parsed.forwardPath.trim(),
+  }
+}
+
+function resolveProductName(env) {
+  return trimmed(env, PRODUCT_NAME_ENV) ?? DEFAULT_PRODUCT_NAME
+}
+
+function resolveProtocolScheme(env) {
+  const value = trimmed(env, PROTOCOL_SCHEME_ENV)
+  if (value === undefined) return DEFAULT_PROTOCOL_SCHEME
+  if (!PROTOCOL_SCHEME_PATTERN.test(value)) {
+    throw new Error(`desktop package: ${PROTOCOL_SCHEME_ENV} must be a lowercase URI scheme`)
+  }
+  return value
+}
+
+function resolveArtifactPrefix(env) {
+  const value = trimmed(env, ARTIFACT_PREFIX_ENV)
+  if (value === undefined) return DEFAULT_ARTIFACT_PREFIX
+  if (!ARTIFACT_PREFIX_PATTERN.test(value)) {
+    throw new Error(`desktop package: ${ARTIFACT_PREFIX_ENV} must be a file-name token`)
+  }
+  return value
+}
+
+function resourcePath(env, official, name) {
+  const brand = trimmed(env, BRAND_RESOURCES_ENV)
+  return brand === undefined
+    ? fileURLToPath(new URL(`../resources/${official}`, import.meta.url))
+    : join(brand, name)
+}
 
 /**
  * Create electron-builder configuration from one release environment.
@@ -50,14 +139,28 @@ export function createElectronBuilderConfig(
   preparedRuntime = undefined,
   preparedRuntimeVersion = undefined,
 ) {
-  const appId = resolveDesktopAppId(env)
+  const productAppId = env[PRODUCT_APP_ID_ENV]?.trim()
+  const appId = resolveDesktopAppId({
+    ...env,
+    ...productAppId === undefined || productAppId === '' ? {} : { DSH_DESKTOP_APP_ID: productAppId },
+  })
   const targetPlatform = env.DSH_DESKTOP_TARGET_PLATFORM
   const resolvedPlatform = targetPlatform ?? hostPlatform
   const resolvedArch = env.DSH_DESKTOP_TARGET_ARCH ?? hostArch
   if (env.DSH_DESKTOP_UNSIGNED !== undefined && !['0', '1'].includes(env.DSH_DESKTOP_UNSIGNED)) {
     throw new Error('desktop package: DSH_DESKTOP_UNSIGNED must be 0 or 1')
   }
+  if (env.DSH_DESKTOP_UNSIGNED_UPDATES !== undefined && !['0', '1'].includes(env.DSH_DESKTOP_UNSIGNED_UPDATES)) {
+    throw new Error('desktop package: DSH_DESKTOP_UNSIGNED_UPDATES must be 0 or 1')
+  }
   const unsigned = env.DSH_DESKTOP_UNSIGNED === '1'
+  const unsignedUpdates = env.DSH_DESKTOP_UNSIGNED_UPDATES === '1'
+  if (unsignedUpdates && !unsigned) {
+    throw new Error('desktop package: DSH_DESKTOP_UNSIGNED_UPDATES=1 is mutually exclusive with signed builds')
+  }
+  if (unsignedUpdates && resolvedPlatform !== 'win32') {
+    throw new Error('desktop package: unsigned updates require Windows')
+  }
   const skipNotarization = env.DSH_DESKTOP_MACOS_SKIP_NOTARIZATION === '1'
   if (env.DSH_DESKTOP_MACOS_SKIP_NOTARIZATION !== undefined && !['0', '1'].includes(env.DSH_DESKTOP_MACOS_SKIP_NOTARIZATION)) {
     throw new Error('desktop package: DSH_DESKTOP_MACOS_SKIP_NOTARIZATION must be 0 or 1')
@@ -95,27 +198,64 @@ export function createElectronBuilderConfig(
   if (windowsSigner !== undefined) {
     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
   }
-  const update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+  const keepUnsignedUpdater = unsigned && unsignedUpdates
+  const update = unsigned && !keepUnsignedUpdater
+    ? undefined
+    : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
   if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
   // electron-builder merges extraMetadata into the packaged manifest, so a build version here reaches
   // the artifact names, the update feed, and the installed app.getVersion() the updater compares against.
-  const productVersion = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')).version
+  const declaredVersion = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')).version
+  const productVersion = resolveDesktopProductVersion(env, declaredVersion)
   const buildVersion = resolveDesktopBuildVersion(env, productVersion)
   if (update?.channel === 'latest' && buildVersion.includes('-')) throw new Error('desktop package: latest requires a stable version')
   const packaged = resolveDesktopBuildCommit(env)
+  const packageName = env[PACKAGE_NAME_ENV]?.trim()
+  const profileName = env[PROFILE_NAME_ENV]?.trim()
+  const extraBundles = commaSeparatedNames(env[EXTRA_BUNDLES_ENV])
+  const productName = resolveProductName(env)
+  const protocolScheme = resolveProtocolScheme(env)
+  const artifactPrefix = resolveArtifactPrefix(env)
+  const iconMacos = resourcePath(env, 'icon-macos.png', 'icon-macos.png')
+  const iconWindows = resourcePath(env, 'icon-windows.png', 'icon-windows.png')
+  const trayWindows = resourcePath(env, 'tray-windows.ico', 'tray-windows.ico')
+  const brandResources = trimmed(env, BRAND_RESOURCES_ENV)
+  const welcomeBrand = brandResources === undefined ? undefined : join(brandResources, 'welcome-brand.svg')
+  const rendererFiles = welcomeBrand === undefined
+    ? ['renderer/**/*']
+    : [
+      { from: 'renderer', to: 'renderer', filter: ['**/*', '!assets/welcome-brand.svg'] },
+      // `files` FileSet `from` is a directory; mapping a single file path is ignored.
+      { from: dirname(welcomeBrand), to: 'renderer/assets', filter: [basename(welcomeBrand)] },
+    ]
+  const installerSidebar = brandResources === undefined
+    ? join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp')
+    : join(brandResources, 'uninstaller-sidebar.bmp')
+  const inAppAuth = parseInAppAuthMetadata(env)
+  const welcomeApiKey = trimmed(env, WELCOME_API_KEY_ENV)
   return {
     appId,
-    protocols: [{ name: 'DeepSeek Harness', schemes: ['dsh'] }],
+    protocols: [{ name: productName, schemes: [protocolScheme] }],
     extraMetadata: {
       dshDesktopAppId: appId,
       dshDesktopUpdateChannel: update?.channel ?? 'nightly',
       ...(policy === undefined ? {} : { dshMandatoryUpdatePolicy: policy }),
-      ...buildVersion === productVersion ? {} : { version: buildVersion },
+      ...buildVersion === declaredVersion ? {} : { version: buildVersion },
+      ...packageName === undefined || packageName === '' ? {} : { name: packageName },
+      ...profileName === undefined || profileName === '' || profileName === 'desktop'
+        ? {}
+        : { dshDesktopProfileName: profileName },
+      ...extraBundles.length === 0 ? {} : { dshDesktopExtraBundles: extraBundles },
+      ...productName === DEFAULT_PRODUCT_NAME ? {} : { dshDesktopProductName: productName },
+      ...protocolScheme === DEFAULT_PROTOCOL_SCHEME ? {} : { dshDesktopProtocolScheme: protocolScheme },
+      ...inAppAuth === undefined ? {} : { dshDesktopInAppAuth: inAppAuth },
+      ...welcomeApiKey === undefined ? {} : { dshDesktopWelcomeApiKey: welcomeApiKey },
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
     },
-    productName: 'DeepSeek Harness',
-    // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact.
-    artifactName: `deepseek-harness-\${version}-\${os}-\${arch}${output.suffix}.\${ext}`,
+    productName,
+    // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact;
+    // the explicit updater switch removes it so the feed name matches the signed release form.
+    artifactName: `${artifactPrefix}-\${version}-\${os}-\${arch}${keepUnsignedUpdater ? '' : output.suffix}.\${ext}`,
     directories: { output: output.directory },
     asar: true,
     electronDist: buildPaths.electron,
@@ -124,9 +264,17 @@ export function createElectronBuilderConfig(
       if (resolvedPlatform !== 'win32') return true
       await promisify(execFile)('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
         fileURLToPath(new URL('./prepare-windows-installer.ps1', import.meta.url)),
-        '-OutputDirectory', join(buildPaths.root, 'installer-ui')], {
+        '-OutputDirectory', join(buildPaths.root, 'installer-ui'),
+        ...brandResources === undefined ? [] : ['-BrandDirectory', brandResources]], {
         env: scrubWindowsSigningEnvironment(env), windowsHide: true,
       })
+      if (productName !== DEFAULT_PRODUCT_NAME) {
+        const source = readFileSync(fileURLToPath(new URL('../installer/strings.nsh', import.meta.url)), 'utf8')
+        writeFileSync(
+          join(buildPaths.root, 'installer-ui', 'strings.nsh'),
+          source.split(DEFAULT_PRODUCT_NAME).join(productName),
+        )
+      }
       if (windowsSigner !== undefined) {
         await windowsSigner({ path: join(buildPaths.root, 'installer-ui', 'window-frame.dll'), hash: 'sha256', isNest: false })
       }
@@ -141,7 +289,7 @@ export function createElectronBuilderConfig(
       'lib/preload-platform-account.cjs',
       'lib/preload-update-dialog.cjs',
       'lib/preload-welcome.cjs',
-      'renderer/**/*',
+      ...rendererFiles,
       'package.json',
       '!node_modules/**/*.{js,cjs,mjs,ts,cts,mts,css}.map',
       '!node_modules/**/*.tsbuildinfo',
@@ -152,20 +300,22 @@ export function createElectronBuilderConfig(
     asarUnpack: unpack,
     extraResources: [
       { from: buildPaths.runtime, to: 'runtime' },
-      { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
+      { from: iconWindows, to: 'icon.png' },
       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
-      ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
+      ...(packagesWindows ? [{ from: trayWindows, to: 'tray.ico' }] : []),
     ],
     mac: {
-      icon: fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url)),
+      icon: iconMacos,
       category: 'public.app-category.developer-tools',
-      // macOS matches the application locale against this bundle, not Electron Framework resources.
-      extendInfo: { CFBundleLocalizations: ['en', 'zh_CN'] },
       // Ad-hoc signing keeps the modified Electron executable runnable without a Developer ID.
       identity: unsigned ? '-' : macOSSigning?.signingIdentity,
       forceCodeSigning: !unsigned,
       hardenedRuntime: true,
-      extendInfo: { NSMicrophoneUsageDescription: 'DeepSeek Harness uses your microphone to transcribe speech into message drafts.' },
+      // macOS matches the application locale against this bundle, not Electron Framework resources.
+      extendInfo: {
+        CFBundleLocalizations: ['en', 'zh_CN'],
+        NSMicrophoneUsageDescription: `${productName} uses your microphone to transcribe speech into message drafts.`,
+      },
       entitlements: fileURLToPath(new URL('./macos-entitlements.plist', import.meta.url)),
       entitlementsInherit: fileURLToPath(new URL('./macos-entitlements.plist', import.meta.url)),
       // Prepared runtime files retain their signatures; PAK resources are sealed by their enclosing bundle.
@@ -200,9 +350,10 @@ export function createElectronBuilderConfig(
           context.packager.appInfo.updaterCacheDirName)
       }
       // The bundled runtime declares whichever version prepared it: the product version for an ordinary
-      // release, and a rewritten one for installed-update qualification.
+      // release, and a rewritten one for installed-update qualification. The published product version
+      // override never changes the runtime descriptor.
       await verifyDesktopRuntime(buildPaths.dsh,
-        preparedRuntimeVersion ?? productVersion, { platform: resolvedPlatform, arch: resolvedArch })
+        preparedRuntimeVersion ?? declaredVersion, { platform: resolvedPlatform, arch: resolvedArch })
       // Unsigned Windows builds skip electron-builder's afterSign hook.
       if (packagesWindows && unsigned) await verifyWindowsAsarUnpack(buildPaths.dsh, resourcesDir, windowsCode)
     },
@@ -236,11 +387,13 @@ export function createElectronBuilderConfig(
       )
     },
     win: {
-      icon: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)),
+      icon: iconWindows,
       forceCodeSigning: !unsigned,
       signtoolOptions: {
         sign: windowsSigner,
-        publisherName: windowsSigner === undefined ? undefined : resolveWindowsUpdatePublisher(env.DSH_DESKTOP_WINDOWS_CER_FILE),
+        publisherName: windowsSigner === undefined || keepUnsignedUpdater
+          ? undefined
+          : resolveWindowsUpdatePublisher(env.DSH_DESKTOP_WINDOWS_CER_FILE),
         signingHashAlgorithms: ['sha256'],
       },
       target: ['nsis'],
@@ -250,8 +403,8 @@ export function createElectronBuilderConfig(
       target: ['AppImage'],
     },
     nsis: {
-      installerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
-      uninstallerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
+      installerSidebar,
+      uninstallerSidebar: installerSidebar,
       include: fileURLToPath(new URL('./installer.nsh', import.meta.url)),
       oneClick: false,
       perMachine: false,

@@ -1,0 +1,303 @@
+/** Build-time product identity read from the packaging environment or packaged manifest. */
+
+/** Environment variable that names the Electron-managed profile directory. */
+export const DESKTOP_PROFILE_NAME_ENV = 'DSH_DESKTOP_PROFILE_NAME'
+
+/** Environment variable that lists extra product bundles, comma-separated. */
+export const DESKTOP_EXTRA_BUNDLES_ENV = 'DSH_DESKTOP_EXTRA_BUNDLES'
+
+/** Environment variable that publishes a product version distinct from the bundled dsh version. */
+export const DESKTOP_PRODUCT_VERSION_ENV = 'DSH_DESKTOP_PRODUCT_VERSION'
+
+/** Environment variable that overrides the packaged npm package name (userData). */
+export const DESKTOP_PACKAGE_NAME_ENV = 'DSH_DESKTOP_PACKAGE_NAME'
+
+/** Environment variable that lists extra package-set roots, comma-separated. */
+export const DESKTOP_EXTRA_ROOT_PACKAGES_ENV = 'DSH_DESKTOP_EXTRA_ROOT_PACKAGES'
+
+/** Environment variable that points at an extra directory of packed tarballs. */
+export const DESKTOP_EXTRA_PACKED_DIR_ENV = 'DSH_DESKTOP_EXTRA_PACKED_DIR'
+
+/** Environment variable that overrides the Electron productName / about-panel name. */
+export const DESKTOP_PRODUCT_NAME_ENV = 'DSH_DESKTOP_PRODUCT_NAME'
+
+/** Environment variable that overrides the custom URL scheme (official `dsh`). */
+export const DESKTOP_PROTOCOL_SCHEME_ENV = 'DSH_DESKTOP_PROTOCOL_SCHEME'
+
+/** Environment variable that prefixes electron-builder artifactName. */
+export const DESKTOP_ARTIFACT_PREFIX_ENV = 'DSH_DESKTOP_ARTIFACT_PREFIX'
+
+/** Environment variable that points at derived brand resources (icons, welcome SVG). */
+export const DESKTOP_BRAND_RESOURCES_ENV = 'DSH_DESKTOP_BRAND_RESOURCES'
+
+/** Environment variable that enables in-app authorization windows (JSON object). */
+export const DESKTOP_IN_APP_AUTH_ENV = 'DSH_DESKTOP_IN_APP_AUTH'
+
+/** Environment variable that hides the welcome API Key entry when set to `0`. */
+export const DESKTOP_WELCOME_API_KEY_ENV = 'DSH_DESKTOP_WELCOME_API_KEY'
+
+/** Build-time allow-list that opens authorization in an embedded window. */
+export interface DesktopInAppAuthConfig {
+  readonly origins: readonly string[]
+  readonly callbackPrefix: string
+  readonly forwardPath: string
+}
+
+/** Profile directory name when no override is configured. */
+export const DEFAULT_DESKTOP_PROFILE_NAME = 'desktop'
+
+/**
+ * Official productName when no brand override is configured.
+ * Packaged branded builds replace `DSH_BUNDLE_PRODUCT_NAME` at bundle time so
+ * the official fallback string is dropped from the asar.
+ */
+export const DEFAULT_DESKTOP_PRODUCT_NAME = process.env.DSH_BUNDLE_PRODUCT_NAME || 'DeepSeek Harness'
+
+/** Official custom URL scheme when no brand override is configured. */
+export const DEFAULT_DESKTOP_PROTOCOL_SCHEME = 'dsh'
+
+/**
+ * Official artifactName prefix when no brand override is configured.
+ * Packaged branded builds replace `DSH_BUNDLE_ARTIFACT_PREFIX` at bundle time.
+ */
+export const DEFAULT_DESKTOP_ARTIFACT_PREFIX = process.env.DSH_BUNDLE_ARTIFACT_PREFIX || 'deepseek-harness'
+
+const ARTIFACT_PREFIX = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const PROTOCOL_SCHEME = /^[a-z][a-z0-9+.-]*$/
+
+/**
+ * Split a comma-separated env value into unique trimmed names.
+ * @param value - Raw environment value.
+ * @returns Names in first-seen order; empty when unset.
+ */
+export function parseCommaSeparatedNames(value: string | undefined): string[] {
+  if (value === undefined) return []
+  const names: string[] = []
+  const seen = new Set<string>()
+  for (const part of value.split(',')) {
+    const name = part.trim()
+    if (name === '' || seen.has(name)) continue
+    seen.add(name)
+    names.push(name)
+  }
+  return names
+}
+
+/**
+ * Resolve the Electron-managed profile directory name.
+ * @param env - Process environment.
+ * @returns Configured name, or `desktop` when unset.
+ */
+export function resolveDesktopProfileName(env: NodeJS.ProcessEnv = process.env): string {
+  const value = env[DESKTOP_PROFILE_NAME_ENV]?.trim()
+  return value === undefined || value === '' ? DEFAULT_DESKTOP_PROFILE_NAME : value
+}
+
+/**
+ * Resolve extra product bundles from the process environment.
+ * Packaged Electron overwrites this env from extraMetadata before calling; unpackaged reads the live env.
+ * @param env - Process environment.
+ * @returns Extra bundle package names; empty when unset.
+ */
+export function resolveDesktopExtraBundles(env: NodeJS.ProcessEnv = process.env): string[] {
+  return parseCommaSeparatedNames(env[DESKTOP_EXTRA_BUNDLES_ENV])
+}
+
+function extraBundleNames(manifest: Readonly<Record<string, unknown>>): string[] {
+  if (!Array.isArray(manifest.dshDesktopExtraBundles)) return []
+  return manifest.dshDesktopExtraBundles.filter(
+    (item): item is string => typeof item === 'string' && item.trim() !== '',
+  ).map(item => item.trim())
+}
+
+function trimmedEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const value = env[name]?.trim()
+  return value === undefined || value === '' ? undefined : value
+}
+
+/**
+ * Resolve the Electron productName used for the .app / .exe, menus, and about panel.
+ * @param env - Process environment.
+ * @returns Configured name, or the official product name when unset.
+ */
+export function resolveDesktopProductName(env: NodeJS.ProcessEnv = process.env): string {
+  return trimmedEnv(env, DESKTOP_PRODUCT_NAME_ENV) ?? DEFAULT_DESKTOP_PRODUCT_NAME
+}
+
+/**
+ * Top-level application-menu label. Darwin uses the product display name so
+ * `Menu.getApplicationMenu()` matches CFBundleName / about copy. Other
+ * platforms keep the generic locale "Application" string. Never pass
+ * `app.getName()`: that is the packaged npm name and owns userData.
+ * @param platform - Host platform.
+ * @param productName - `resolveDesktopProductName()` (same source as about).
+ * @param genericApplicationLabel - Non-Darwin locale `application` string.
+ */
+export function desktopApplicationMenuTopLevelLabel(
+  platform: NodeJS.Platform,
+  productName: string,
+  genericApplicationLabel: string,
+): string {
+  return platform === 'darwin' ? productName : genericApplicationLabel
+}
+
+/**
+ * Resolve the custom URL scheme registered with the OS.
+ * @param env - Process environment.
+ * @returns Configured scheme, or `dsh` when unset.
+ */
+export function resolveDesktopProtocolScheme(env: NodeJS.ProcessEnv = process.env): string {
+  const value = trimmedEnv(env, DESKTOP_PROTOCOL_SCHEME_ENV)
+  if (value === undefined) return DEFAULT_DESKTOP_PROTOCOL_SCHEME
+  if (!PROTOCOL_SCHEME.test(value)) {
+    throw new Error(`${DESKTOP_PROTOCOL_SCHEME_ENV} must be a lowercase URI scheme; got ${JSON.stringify(value)}`)
+  }
+  return value
+}
+
+/**
+ * Resolve the electron-builder artifactName prefix. Must keep `${version}`, `${os}`, `${arch}`
+ * in the assembled pattern; this value is only the leading token.
+ * @param env - Process environment.
+ * @returns Configured prefix, or `deepseek-harness` when unset.
+ */
+export function resolveDesktopArtifactPrefix(env: NodeJS.ProcessEnv = process.env): string {
+  const value = trimmedEnv(env, DESKTOP_ARTIFACT_PREFIX_ENV)
+  if (value === undefined) return DEFAULT_DESKTOP_ARTIFACT_PREFIX
+  if (!ARTIFACT_PREFIX.test(value)) {
+    throw new Error(`${DESKTOP_ARTIFACT_PREFIX_ENV} must be a file-name token; got ${JSON.stringify(value)}`)
+  }
+  return value
+}
+
+/**
+ * Resolve the derived brand-resource directory used by electron-builder icon / welcome mappings.
+ * @param env - Process environment.
+ * @returns Absolute or relative directory, or `undefined` when official resources apply.
+ */
+export function resolveDesktopBrandResources(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return trimmedEnv(env, DESKTOP_BRAND_RESOURCES_ENV)
+}
+
+function httpsOrigin(value: string): string | undefined {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' || url.username || url.password) return undefined
+    return url.origin
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Parse the in-app authorization allow-list. Unset or empty is official
+ * `shell.openExternal` behavior. Malformed JSON or an invalid shape fails closed.
+ * @param env - Process environment.
+ * @returns Configured allow-list, or `undefined` when the product uses the system browser.
+ */
+export function resolveDesktopInAppAuth(env: NodeJS.ProcessEnv = process.env): DesktopInAppAuthConfig | undefined {
+  const raw = trimmedEnv(env, DESKTOP_IN_APP_AUTH_ENV)
+  if (raw === undefined) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw) as unknown
+  } catch {
+    throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} must be JSON`)
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} must be an object`)
+  }
+  const record = parsed as { origins?: unknown; callbackPrefix?: unknown; forwardPath?: unknown }
+  if (!Array.isArray(record.origins) || record.origins.length === 0
+    || typeof record.callbackPrefix !== 'string' || typeof record.forwardPath !== 'string') {
+    throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} must include origins, callbackPrefix, and forwardPath`)
+  }
+  const origins: string[] = []
+  const seen = new Set<string>()
+  for (const item of record.origins) {
+    if (typeof item !== 'string') {
+      throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} origins must be https origins`)
+    }
+    const origin = httpsOrigin(item)
+    if (origin === undefined) {
+      throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} origins must be https origins`)
+    }
+    if (seen.has(origin)) continue
+    seen.add(origin)
+    origins.push(origin)
+  }
+  const callbackPrefix = record.callbackPrefix.trim()
+  const forwardPath = record.forwardPath.trim()
+  if (!callbackPrefix.startsWith('https://')) {
+    throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} callbackPrefix must be an https URL prefix`)
+  }
+  try {
+    const prefix = new URL(callbackPrefix)
+    if (prefix.protocol !== 'https:' || prefix.username || prefix.password) {
+      throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} callbackPrefix must be an https URL prefix`)
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith(DESKTOP_IN_APP_AUTH_ENV)) throw error
+    throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} callbackPrefix must be an https URL prefix`)
+  }
+  if (!forwardPath.startsWith('/') || forwardPath.includes('?') || forwardPath.includes('#')) {
+    throw new Error(`${DESKTOP_IN_APP_AUTH_ENV} forwardPath must be an absolute pathname`)
+  }
+  return { origins, callbackPrefix, forwardPath }
+}
+
+/**
+ * Whether the welcome window offers the API Key page. Unset is official (shown).
+ * Packaged product builds set `0` so only account sign-in remains.
+ * @param env - Process environment.
+ * @returns `false` only when the build-time switch is exactly `0`.
+ */
+export function resolveDesktopWelcomeApiKeyEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return trimmedEnv(env, DESKTOP_WELCOME_API_KEY_ENV) !== '0'
+}
+
+/**
+ * Whether `url` is this product's `open` deep link (`<scheme>://open` with optional trailing slash).
+ * @param url - Incoming custom-protocol URL.
+ * @param scheme - Registered scheme.
+ */
+export function isDesktopOpenUrl(url: string, scheme: string = resolveDesktopProtocolScheme()): boolean {
+  const base = `${scheme}://open`
+  return url === base || url === `${base}/`
+}
+
+/**
+ * Replace process env with packaged extraMetadata. Packaged identity is immutable:
+ * extra bundles, profile name, product version, product name, protocol scheme,
+ * in-app authorization, and welcome API Key switch come only from the baked
+ * manifest. Unpackaged development never calls this, so the live environment
+ * still applies.
+ * @param manifest - Packaged application `package.json`.
+ * @param env - Process environment to update.
+ */
+export function applyPackagedProductConfig(
+  manifest: Readonly<Record<string, unknown>>,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  env[DESKTOP_PROFILE_NAME_ENV] = typeof manifest.dshDesktopProfileName === 'string'
+    ? manifest.dshDesktopProfileName.trim()
+    : ''
+  env[DESKTOP_EXTRA_BUNDLES_ENV] = extraBundleNames(manifest).join(',')
+  env[DESKTOP_PRODUCT_VERSION_ENV] = typeof manifest.version === 'string' ? manifest.version.trim() : ''
+  env[DESKTOP_PRODUCT_NAME_ENV] = typeof manifest.dshDesktopProductName === 'string'
+    ? manifest.dshDesktopProductName.trim()
+    : ''
+  env[DESKTOP_PROTOCOL_SCHEME_ENV] = typeof manifest.dshDesktopProtocolScheme === 'string'
+    ? manifest.dshDesktopProtocolScheme.trim()
+    : ''
+  env[DESKTOP_IN_APP_AUTH_ENV] = inAppAuthManifestValue(manifest.dshDesktopInAppAuth)
+  env[DESKTOP_WELCOME_API_KEY_ENV] = typeof manifest.dshDesktopWelcomeApiKey === 'string'
+    ? manifest.dshDesktopWelcomeApiKey.trim()
+    : ''
+}
+
+function inAppAuthManifestValue(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  if (typeof value === 'object' && value !== null) return JSON.stringify(value)
+  return ''
+}

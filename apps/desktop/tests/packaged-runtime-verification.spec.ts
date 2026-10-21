@@ -60,4 +60,56 @@ describe('packaged runtime verification', () => {
     await config.afterPack(CONTEXT as never)
     expect(verifyDesktopRuntime.mock.calls[0]?.[1]).toBe(productVersion)
   })
+
+  it('omits product identity extras when they are not configured', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const config = createElectronBuilderConfig(ENVIRONMENT, 'win32', 'x64')
+    expect(config.extraMetadata).not.toHaveProperty('version')
+    expect(config.extraMetadata).not.toHaveProperty('name')
+    expect(config.extraMetadata).not.toHaveProperty('dshDesktopProfileName')
+    expect(config.extraMetadata).not.toHaveProperty('dshDesktopExtraBundles')
+    expect(config.extraMetadata).not.toHaveProperty('dshDesktopInAppAuth')
+    expect(config.extraMetadata).not.toHaveProperty('dshDesktopWelcomeApiKey')
+    expect(config.appId).toBe(ENVIRONMENT.DSH_DESKTOP_APP_ID)
+  })
+
+  it('publishes a product version override without changing the bundled runtime version', async () => {
+    const declaredVersion = (JSON.parse(
+      await import('node:fs/promises').then(async fs => fs.readFile(new URL('../package.json', import.meta.url), 'utf8')),
+    ) as { version: string }).version
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    verifyDesktopRuntime.mockClear()
+    const config = createElectronBuilderConfig(
+      { ...ENVIRONMENT, DSH_DESKTOP_PRODUCT_VERSION: '4.0.0', DSH_DESKTOP_PACKAGE_NAME: 'wandox-harness',
+        DSH_DESKTOP_PROFILE_NAME: 'wandox-desktop', DSH_DESKTOP_EXTRA_BUNDLES: 'dsh-wandox',
+        DSH_DESKTOP_PRODUCT_APP_ID: 'com.wandox.harness' }, 'win32', 'x64')
+    expect(config.appId).toBe('com.wandox.harness')
+    expect(config.extraMetadata).toMatchObject({
+      version: '4.0.0',
+      name: 'wandox-harness',
+      dshDesktopProfileName: 'wandox-desktop',
+      dshDesktopExtraBundles: ['dsh-wandox'],
+      dshDesktopAppId: 'com.wandox.harness',
+    })
+    await config.afterPack(CONTEXT as never)
+    expect(verifyDesktopRuntime.mock.calls[0]?.[1]).toBe(declaredVersion)
+  })
+
+  it('bakes in-app authorization and the welcome API Key switch into extraMetadata', async () => {
+    const auth = {
+      origins: ['https://sso.example.test'],
+      callbackPrefix: 'https://sso.example.test/callback',
+      forwardPath: '/auth/callback',
+    }
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const config = createElectronBuilderConfig({
+      ...ENVIRONMENT,
+      DSH_DESKTOP_IN_APP_AUTH: JSON.stringify(auth),
+      DSH_DESKTOP_WELCOME_API_KEY: '0',
+    }, 'win32', 'x64')
+    expect(config.extraMetadata).toMatchObject({
+      dshDesktopInAppAuth: auth,
+      dshDesktopWelcomeApiKey: '0',
+    })
+  })
 })

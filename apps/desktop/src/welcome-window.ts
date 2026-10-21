@@ -11,9 +11,14 @@ import { WELCOME_IPC, type WelcomeOperations } from './welcome-api.ts'
  * Resolve the fixed-size welcome window's native material and controls.
  * @param platform - operating system hosting Electron.
  * @param locale - shell-owned localized copy.
+ * @param allowApiKey - whether the API Key welcome page is offered.
  * @returns sandboxed window options with a locale-only preload.
  */
-export function welcomeWindowOptions(platform: NodeJS.Platform, locale: DesktopLocale): BrowserWindowConstructorOptions {
+export function welcomeWindowOptions(
+  platform: NodeJS.Platform,
+  locale: DesktopLocale,
+  allowApiKey = true,
+): BrowserWindowConstructorOptions {
   return {
     width: 600,
     height: 700,
@@ -38,7 +43,11 @@ export function welcomeWindowOptions(platform: NodeJS.Platform, locale: DesktopL
     } as const : {}),
     webPreferences: {
       preload: fileURLToPath(new URL('./preload-welcome.cjs', import.meta.url)),
-      additionalArguments: [`--dsh-welcome-locale=${locale.id}`],
+      additionalArguments: [
+        `--dsh-welcome-locale=${locale.id}`,
+        `--dsh-welcome-product=${locale.messages.aboutProduct}`,
+        ...allowApiKey ? [] : ['--dsh-welcome-api-key=0'],
+      ],
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -54,10 +63,15 @@ let disposeActiveHandlers: (() => void) | undefined
  * Replaces IPC ownership immediately; the caller closes the previous native window.
  * @param locale - shell-owned localized copy.
  * @param operations - credential write and this-launch-only skip actions.
+ * @param allowApiKey - whether the API Key welcome page is offered.
  * @returns the visible window; a failed load destroys it before rejecting.
  */
-export async function openWelcomeWindow(locale: DesktopLocale, operations: WelcomeOperations): Promise<BrowserWindow> {
-  const options = welcomeWindowOptions(process.platform, locale)
+export async function openWelcomeWindow(
+  locale: DesktopLocale,
+  operations: WelcomeOperations,
+  allowApiKey = true,
+): Promise<BrowserWindow> {
+  const options = welcomeWindowOptions(process.platform, locale, allowApiKey)
   const window = new BrowserWindow(options)
   disposeActiveHandlers?.()
   let active = true

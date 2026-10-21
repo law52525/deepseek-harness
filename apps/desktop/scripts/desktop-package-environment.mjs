@@ -14,11 +14,13 @@ import { resolveWindowsSignatureCacheDirectory } from './windows-signature-cache
 import { resolveWindowsPackageSettings } from './windows-package-settings.mjs'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
-const SHARED_SETTING = /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|NPM_REGISTRY|MANDATORY_UPDATE_(?:CONFIG|(?:TEST|PROD)_ORIGIN))|DOWNLOAD_TEST_RELEASE_ID|DOWNLOAD_(?:TEST|PROD)_(?:ORIGIN|COS_BUCKET|COS_SECRET_ID|COS_SECRET_KEY))$/u
+const PRODUCT_SETTING = 'DSH_DESKTOP_(?:PRODUCT_APP_ID|PRODUCT_NAME|PRODUCT_VERSION|PROTOCOL_SCHEME|ARTIFACT_PREFIX|BRAND_RESOURCES|PACKAGE_NAME|PROFILE_NAME|EXTRA_BUNDLES|EXTRA_ROOT_PACKAGES|EXTRA_PACKED_DIR|IN_APP_AUTH|WELCOME_API_KEY)'
+const SHARED_SETTING = new RegExp(`^(?:${PRODUCT_SETTING}|DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|NPM_REGISTRY|MANDATORY_UPDATE_(?:CONFIG|(?:TEST|PROD)_ORIGIN|TEST_AUTH|PATH)|UNSIGNED_UPDATES)|DOWNLOAD_TEST_RELEASE_ID|DOWNLOAD_KEY_PREFIX_(?:TEST|PROD)|DOWNLOAD_(?:TEST|PROD)_(?:ORIGIN|COS_BUCKET|COS_SECRET_ID|COS_SECRET_KEY))$`, 'u')
 const WINDOWS_SETTING = /^DSH_DESKTOP_WINDOWS_(?:CER_FILE|SIGNTOOL|KEY_CONTAINER|TOKEN_PIN|SIGNATURE_CACHE_DIR|SIGNATURE_CACHE_CONCURRENCY)$/u
 const MACOS_SETTING = /^(?:DSH_DESKTOP_MACOS_(?:SIGNING_IDENTITY|TEAM_ID|SIGNATURE_CACHE_DIR|PACK_CONCURRENCY|DOWNLOAD_PROXY|NOTARIZATION_PROXY)|APPLE_(?:API_KEY|API_KEY_ID|API_ISSUER|ID|APP_SPECIFIC_PASSWORD|TEAM_ID|KEYCHAIN|KEYCHAIN_PROFILE)|CSC_(?:LINK|KEY_PASSWORD))$/u
 const AMBIENT_RELEASE_SETTING = /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|MANDATORY_UPDATE_.*|WINDOWS_.*|MACOS_.*)|APPLE_.*|(?:WIN_)?CSC_.*|DOWNLOAD_(?:TEST|PROD)_.*)$/iu
 const FILE_SETTINGS = ['DSH_DESKTOP_WINDOWS_CER_FILE', 'DSH_DESKTOP_WINDOWS_SIGNTOOL', 'APPLE_API_KEY', 'APPLE_KEYCHAIN', 'CSC_LINK']
+const PRODUCT_ENV = 'DSH_DESKTOP_PRODUCT_ENV'
 
 /**
  * Select local macOS test defaults without reading dotenv files or inheriting release settings.
@@ -57,7 +59,7 @@ export function loadDesktopPackageEnvironment(platform, environment = process.en
     : /^DSH_DESKTOP_MACOS_(?:SIGNATURE_CACHE_DIR|PACK_CONCURRENCY|DOWNLOAD_PROXY|NOTARIZATION_PROXY)$/u
   const settings = readSettings(path, name => preset === undefined
     ? SHARED_SETTING.test(name) || platformSetting.test(name)
-    : /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|NPM_REGISTRY|MANDATORY_UPDATE_(?:CONFIG|(?:TEST|PROD)_ORIGIN))|DOWNLOAD_TEST_(?:ORIGIN|RELEASE_ID))$/u.test(name) || publicPlatformSetting.test(name))
+    : new RegExp(`^(?:${PRODUCT_SETTING}|DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|NPM_REGISTRY|MANDATORY_UPDATE_(?:CONFIG|(?:TEST|PROD)_ORIGIN|TEST_AUTH|PATH)|UNSIGNED_UPDATES)|DOWNLOAD_TEST_(?:ORIGIN|RELEASE_ID)|DOWNLOAD_KEY_PREFIX_(?:TEST|PROD))$`, 'u').test(name) || publicPlatformSetting.test(name))
   if (preset !== undefined) {
     if (settings.DSH_DESKTOP_AUTO_UPDATE_ENV !== preset) throw new Error('desktop package: preset deployment must match its name')
     if (!options.unsigned && (platform === 'darwin' || !options.prepareOnly)) {
@@ -74,9 +76,31 @@ export function loadDesktopPackageEnvironment(platform, environment = process.en
     if (!/^[a-f0-9]{32}$/u.test(releaseId)) throw new Error('desktop package: test release ID must contain 32 lowercase hexadecimal characters')
     settings.DOWNLOAD_TEST_RELEASE_ID = releaseId
   }
+  const extraPath = environment[PRODUCT_ENV]?.trim()
+  let extra = {}
+  if (extraPath !== undefined && extraPath !== '') {
+    let contents
+    try {
+      contents = readFileSync(resolve(extraPath), 'utf8')
+    } catch {
+      throw new Error(`desktop package: cannot read ${PRODUCT_ENV} file`)
+    }
+    try {
+      extra = parseEnv(contents.replace(/^\uFEFF/u, ''))
+    } catch {
+      throw new Error(`desktop package: invalid dotenv syntax in ${PRODUCT_ENV} file`)
+    }
+    for (const name of Object.keys(extra)) {
+      if (!SHARED_SETTING.test(name)) {
+        throw new Error(`desktop package: unsupported setting ${name} in ${PRODUCT_ENV}; credentials stay in the platform file`)
+      }
+      if (extra[name].includes('\0')) throw new Error(`desktop package: ${name} cannot contain a NUL character`)
+    }
+  }
   return {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !AMBIENT_RELEASE_SETTING.test(name))),
     ...settings,
+    ...extra,
     ...(environment.DSH_DESKTOP_UPDATE_CHANNEL === undefined ? {} : { DSH_DESKTOP_UPDATE_CHANNEL: environment.DSH_DESKTOP_UPDATE_CHANNEL }),
     ...(preset === undefined ? {} : { DSH_PACKAGING_PRESET: preset }),
   }
@@ -139,7 +163,12 @@ export function validateDesktopPackageEnvironment(environment, target, options =
   if (target.platform !== 'darwin' || !options.unsigned) resolveDesktopPolicyEnvironment(environment)
   if (target.platform === 'darwin') resolveMacOSPackageSettings(environment)
   else resolveWindowsPackageSettings(environment)
-  if (options.unsigned) return
+  if (options.unsigned) {
+    if (environment.DSH_DESKTOP_UNSIGNED_UPDATES === '1' && !options.prepareOnly) {
+      resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
+    }
+    return
+  }
   if (!options.prepareOnly) resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
   if (target.platform === 'win32') {
     if (!options.prepareOnly) createWindowsTokenSigner({

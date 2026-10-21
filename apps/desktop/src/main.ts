@@ -3,6 +3,7 @@ import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 /** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
 
 import { readFile, writeFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -23,6 +24,16 @@ import {
   type MenuItemConstructorOptions,
 } from 'electron'
 import { resolveDesktopPaths } from './paths.ts'
+import {
+  applyPackagedProductConfig,
+  desktopApplicationMenuTopLevelLabel,
+  isDesktopOpenUrl,
+  resolveDesktopInAppAuth,
+  resolveDesktopProductName,
+  resolveDesktopProtocolScheme,
+  resolveDesktopWelcomeApiKeyEnabled,
+} from './product-config.ts'
+import { authorizeUrlUsesInAppWindow, openInAppAuthWindow } from './in-app-auth.ts'
 import { DesktopProjectManager } from './project-manager.ts'
 import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
 import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
@@ -49,7 +60,7 @@ import { desktopUpdateErrorSummary, presentDesktopUpdate } from './update-presen
 import { desktopErrorState } from './startup-error.ts'
 import { readDesktopLoginShellEnvironment, resolveDesktopLoginShellConfig } from './login-shell-environment.ts'
 import { DesktopMandatoryUpdatePolicy, resolveDesktopPolicyConfig, type DesktopPolicyState } from './mandatory-update-policy.ts'
-import { desktopClientMetadata, desktopClientVersion } from './client-metadata.ts'
+import { desktopClientMetadata, desktopClientVersion, desktopPolicyClientMetadata } from './client-metadata.ts'
 import { DesktopMandatoryUpdateWindow } from './mandatory-update-window.ts'
 import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
 import { readDesktopSettings } from './settings.ts'
@@ -65,6 +76,21 @@ import { DesktopBackgroundNotice } from './background-notice.ts'
 let focusPrimaryWindow = (): void => {}
 let stopForRecovery = async (): Promise<void> => {}
 let shuttingDown = false
+
+/**
+ * Copy packaged extraMetadata into env, overwriting process env so profile paths,
+ * extra bundles, and product version match the signed identity. Unpackaged
+ * development never hydrates, so the live environment still applies.
+ */
+function hydratePackagedProductConfig(): void {
+  if (!app.isPackaged) return
+  try {
+    const manifest = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')) as Record<string, unknown>
+    applyPackagedProductConfig(manifest)
+  } catch {
+    // Missing packaged manifest keeps the process environment defaults.
+  }
+}
 /**
  * Set by quit entries that must not ask: crash recovery exit and restart, and the
  * development restart command. The installer handoff has its own before-quit branch.
@@ -97,6 +123,7 @@ const recovery = new DesktopFatalRecovery({
   show: options => dialog.showMessageBox(options),
   stop: () => { shuttingDown = true; return stopForRecovery() },
   disablePlugins: async () => {
+    hydratePackagedProductConfig()
     const manager = new DesktopProjectManager(resolveDesktopPaths(), runtimeResources())
     const backupPath = await manager.disableAllPlugins()
     console.info('Desktop profile recovery completed:', { profilePatchBackup: backupPath ?? null, homePatch: 'unchanged' })
@@ -315,6 +342,7 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
 }
 
 async function main(): Promise<void> {
+  hydratePackagedProductConfig()
   const desktopSettings = readDesktopSettings(app.getPath('userData'))
   void pruneCrashReports(app.getPath('logs'))
   const journalDirectory = process.env.DSH_DESKTOP_UPDATE_JOURNAL_DIR
@@ -416,6 +444,7 @@ async function main(): Promise<void> {
   let stopAccount: (() => void) | undefined
   let openedAttempt: string | undefined
   let returnedAttempt: string | undefined
+  let closeInAppAuth: (() => void) | undefined
   let pendingWelcomeNotice: WelcomeNotice | undefined
   let previousAccountStatus: string | undefined
   const assertProductSender = (event: IpcMainInvokeEvent): void => {
@@ -464,9 +493,32 @@ async function main(): Promise<void> {
           if (quitting) return
           if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.webContents.send(WELCOME_IPC.state, state)
           const attempt = state.attempt
+          if (attempt?.phase !== 'waiting-browser') {
+            closeInAppAuth?.()
+            closeInAppAuth = undefined
+          }
           if (attempt?.phase === 'waiting-browser' && attempt.authorizeUrl !== undefined && openedAttempt !== attempt.id) {
             openedAttempt = attempt.id
-            void shell.openExternal(platformLoginUrl(attempt.authorizeUrl)).catch(() => undefined)
+            const authorizeUrl = platformLoginUrl(attempt.authorizeUrl)
+            const inApp = resolveDesktopInAppAuth()
+            const parent = welcomeWindow !== undefined && !welcomeWindow.isDestroyed() ? welcomeWindow : mainWindow
+            if (inApp !== undefined && hostUrl !== undefined
+              && authorizeUrlUsesInAppWindow(authorizeUrl, inApp)
+              && parent !== undefined && !parent.isDestroyed()) {
+              closeInAppAuth = openInAppAuthWindow({
+                parent,
+                authorizeUrl,
+                attemptId: attempt.id,
+                hostUrl,
+                config: inApp,
+                fetch: (input, init) => net.fetch(input, init),
+                onCancel: () => {
+                  void welcomeBackend?.account.cancel(attempt.id).catch(() => undefined)
+                },
+              }).close
+            } else {
+              void shell.openExternal(authorizeUrl).catch(() => undefined)
+            }
           }
           if ((attempt?.phase === 'failed' || attempt?.phase === 'expired') && returnedAttempt !== attempt.id) {
             returnedAttempt = attempt.id
@@ -932,7 +984,7 @@ async function main(): Promise<void> {
   const applicationIconPath = development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
     : join(process.resourcesPath, 'icon.png')
   app.setAboutPanelOptions({
-    applicationName: 'DeepSeek Harness',
+    applicationName: resolveDesktopProductName(),
     applicationVersion: app.getVersion(),
     // The release has no separate build number; omit Electron's bundle version.
     version: '',
@@ -982,7 +1034,9 @@ async function main(): Promise<void> {
   ]
   const refreshApplicationMenu = (): void => {
     Menu.setApplicationMenu(Menu.buildFromTemplate(process.platform === 'win32' ? devToolsItems : [{
-      label: darwin ? app.name : currentDesktopLocale().messages.application,
+      label: desktopApplicationMenuTopLevelLabel(
+        process.platform, resolveDesktopProductName(), currentDesktopLocale().messages.application,
+      ),
       submenu: [...applicationItems(), ...devToolsItems],
     }, ...platformMenus()]))
     tray?.relabel()
@@ -1180,7 +1234,7 @@ async function main(): Promise<void> {
           return { ok: true }
         },
         skip: enterWorkspace,
-      })
+      }, resolveDesktopWelcomeApiKeyEnabled())
       const window = welcomeWindow
       window.once('closed', () => {
         void welcomeBackend?.account.state().then((state) => {
@@ -1232,10 +1286,11 @@ async function main(): Promise<void> {
     window.focus()
   }
 
-  if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
+  const protocolScheme = resolveDesktopProtocolScheme()
+  if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient(protocolScheme)
   app.on('open-url', (event, url) => {
     event.preventDefault()
-    if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()
+    if (isDesktopOpenUrl(url, protocolScheme)) focusPrimaryWindow()
   })
 
   app.on('activate', (_event, hasVisibleWindows) => {
@@ -1298,7 +1353,8 @@ async function main(): Promise<void> {
     if (policyConfig.authentication === 'feishu-test') {
       policyAuth = new DesktopPolicyTestAuth(policyConfig.origin, policyConfig.allowedAuthOrigins, locale,
         () => mandatoryUI?.confirmationWindow ?? currentDialogWindow(),
-        (event) => { console.info(`desktop policy authentication: ${event}`); updateJournal?.action(`policy-login-${event}`) })
+        (event) => { console.info(`desktop policy authentication: ${event}`); updateJournal?.action(`policy-login-${event}`) },
+        policyConfig.path)
     }
     if (!['win32', 'darwin'].includes(process.platform) || !['x64', 'arm64'].includes(process.arch)) throw new Error('desktop policy: unsupported platform')
     let wasBlocking = false
@@ -1315,7 +1371,7 @@ async function main(): Promise<void> {
       mandatoryUI?.sync()
       if (state.blocking && !wasBlocking) void updateSchedule.check(false, true).catch((error: unknown) => { console.error(error) })
       wasBlocking = state.blocking
-    }, policyAuth?.request, () => desktopClientMetadata(locale.id))
+    }, policyAuth?.request, () => desktopPolicyClientMetadata(locale.id))
     const policy = mandatoryPolicy
     mandatoryUI = new DesktopMandatoryUpdateWindow({
       overlays: updateOverlays,

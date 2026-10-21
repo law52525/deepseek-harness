@@ -1,7 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { parseDshArgs } from '../src/args.ts'
 
 const parse = (argv: string[], manageDesktopProfile = false) => parseDshArgs(argv, '1.2.3', manageDesktopProfile)
+const homes: string[] = []
+
+function isolatedHome(): string {
+  const home = mkdtempSync(join(tmpdir(), 'dsh-cli-home-'))
+  homes.push(home)
+  vi.stubEnv('DSH_HOME', home)
+  return home
+}
+
+function writeProfileManifest(home: string, profile: string, manifest: unknown): void {
+  const dir = join(home, 'profiles', profile)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'package.json'), `${JSON.stringify(manifest, undefined, 2)}\n`)
+}
 
 /** Capture the process exit code while muting Commander's output. */
 function exitCode(argv: string[], manageDesktopProfile = false): number {
@@ -18,7 +35,11 @@ function exitCode(argv: string[], manageDesktopProfile = false): number {
   }
 }
 
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+  for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true })
+})
 
 describe('parseDshArgs', () => {
   it('routes profile boots and shorthand, handing the rest to the app', () => {
@@ -245,6 +266,41 @@ describe('parseDshArgs', () => {
     expect(exitCode(['plugin', '--profile', 'desktop', 'add', 'x'])).toBe(1)
     expect(exitCode(['plugin', '--profile', 'Desktop', 'add', 'x'])).toBe(1)
     expect(exitCode(['--from-default-profile', 'web', 'plugin', '--profile', 'x', 'add', 'y'])).toBe(1)
+  })
+
+  it('rejects a profile whose package.json is marked as desktop-managed and still rejects desktop', () => {
+    const home = isolatedHome()
+    writeProfileManifest(home, 'wandox-desktop', {
+      name: 'dsh-profile-wandox-desktop',
+      private: true,
+      managedBy: 'desktop-app',
+      dependencies: {},
+      dsh: { profile: { bundles: [] } },
+    })
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    expect(exitCode(['--profile', 'wandox-desktop'])).toBe(1)
+    expect(exitCode(['plugin', '--profile', 'wandox-desktop', 'add', 'x'])).toBe(1)
+    expect(exitCode(['--profile', 'desktop'])).toBe(1)
+    expect(stderr.mock.calls.map(([chunk]) => String(chunk)).join(''))
+      .toContain('managed exclusively by the Electron application')
+    expect(parse(['--profile', 'tui'])).toMatchObject({ profile: 'tui' })
+  })
+
+  it('does not consult DSH_DESKTOP_PROFILE_NAME when refusing Electron profiles', () => {
+    isolatedHome()
+    vi.stubEnv('DSH_DESKTOP_PROFILE_NAME', 'wandox-desktop')
+    expect(parse(['--profile', 'wandox-desktop'])).toMatchObject({ profile: 'wandox-desktop' })
+    expect(exitCode(['--profile', 'desktop'])).toBe(1)
+  })
+
+  it('does not refuse a missing or unreadable profile for the management mark', () => {
+    const home = isolatedHome()
+    expect(parse(['--profile', 'wandox-desktop'])).toMatchObject({ profile: 'wandox-desktop' })
+    const dir = join(home, 'profiles', 'wandox-desktop')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'package.json'), '{broken')
+    expect(parse(['--profile', 'wandox-desktop'])).toMatchObject({ profile: 'wandox-desktop' })
+    expect(exitCode(['--profile', 'desktop'])).toBe(1)
   })
 
   it('keeps its own help for an invocation with no app to hand it to', () => {
