@@ -145,8 +145,8 @@ export interface SidebarRightTabClaim {
   /**
    * Stable identity of the content, which is the address itself.
    *
-   * Two opens of the same address are the same tab, which is what makes opening
-   * idempotent.
+   * Two opens of the same address in one pane are the same tab, which is what
+   * makes opening idempotent there; a copy in another pane is a separate tab.
    */
   readonly contentId: string
   /** Title for the tab chip. */

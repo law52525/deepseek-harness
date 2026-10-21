@@ -496,7 +496,11 @@ describe('RightbarSeat presentation', () => {
       act(() => { h.controller.close(initial.id) })
       expect(h.layout()).toBe(before)
       fireEvent.contextMenu(element(h.view.container, '[data-dockkit-tab]'))
-      expect(document.querySelector('[data-dockkit-tab-menu] [role^="menuitem"]')).toBeNull()
+      // The sole guide offers no close item; close-others stays visible but disabled.
+      const menuItems = document.querySelectorAll<HTMLButtonElement>('[data-dockkit-tab-menu] [role^="menuitem"]')
+      expect(menuItems).toHaveLength(1)
+      expect(menuItems[0]?.hasAttribute('data-dockkit-menu-close-others')).toBe(true)
+      expect(menuItems[0]?.disabled).toBe(true)
       expect(h.view.container.querySelector('[data-dockkit-add-tab]')).toBeNull()
       return
     }
@@ -962,7 +966,8 @@ describe('intentsFor — the kit\'s gestures as one session\'s store actions', (
       resizeFloat: vi.fn(), resizeSplit: vi.fn(),
     }
     const openTab = vi.fn()
-    const intents = intentsFor(SESSION, actions as unknown as Parameters<typeof intentsFor>[1], openTab)
+    const closeOthers = vi.fn()
+    const intents = intentsFor(SESSION, actions as unknown as Parameters<typeof intentsFor>[1], openTab, undefined, undefined, closeOthers)
     const rect = { x: 1, y: 2, width: 300, height: 200 }
     const TAB_1 = 'tab-1' as TabId
     const PANE_1 = 'pane-1' as PaneId
@@ -972,6 +977,7 @@ describe('intentsFor — the kit\'s gestures as one session\'s store actions', (
     intents.focusPane(PANE_1)
     intents.splitPane(PANE_1)
     intents.closeTab(TAB_1)
+    intents.closeOtherTabs?.(TAB_1)
     intents.duplicateTab(TAB_1)
     intents.floatTab(TAB_1, rect)
     intents.unfloatPane(PANE_2)
@@ -984,6 +990,7 @@ describe('intentsFor — the kit\'s gestures as one session\'s store actions', (
     expect(actions.focusPane).toHaveBeenCalledWith(SESSION, PANE_1)
     expect(actions.splitPane).toHaveBeenCalledWith(SESSION, PANE_1)
     expect(actions.closeTab).toHaveBeenCalledWith(SESSION, TAB_1)
+    expect(closeOthers).toHaveBeenCalledWith(TAB_1)
     expect(actions.duplicateTab).toHaveBeenCalledWith(SESSION, TAB_1)
     expect(actions.floatTab).toHaveBeenCalledWith(SESSION, TAB_1, rect)
     expect(actions.unfloatPane).toHaveBeenCalledWith(SESSION, PANE_2)
@@ -995,6 +1002,9 @@ describe('intentsFor — the kit\'s gestures as one session\'s store actions', (
     // The add control is the guide opened by kind, in that pane, beside any guide elsewhere.
     intents.addTab(PANE_1)
     expect(openTab).toHaveBeenCalledWith('guide', { paneId: PANE_1, revealIfOpened: false })
+    // Without a close-others path the kit's menus carry no such intent.
+    const bare = intentsFor(SESSION, actions as unknown as Parameters<typeof intentsFor>[1], openTab)
+    expect(bare.closeOtherTabs).toBeUndefined()
   })
 })
 
@@ -1011,6 +1021,44 @@ it('keeps a resource tab and reports a synchronous cleanup failure from its clos
     release()
     fireEvent.click(element(h.view.container, `[data-dockkit-tab-close="${tab.id}"]`))
     expect(h.layout().tabs[tab.id]).toBeUndefined()
+  } finally {
+    logged.mockRestore()
+    release()
+  }
+})
+
+it('closes a pane\'s other tabs through the chip menu\'s close-others item', async () => {
+  const h = await mountSeat()
+  const first = h.open('first.txt')
+  const second = h.open('second.txt')
+  fireEvent.contextMenu(element(h.view.container, `[data-dockkit-tab="${first.id}"]`))
+  const item = document.querySelector<HTMLButtonElement>('[data-dockkit-menu-close-others]')
+  if (item === null) throw new Error('expected the close-others item')
+  expect(item.disabled).toBe(false)
+
+  fireEvent.click(item)
+
+  expect(h.layout().tabs[first.id]).toBeDefined()
+  expect(h.layout().tabs[second.id]).toBeUndefined()
+  expect(Object.values(h.layout().tabs)).toHaveLength(1)
+  expect(getPane(h.layout(), h.layout().activePaneId).activeTabId).toBe(first.id)
+  expect(document.querySelector('[data-dockkit-tab-menu]')).toBeNull()
+})
+
+it('reports a synchronous cleanup failure from the close-others item, keeping every tab', async () => {
+  const h = await mountSeat()
+  const first = h.open('first.txt')
+  const second = h.open('second.txt')
+  const failure = new Error('process still running')
+  const release = h.controller.registerCloseHandler('text', () => { throw failure })
+  const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    fireEvent.contextMenu(element(h.view.container, `[data-dockkit-tab="${first.id}"]`))
+    fireEvent.click(document.querySelector<HTMLButtonElement>('[data-dockkit-menu-close-others]')!)
+    await expect.poll(() => logged.mock.calls).toEqual([['Sidebar tab close failed:', failure]])
+    // The throwing handler preserved every tab, the asked one included.
+    expect(h.layout().tabs[first.id]).toBeDefined()
+    expect(h.layout().tabs[second.id]).toBeDefined()
   } finally {
     logged.mockRestore()
     release()

@@ -24,7 +24,10 @@
  * Opening a page into a pane that shows it focuses that tab, in that pane and
  * nowhere else, and a page dragged, dropped, or docked into such a pane merges
  * into the pane's own — the arriving tab closes and the pane's own is focused.
- * The kit plans none of this; it is decided here before its planners run.
+ * Resource identity is scoped to the target pane too: an open reveals a tab
+ * showing the same (kind, contentId) only where it is landing, so a copy parked
+ * in another pane never draws the open away. The kit plans none of this; it is
+ * decided here before its planners run.
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
 import { clearSidebarLayout, readSidebarLayout, writeSidebarLayout } from './persistence.ts'
@@ -32,7 +35,7 @@ import type {
   DockMode, DockZone, FloatRect, History, LayoutOp, LayoutState, Mint, PaneId, SplitId, TabId, TabRecord,
 } from '@deepseek-ai/dsh-client-ui-dockkit'
 import {
-  activeDockPaneId, createInitialState, dockPaneIds, EMPTY_HISTORY, findContentTab, findPaneContentTab, findTabPane, getPane,
+  activeDockPaneId, createInitialState, dockPaneIds, EMPTY_HISTORY, findPaneContentTab, findTabPane, getPane,
   planDropTab, planDuplicateTab, planFloatTab, planOpenContent, planPlaceTab, planResizeSplit, planSetExpanded,
   planSetMode, planSettle, planSplitPane, planUnfloatPane, record, replay, stepBack, stepForward,
 } from '@deepseek-ai/dsh-client-ui-dockkit'
@@ -91,7 +94,11 @@ export interface OpenContentIntent {
   readonly preferNewPane?: boolean
   /** Take this tab's pane and slot, and close it in the same entry. */
   readonly replaceTab?: TabId
-  /** Resource tabs reveal an existing identity by default; `false` permits duplicates. Pages always deduplicate within the target pane. */
+  /**
+   * Resource tabs reveal an existing identity within the target pane only, by
+   * default; a copy parked in another pane is never revealed. `false` permits
+   * duplicates. Pages always deduplicate within the target pane.
+   */
   readonly revealIfOpened?: boolean
 }
 
@@ -232,6 +239,7 @@ type SidebarRightActions = {
   ) => void
   duplicateTab: (draft: SidebarRightState, sessionId: string, tabId: TabId) => void
   closeTab: (draft: SidebarRightState, sessionId: string, tabId: TabId) => void
+  closeTabs: (draft: SidebarRightState, sessionId: string, tabIds: readonly TabId[], focusTabId: TabId) => void
   focusTab: (draft: SidebarRightState, sessionId: string, tabId: TabId) => void
   focusPane: (draft: SidebarRightState, sessionId: string, paneId: PaneId) => void
   placeTab: (draft: SidebarRightState, sessionId: string, tabId: TabId, toPaneId: PaneId, index: number) => void
@@ -315,15 +323,18 @@ export function createSidebarRightStore(
           const lent = replace !== undefined && replaced !== undefined && replaced.host === 'dock' ? replaced : undefined
           const paneId = lent?.id ?? intent.paneId
           const index = lent === undefined || replace === undefined ? undefined : lent.tabs.indexOf(replace)
-          // A page is unique per pane, not per surface: the pane it would land
-          // in may already show it, which is then the tab this open settles on.
-          // The same page in another pane never draws the open away — the kit's
-          // cross-pane reveal is for resources only.
+          // Identity is per pane, not per surface: an open reveals a tab that
+          // already shows this (kind, contentId) only inside the pane it lands
+          // in — the tree's own pane for a row click, whose open names it. A
+          // copy sitting in another pane neither draws the open away nor takes
+          // focus; a second tab beside the caller's own is the price of that
+          // rule, and a page stays unique per pane for the same reason.
           const page = contentId === pageAddress(kind)
-          const held = page ? panePage(state, paneId ?? activeDockPaneId(state), kind) : undefined
+          const target = paneId ?? activeDockPaneId(state)
+          const held = page ? panePage(state, target, kind) : undefined
           const revealed = page
             ? held
-            : intent.revealIfOpened === false ? undefined : findContentTab(state, contentId, kind)
+            : intent.revealIfOpened === false ? undefined : findPaneContentTab(state, target, contentId, kind)
           let openedInNewPane: TabId | undefined
           const split = intent.preferNewPane === true && replace === undefined && revealed === undefined
             ? planSplitPane(state, mint, paneId, (id) => {
@@ -341,9 +352,10 @@ export function createSidebarRightStore(
                 title,
                 ...paneId === undefined ? {} : { paneId },
                 ...index === undefined ? {} : { index },
-                ...page
-                  ? { revealIfOpened: false }
-                  : intent.revealIfOpened === undefined ? {} : { revealIfOpened: intent.revealIfOpened },
+                // The reveal decision is already made above, and only within the
+                // target pane; the planner's own lookup is surface-wide, so it
+                // must not be allowed to run and steal a copy from another pane.
+                revealIfOpened: false,
               })
           ops.push(...planned.ops)
           if (replace !== undefined && replace !== planned.tabId) ops.push({ type: 'closeTab', tabId: replace })
@@ -370,6 +382,19 @@ export function createSidebarRightStore(
           // The collapse also leaves fullscreen: the reopened column shows only
           // the reseeded default page, which never earns the whole window.
           return [{ type: 'closeTab', tabId }, ...planSetMode(state, 'push'), ...planSetExpanded(state, false)]
+        }, seed))
+      },
+      // The menu's close-others: every listed tab that may close, plus the kept
+      // tab focused with its pane, all in one entry — one undo brings every tab
+      // back and restores the surface's selection as it was. The kept tab
+      // survives by construction, so the sole-docked-tab rule stays untriggered;
+      // a listed tab that may not close — the sole docked guide — is left in
+      // place rather than failing the intent.
+      closeTabs: (d, sessionId: string, tabIds: readonly TabId[], focusTabId: TabId) => {
+        d.bySession = seat(d, sessionId, s => advance(s, (state) => {
+          const closing = tabIds.filter(id => id !== focusTabId && canCloseTab(s, id))
+          if (closing.length === 0) return []
+          return [...closing.map(id => ({ type: 'closeTab' as const, tabId: id })), ...planFocusTab(state, focusTabId)]
         }, seed))
       },
       focusTab: (d, sessionId: string, tabId: TabId) => {

@@ -41,6 +41,7 @@ export const TEST_LABELS: DockLabels = {
   splitPaneDisabled: 'pane budget spent',
   splitPaneNarrow: 'too narrow to split',
   closeTab: 'close',
+  closeOtherTabs: 'close others',
   addTab: 'new tab',
   dockFloat: 'dock',
   closeFloat: 'close panel',

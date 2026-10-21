@@ -9,7 +9,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { LayoutState, TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
-import { DockController, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
+import { DockController, dockPaneIds, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
 import { TabDomain } from '../src/client/tab-domain.ts'
 import type { SidebarRightNavigator } from '../src/client/tab-domain.ts'
 
@@ -209,5 +209,27 @@ describe('TabDomain — a tab\'s own actions', () => {
       'dsh-resource://file/session/s-one/a.txt',
       { paneId: current().rootId, preferNewPane: true, revealIfOpened: false },
     )
+  })
+
+  it('passes preferOtherPane through from a docked tab, and drops it from a floating tab that names no pane', () => {
+    const { domain, navigator, controller, current } = harness()
+    const address = 'dsh-resource://file/session/s-one/b.txt'
+    const tabId = controller.openContent({ kind: 'text', contentId: 'dsh-resource://file/session/s-one/a.txt', title: 'a' })
+    const kept = controller.openContent({ kind: 'text', contentId: 'dsh-resource://file/session/s-one/kept.txt', title: 'kept' })
+    domain.sync(SESSION, current())
+    const { tabActions } = domain.occurrence(SESSION, recordOf(current(), tabId))
+    const [docked] = dockPaneIds(current())
+    if (docked === undefined) throw new Error('expected a docked pane')
+    tabActions.openResource(address, { preferOtherPane: true })
+    expect(navigator.openResourceIn).toHaveBeenLastCalledWith(SESSION, address, { paneId: docked, preferOtherPane: true })
+
+    controller.floatTab(tabId)
+    domain.sync(SESSION, current())
+    expect(current().tabs[kept]).toBeDefined()
+    tabActions.openResource(address, { preferOtherPane: true })
+    expect(navigator.openResourceIn).toHaveBeenLastCalledWith(SESSION, address, {})
+    // A pane the caller names is a docked origin again.
+    tabActions.openResource(address, { paneId: docked, preferOtherPane: true })
+    expect(navigator.openResourceIn).toHaveBeenLastCalledWith(SESSION, address, { paneId: docked, preferOtherPane: true })
   })
 })

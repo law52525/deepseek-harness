@@ -450,3 +450,112 @@ describe('createSidebarRightStore — page uniqueness', () => {
     expect(Object.values(layout().tabs).filter(tab => tab.kind === 'guide')).toHaveLength(1)
   })
 })
+
+describe('createSidebarRightStore — resource identity is per pane', () => {
+  const ADDRESS = 'dsh-resource://file/session/s-test/a.txt'
+
+  it('reveals a resource only in the pane it lands in, never across panes', () => {
+    const { actions, layout, expand } = harness()
+    expand()
+    actions.splitPane(SESSION)
+    const [left, right] = dockPaneIds(layout())
+    if (left === undefined || right === undefined) throw new Error('expected two panes')
+    // A preview parked in the second pane.
+    actions.openContent(SESSION, { kind: 'text', contentId: ADDRESS, title: 'a', paneId: right }, () => {})
+    const parked = Object.values(layout().tabs).find(tab => tab.contentId === ADDRESS)?.id
+    if (parked === undefined) throw new Error('expected the parked preview')
+    expect(findTabPane(layout(), parked).id).toBe(right)
+
+    // The same address opened into the first pane opens a second tab there rather
+    // than focusing the copy in the other pane, and leaves that pane alone.
+    const settled = vi.fn<(tabId: TabId) => void>()
+    actions.openContent(SESSION, { kind: 'text', contentId: ADDRESS, title: 'a', paneId: left }, settled)
+    const opened = settled.mock.calls[0]![0]
+    expect(opened).not.toBe(parked)
+    expect(getPane(layout(), left).tabs).toContain(opened)
+    expect(getPane(layout(), right).activeTabId).toBe(parked)
+
+    // Opening it again into the same pane reveals that pane's own tab.
+    const again = vi.fn<(tabId: TabId) => void>()
+    actions.openContent(SESSION, { kind: 'text', contentId: ADDRESS, title: 'a', paneId: left }, again)
+    expect(again).toHaveBeenCalledExactlyOnceWith(opened)
+    expect(Object.values(layout().tabs).filter(tab => tab.contentId === ADDRESS)).toHaveLength(2)
+  })
+})
+
+describe('createSidebarRightStore — close others (P-16)', () => {
+  it('closes the listed tabs as one entry whose single undo restores every tab and the original activation', () => {
+    const { actions, layout, entries, guide, expand } = harness()
+    expand()
+    const opened: TabId[] = []
+    for (const name of ['a', 'b', 'c']) {
+      actions.openContent(SESSION, { kind: 'text', contentId: `file:${name}`, title: name }, (tabId) => { opened.push(tabId) })
+    }
+    const [a, b, c] = opened
+    if (a === undefined || b === undefined || c === undefined) throw new Error('expected three opens')
+    const pane = layout().activePaneId
+    expect(getPane(layout(), pane).tabs).toEqual([guide(), a, b, c])
+    expect(getPane(layout(), pane).activeTabId).toBe(c)
+    const before = layout()
+    const recorded = entries()
+
+    actions.closeTabs(SESSION, [guide(), a, c], b)
+
+    expect(getPane(layout(), pane).tabs).toEqual([b])
+    expect(getPane(layout(), pane).activeTabId).toBe(b)
+    expect(layout().activePaneId).toBe(pane)
+    expect(entries()).toBe(recorded + 1)
+
+    // One step back brings every tab back with the activation the close found.
+    actions.undo(SESSION)
+    expect(layout()).toEqual(before)
+    expect(getPane(layout(), pane).activeTabId).toBe(c)
+    actions.redo(SESSION)
+    expect(getPane(layout(), pane).tabs).toEqual([b])
+  })
+
+  it('leaves a listed tab that may not close in place while closing the rest, without throwing', () => {
+    const { actions, layout, entries, guide, expand } = harness()
+    expand()
+    const open = (name: string): TabId => {
+      let id: TabId | undefined
+      actions.openContent(SESSION, { kind: 'text', contentId: `file:${name}`, title: name }, (tabId) => { id = tabId })
+      if (id === undefined) throw new Error('expected the open to settle')
+      return id
+    }
+    const a = open('a')
+    const b = open('b')
+    // Both leave the docked pane, leaving the guide alone as the sole docked tab.
+    actions.floatTab(SESSION, a)
+    actions.floatTab(SESSION, b)
+    expect(getPane(layout(), layout().rootId).tabs).toEqual([guide()])
+    expect(layout().floats).toHaveLength(2)
+    const recorded = entries()
+
+    // The list names the guide, which may not close: it stays; a closes.
+    expect(() => { actions.closeTabs(SESSION, [guide(), a], b) }).not.toThrow()
+
+    expect(getPane(layout(), layout().rootId).tabs).toEqual([guide()])
+    expect(layout().tabs[a]).toBeUndefined()
+    expect(layout().floats).toHaveLength(1)
+    expect(findTabPane(layout(), b).host).toBe('float')
+    expect(findTabPane(layout(), b).activeTabId).toBe(b)
+    expect(entries()).toBe(recorded + 1)
+
+    actions.undo(SESSION)
+    expect(layout().tabs[a]).toBeDefined()
+    expect(layout().floats).toHaveLength(2)
+  })
+
+  it('records nothing when the list holds only the kept tab or tabs that may not close', () => {
+    const { actions, layout, entries, guide, expand } = harness()
+    expand()
+    const before = layout()
+    const recorded = entries()
+    // The kept tab listed as the only target: nothing to plan, nothing recorded.
+    actions.closeTabs(SESSION, [guide()], guide())
+    expect(layout()).toBe(before)
+    expect(entries()).toBe(recorded)
+    expect(layout().tabs[guide()]).toBeDefined()
+  })
+})

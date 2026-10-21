@@ -171,6 +171,11 @@ export class TabDomain {
         : held.paneId === undefined ? {} : { paneId: held.paneId },
       ...placement.paneId === undefined ? {} : { paneId: placement.paneId },
       ...placement.preferNewPane === undefined ? {} : { preferNewPane: placement.preferNewPane },
+      // A floating tab has no docked pane to leave: without a pane named by the
+      // caller the open lands as it does without the preference.
+      ...placement.preferOtherPane === undefined || (held.paneId === undefined && placement.paneId === undefined)
+        ? {}
+        : { preferOtherPane: placement.preferOtherPane },
       ...placement.revealIfOpened === undefined ? {} : { revealIfOpened: placement.revealIfOpened },
     })
     const held: Held = {

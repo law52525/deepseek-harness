@@ -219,6 +219,7 @@ export function TabStrip({ state, pane, callbacks }: TabPanelProps): ReactNode {
   useStripScrollFades(stripTabs, pane.tabs)
   useActiveChipInView(stripTabs, chips, pane.tabs, pane.activeTabId)
   const block = callbacks.splitBlock(pane.id)
+  const closeOthers = callbacks.onCloseOthers
   const target = callbacks.dropTarget
   const stripIndex = target !== undefined && target.kind === 'strip' && target.paneId === pane.id
     ? target.index
@@ -337,6 +338,10 @@ export function TabStrip({ state, pane, callbacks }: TabPanelProps): ReactNode {
                     labels={callbacks.labels}
                     anchor={menu.anchor}
                     onClose={closable ? () => { setMenu(undefined); callbacks.onCloseTab(tabId) } : undefined}
+                    onCloseOthers={closeOthers === undefined
+                      ? undefined
+                      : () => { setMenu(undefined); closeOthers(tabId) }}
+                    canCloseOthers={pane.tabs.some(other => other !== tabId && callbacks.canCloseTab(other))}
                     onDismiss={() => { setMenu(undefined) }}
                     extras={callbacks.renderTabMenuItems?.(tab, () => { setMenu(undefined) })}
                   />
