@@ -23,9 +23,10 @@ import type { WorkspaceFileParams } from '@deepseek-ai/dsh-api-workspace-files/c
 import { TextPreview } from './TextPreview.tsx'
 import type { TextPreviewInjected } from './TextPreview.tsx'
 import { TextTitle } from './TextTitle.tsx'
-import { TEXTPREVIEW_ID, textDefinition } from './definition.ts'
+import { TEXTPREVIEW_KIND, TEXTPREVIEW_ID, textDefinition } from './definition.ts'
 import { textFace } from './face.ts'
-import { createReadPage } from './rpc.ts'
+import { createEditEngine } from './edit/engine.ts'
+import { createReadPage, createStatFile, createWriteText } from './rpc.ts'
 import { createTextStore } from './store.ts'
 import { en, zh } from './locales.ts'
 import { DocumentPreviewRegistry } from './document/registry.ts'
@@ -76,10 +77,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /**
- * Required browser services: the tab registry, the slot registry, copy, and the
- * workspace Remote for bytes and paged text reads.
+ * Required browser services: the tab registry, the slot registry, copy, the
+ * workspace Remote for bytes and paged text reads, and the Sidebar's close hook
+ * the editor's last save rides on.
  */
-export const inject = ['slots', 'locale', 'sidebarRightTabs', 'remote', 'remote.workspaceFiles', 'configForms', 'resources']
+export const inject = ['slots', 'locale', 'sidebarRightTabs', 'remote', 'remote.workspaceFiles', 'configForms', 'resources', 'sidebarRight']
 
 /**
  * Client plugin body: register the type, its dictionaries, its body, and its chip title.
@@ -94,11 +96,24 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-sidebar-documentpreview: dictionaries')
 
   const store = createTextStore()
+  const editor = createEditEngine({
+    readAll: (file, signal) => ctx.remote.workspaceFiles.readBytes(file.sessionId, file.path, {}, signal),
+    write: createWriteText(ctx.remote),
+    stat: createStatFile(ctx.remote),
+  })
   const face = textFace(
     createReadPage(ctx.remote),
     (file, signal) => ctx.remote.workspaceFiles.readBytes(file.sessionId, file.path, {}, signal),
     ctx.resources,
+    editor,
   )
+  // §3.4: the debounce's last few hundred milliseconds must not die with the
+  // tab. Every close path runs this before the record commits away, and the
+  // write outlives the tab's signal by design.
+  ctx.effect(() => ctx.sidebarRight.registerCloseHandler(
+    TEXTPREVIEW_KIND,
+    (sessionId, tab) => { editor.close(sessionId, tab.id) },
+  ), 'ui-sidebar-documentpreview: close flush')
   const source = { getSnapshot: previews.getSnapshot, subscribe: previews.subscribe }
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register(
     {

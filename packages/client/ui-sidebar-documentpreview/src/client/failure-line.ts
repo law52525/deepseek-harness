@@ -8,8 +8,12 @@
 import type { RemoteFailure } from '@deepseek-ai/dsh-api-remotes/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 
-/** Render a byte count the way a person reads one. */
-function humanBytes(bytes: number): string {
+/**
+ * Render a byte count the way a person reads one.
+ * @param bytes - the byte count.
+ * @returns the rounded count with its unit.
+ */
+export function humanBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MB`
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
   return `${bytes} B`
