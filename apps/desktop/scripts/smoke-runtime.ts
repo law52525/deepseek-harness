@@ -61,7 +61,7 @@ export function apply(ctx) {
     appendFileSync(join(profile, 'pnpm-workspace.yaml'), 'offline: true\nupdateNotifier: false\n')
     const cli = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
     const runCli = (args: string[]) => promisify(execFile)(node,
-      ['--expose-internals', cli, 'plugin', '--profile', 'desktop', ...args],
+      ['--expose-internals', cli, 'plugin', '--profile', resolveDesktopProfileName(), ...args],
       { cwd: home, env: { ...hostEnvironment, ELECTRON_RUN_AS_NODE: '1' }, timeout: 120_000, windowsHide: true })
     await runCli(['add', `file:${installedPlugin}`, '--offline', '--ignore-scripts'])
     const installedEntry = join(profile, 'node_modules', installedName, 'index.js')
