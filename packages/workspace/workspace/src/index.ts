@@ -110,6 +110,18 @@ export interface ArchiveSessionOptions {
   readonly stopActivity?: boolean
 }
 
+/** Caller choices for {@link WorkspaceRegistry.initializeDefault}. */
+export interface InitializeDefaultOptions {
+  /**
+   * Skip the Session-history eligibility check: creation then requires only an
+   * unset first-use identity and an empty Workspace registry. Product overlays
+   * that create the first Workspace after sign-in set this so Sessions that
+   * already exist — including archived and cwd-less ones — do not block
+   * creation. The default keeps the official empty-history requirement.
+   */
+  readonly allowExistingSessions?: boolean
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     workspaceRegistry: WorkspaceRegistry
@@ -244,8 +256,10 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
-   * Initialize the default Workspace only while both the registry and Session
-   * history are empty. Repeated requests reuse its durable identity; deleting
+   * Initialize the default Workspace only while the registry holds no
+   * Workspace. By default Session history must also be empty; with
+   * {@link InitializeDefaultOptions.allowExistingSessions} existing Sessions do
+   * not block creation. Repeated requests reuse its durable identity; deleting
    * that registration permanently disables automatic creation.
    * @param resolveDirectory - resolve the absolute directory; called only for
    * eligible creation, inside the registry mutation queue. Missing directories
@@ -253,23 +267,32 @@ export class WorkspaceRegistry extends Service {
    * requested directory's own final segment — not the canonical one, so a
    * symlink at that path does not retitle the Workspace after its target.
    * After resolution, caller cancellation does not roll back creation or registration.
+   * @param options - eligibility choices; the default requires empty Session history.
    * @returns the initialized Workspace, or undefined when automatic creation is ineligible.
    */
-  initializeDefault(resolveDirectory: () => Promise<string>): Promise<Workspace | undefined> {
+  initializeDefault(
+    resolveDirectory: () => Promise<string>,
+    options: InitializeDefaultOptions = {},
+  ): Promise<Workspace | undefined> {
     return this.enqueueOperation(async () => {
       const state = this.requireState()
       if (state.defaultWorkspaceId !== undefined) return this.entities.get(state.defaultWorkspaceId)
-      const sessions = this.ctx.get('sessions')
-      if (sessions === undefined) throw new Error('default Workspace initialization requires the Session store')
-      if (state.workspaceIds.length > 0 || state.archivedSessionIds.length > 0
-        || sessions.list().length > 0 || (await this.listStoredHeaders()).length > 0) return undefined
+      const allowExistingSessions = options.allowExistingSessions === true
+      const hasSessionHistory = async (includeArchived: boolean): Promise<boolean> => {
+        const sessions = this.ctx.get('sessions')
+        if (sessions === undefined) throw new Error('default Workspace initialization requires the Session store')
+        return (includeArchived && state.archivedSessionIds.length > 0)
+          || sessions.list().length > 0 || (await this.listStoredHeaders()).length > 0
+      }
+      if (state.workspaceIds.length > 0
+        || (!allowExistingSessions && await hasSessionHistory(true))) return undefined
 
       const path = await resolveDirectory()
       if (!fullyQualifiedWorkspacePath(path)) throw new TypeError(`Workspace path is not fully qualified: '${path}'`)
       await mkdir(path, { recursive: true })
       const canonical = await realpathNormalize(path)
       // A Session can start outside the registry queue while directory preparation awaits I/O.
-      if ((await this.listStoredHeaders()).length > 0 || sessions.list().length > 0) return undefined
+      if (!allowExistingSessions && await hasSessionHistory(false)) return undefined
       return this.createCanonical(canonical, defaultWorkspaceTitle(path), true)
     })
   }

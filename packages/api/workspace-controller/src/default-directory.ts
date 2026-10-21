@@ -5,6 +5,12 @@ import { posix, win32 } from 'node:path'
 import { runNativeCommand, type NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
 import { DEFAULT_WORKSPACE_DIRECTORY } from './default-workspace.ts'
 
+/** Official product folder name under Documents when Config omits `productDirectory`. */
+export const DEFAULT_PRODUCT_DIRECTORY = 'deepseek-harness'
+
+/** Single-segment product folder: non-blank, not `.`/`..`, no path separators. */
+export const PRODUCT_DIRECTORY_PATTERN = /^(?!\.\.?$)(?!\s)(?!.*\s$)[^/\\\0]+$/
+
 /** Platform observations replaceable in directory-resolution tests. */
 interface DocumentsDirectoryInternals {
   readonly platform?: NodeJS.Platform
@@ -28,16 +34,31 @@ export function validateDocumentsDirectory(directory: string, platform: NodeJS.P
 }
 
 /**
+ * Validate the product folder name used under Documents for first-use Workspaces.
+ * @param directory - one path segment; not blank, `.`, `..`, or a path.
+ * @returns the same directory spelling.
+ */
+export function validateProductDirectory(directory: string): string {
+  if (!PRODUCT_DIRECTORY_PATTERN.test(directory)) {
+    throw new Error(`product directory must be a non-empty single path segment: '${directory}'`)
+  }
+  return directory
+}
+
+/**
  * Resolve the first-use directory on the Host without creating files.
  * @param documentsDirectory - explicit deployment override for the system Documents directory.
  * @param signal - caller lifetime and lookup deadline.
  * @param internals - platform facts and native command runner.
+ * @param productDirectory - single-segment folder under Documents; default
+ *   {@link DEFAULT_PRODUCT_DIRECTORY}.
  * @returns the absolute candidate path.
  */
 export async function defaultWorkspaceDirectory(
   documentsDirectory: string | undefined,
   signal: AbortSignal,
   internals: DocumentsDirectoryInternals = {},
+  productDirectory: string = DEFAULT_PRODUCT_DIRECTORY,
 ): Promise<string> {
   const platform = internals.platform ?? process.platform
   const paths = platform === 'win32' ? win32 : posix
@@ -73,6 +94,7 @@ export async function defaultWorkspaceDirectory(
     }
   }
   directory = validateDocumentsDirectory(directory, platform)
+  const product = validateProductDirectory(productDirectory)
   signal.throwIfAborted()
-  return paths.join(directory, 'deepseek-harness', DEFAULT_WORKSPACE_DIRECTORY)
+  return paths.join(directory, product, DEFAULT_WORKSPACE_DIRECTORY)
 }

@@ -8,7 +8,13 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { WorkspaceCommands } from './commands.ts'
 import { DirectoryPickerController } from './directory-picker.ts'
 import { WorkspaceFeed, workspaceView } from './feed.ts'
-import { defaultWorkspaceDirectory, validateDocumentsDirectory } from './default-directory.ts'
+import {
+  DEFAULT_PRODUCT_DIRECTORY,
+  PRODUCT_DIRECTORY_PATTERN,
+  defaultWorkspaceDirectory,
+  validateDocumentsDirectory,
+  validateProductDirectory,
+} from './default-directory.ts'
 import type {
   WorkspaceArchiveSessionRequest,
   WorkspaceArchiveValue,
@@ -39,10 +45,25 @@ export interface Config {
   documentsDirectory?: string
   /** Maximum duration of the operating system's Documents lookup. */
   documentsLookupTimeoutMs?: number
+  /**
+   * Single-segment folder name under Documents for first-use Workspaces.
+   * Default `deepseek-harness`. Rejected when blank, `.`, `..`, or a path.
+   */
+  productDirectory?: string
+  /**
+   * Create the default Workspace even when Sessions already exist. Default
+   * false keeps the official empty-history requirement; a product overlay that
+   * initializes the Workspace after sign-in sets true.
+   */
+  firstUseAllowExistingSessions?: boolean
 }
 
 /** Directory policy after schema defaults have been applied. */
-type ResolvedConfig = Config & { documentsLookupTimeoutMs: number }
+type ResolvedConfig = Config & {
+  documentsLookupTimeoutMs: number
+  productDirectory: string
+  firstUseAllowExistingSessions: boolean
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -58,6 +79,8 @@ export class WorkspaceController extends TypertRemoteService {
   static Config: z<Config, ResolvedConfig> = z.object({
     documentsDirectory: z.string(),
     documentsLookupTimeoutMs: z.natural().min(1).default(10_000),
+    productDirectory: z.string().min(1).pattern(PRODUCT_DIRECTORY_PATTERN).default(DEFAULT_PRODUCT_DIRECTORY),
+    firstUseAllowExistingSessions: z.boolean().default(false),
   })
 
   private readonly config: ResolvedConfig
@@ -73,6 +96,7 @@ export class WorkspaceController extends TypertRemoteService {
     ctx.typert.resources.register('workspace', { field: 'workspaceId' })
     this.config = WorkspaceController.Config(config)
     if (this.config.documentsDirectory !== undefined) validateDocumentsDirectory(this.config.documentsDirectory)
+    validateProductDirectory(this.config.productDirectory)
     this.commands = new WorkspaceCommands(ctx)
     this.feed = new WorkspaceFeed(ctx)
     // This package is the Loader entry for both Remote owners it hosts: the
@@ -106,8 +130,9 @@ export class WorkspaceController extends TypertRemoteService {
       const timeout = AbortSignal.timeout(this.config.documentsLookupTimeoutMs)
       return await defaultWorkspaceDirectory(
         this.config.documentsDirectory, AbortSignal.any([signal, timeout]),
+        {}, this.config.productDirectory,
       )
-    })
+    }, { allowExistingSessions: this.config.firstUseAllowExistingSessions })
     return workspace === undefined ? undefined : { workspace: workspaceView(workspace) }
   }
 

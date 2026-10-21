@@ -262,3 +262,46 @@ describe('BlockAssembler.interruptedBlocks', () => {
     expect(assembler.interruptedBlocks()).toEqual([])
   })
 })
+
+describe('BlockAssembler vacant tool-call ids', () => {
+  it('keeps the first chunk id when continuation deltas and block-end carry an empty id', () => {
+    const assembler = new BlockAssembler()
+    assembler.push({ type: 'block-start', index: 0, blockType: 'tool-call' })
+    assembler.push({ type: 'tool-call-delta', index: 0, id: ToolCallId('call_ABC123'), name: 'bash', argumentsDelta: '' })
+    assembler.push({ type: 'tool-call-delta', index: 0, id: ToolCallId(''), name: 'bash', argumentsDelta: '{"command":' })
+    assembler.push({ type: 'tool-call-delta', index: 0, id: ToolCallId(''), name: 'bash', argumentsDelta: '"echo hi"}' })
+    assembler.push({
+      type: 'block-end',
+      index: 0,
+      block: { type: 'tool-call', id: ToolCallId(''), name: 'bash', arguments: '{"command":"echo hi"}' },
+    })
+    assembler.push({ type: 'finish', reason: { kind: 'tool-calls' } })
+    expect(assembler.blocks()).toEqual([
+      { type: 'tool-call', id: ToolCallId('call_ABC123'), name: 'bash', arguments: '{"command":"echo hi"}' },
+    ])
+  })
+
+  it('replaces an empty id frozen by block-end with a synthesized id', () => {
+    const assembler = new BlockAssembler()
+    assembler.push({ type: 'block-start', index: 1, blockType: 'tool-call' })
+    assembler.push({ type: 'tool-call-delta', index: 1, id: ToolCallId(''), name: 'bash', argumentsDelta: '{"command":' })
+    assembler.push({ type: 'tool-call-delta', index: 1, id: ToolCallId(''), name: 'bash', argumentsDelta: '"echo hi"}' })
+    assembler.push({
+      type: 'block-end',
+      index: 1,
+      block: { type: 'tool-call', id: ToolCallId(''), name: 'bash', arguments: '{"command":"echo hi"}' },
+    })
+    expect(assembler.blocks()).toEqual([
+      { type: 'tool-call', id: ToolCallId('call-1'), name: 'bash', arguments: '{"command":"echo hi"}' },
+    ])
+  })
+
+  it('replaces an empty id on a stream that ends without block-end', () => {
+    const assembler = new BlockAssembler()
+    assembler.push({ type: 'block-start', index: 1, blockType: 'tool-call' })
+    assembler.push({ type: 'tool-call-delta', index: 1, id: ToolCallId(''), name: 'bash', argumentsDelta: '{"command":"echo hi"}' })
+    expect(assembler.blocks()).toEqual([
+      { type: 'tool-call', id: ToolCallId('call-1'), name: 'bash', arguments: '{"command":"echo hi"}' },
+    ])
+  })
+})

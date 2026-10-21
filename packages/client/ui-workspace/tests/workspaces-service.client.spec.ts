@@ -351,11 +351,26 @@ describe('UiWorkspaceService', () => {
     expect(b.notify).not.toHaveBeenCalled()
   })
 
-  it('requires explicit selection when the startup Session list contains history', async () => {
+  it('asks the Host for the default Workspace even when the startup Session list contains history', async () => {
     const b = bench({ workspaces: workspaceState(), sessions: sessionState([summary('history')]) })
-    await setImmediate()
-    expect(b.workspaces.initializeDefault).not.toHaveBeenCalled()
+    await vi.waitFor(() => { expect(b.workspaces.initializeDefault).toHaveBeenCalledOnce() })
+    // The Host decides eligibility for an installation with history; an ineligible one yields no Session.
     expect(b.sessions.create).not.toHaveBeenCalled()
+    expect(b.notify).not.toHaveBeenCalled()
+  })
+
+  it('enters the Host-created default Workspace despite existing Session history', async () => {
+    const b = bench({ workspaces: workspaceState(), sessions: sessionState([summary('history')]), configureWorkspaces: (workspaces) => {
+      workspaces.initializeDefault.mockImplementation(async () => {
+        const item = workspace('default')
+        workspaces.list.set(workspaceState([item]))
+        return item
+      })
+    } })
+    await vi.waitFor(() => { expect(b.sessions.create).toHaveBeenCalledWith({ workspaceId: wid('default') }) })
+    expect(b.workspaces.initializeDefault).toHaveBeenCalledExactlyOnceWith(expect.any(AbortSignal))
+    expect(b.sessions.retain).toHaveBeenCalledExactlyOnceWith(sid('created-default'), { source: 'mainView' })
+    expect(b.notify).not.toHaveBeenCalled()
   })
 
   it('publishes a startup directory failure once without creating a Session', async () => {

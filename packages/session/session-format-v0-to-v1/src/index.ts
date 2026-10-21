@@ -2,6 +2,7 @@
 
 export * from './codec.ts'
 export * from './dispositions.ts'
+export * from './empty-tool-name.ts'
 export * from './migration.ts'
 export { assertReleasedPayloadSemantics } from './payload-validation.ts'
 export { assertReleasedArtifactRelationships } from './relationships.ts'
