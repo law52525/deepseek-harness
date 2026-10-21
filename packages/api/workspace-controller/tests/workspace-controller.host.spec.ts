@@ -51,7 +51,11 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve }
 }
 
-async function harness(options: { systemDocuments?: boolean; productDirectory?: string } = {}) {
+async function harness(options: {
+  systemDocuments?: boolean
+  productDirectory?: string
+  firstUseAllowExistingSessions?: boolean
+} = {}) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-workspace-controller-')))
   tempDirs.push(root)
   const ctx = new Context()
@@ -72,8 +76,12 @@ async function harness(options: { systemDocuments?: boolean; productDirectory?: 
   } as never)
   new RemoteAccessService(ctx)
   const controller = new WorkspaceController(ctx, options.systemDocuments === true
-    ? { productDirectory: options.productDirectory }
-    : { documentsDirectory: root, productDirectory: options.productDirectory })
+    ? { productDirectory: options.productDirectory, firstUseAllowExistingSessions: options.firstUseAllowExistingSessions }
+    : {
+      documentsDirectory: root,
+      productDirectory: options.productDirectory,
+      firstUseAllowExistingSessions: options.firstUseAllowExistingSessions,
+    })
   return { controller, ctx, root, storageDomain }
 }
 
@@ -633,5 +641,30 @@ describe('first-use Remote', () => {
     vi.spyOn(ctx.workspaceRegistry, 'initializeDefault').mockRejectedValueOnce(new Error('permission denied'))
     await expect(controller.initializeDefault(new AbortController().signal))
       .rejects.toThrow('permission denied')
+  })
+
+  it('keeps the official empty-history requirement by default', async () => {
+    const { controller, ctx } = await harness()
+    ctx.sessions.create(SessionId('existing'), { meta: {} })
+    await expect(controller.initializeDefault(new AbortController().signal)).resolves.toBeUndefined()
+    expect(ctx.workspaceRegistry.list()).toEqual([])
+    expect(WorkspaceController.Config({}).firstUseAllowExistingSessions).toBe(false)
+  })
+
+  it('creates the default Workspace beside existing Sessions when firstUseAllowExistingSessions is set', async () => {
+    const { controller, ctx, root } = await harness({ firstUseAllowExistingSessions: true })
+    ctx.sessions.create(SessionId('existing'), { meta: {} })
+    const result = await controller.initializeDefault(new AbortController().signal)
+    expect(result!.workspace.path).toBe(join(root, 'deepseek-harness', DEFAULT_WORKSPACE_DIRECTORY))
+    expect(ctx.workspaceRegistry.list()).toHaveLength(1)
+    expect(await controller.initializeDefault(new AbortController().signal)).toEqual(result)
+  })
+
+  it('still does not create beside an existing Workspace when firstUseAllowExistingSessions is set', async () => {
+    const { controller, ctx, root } = await harness({ firstUseAllowExistingSessions: true })
+    ctx.sessions.create(SessionId('existing'), { meta: {} })
+    const explicit = await ctx.workspaceRegistry.create(root)
+    await expect(controller.initializeDefault(new AbortController().signal)).resolves.toBeUndefined()
+    expect(ctx.workspaceRegistry.list()).toEqual([explicit])
   })
 })

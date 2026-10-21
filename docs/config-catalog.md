@@ -315,6 +315,12 @@ export interface Config {
    * Default `deepseek-harness`. Rejected when blank, `.`, `..`, or a path.
    */
   productDirectory?: string
+  /**
+   * Create the default Workspace even when Sessions already exist. Default
+   * false keeps the official empty-history requirement; a product overlay that
+   * initializes the Workspace after sign-in sets true.
+   */
+  firstUseAllowExistingSessions?: boolean
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-api-workspace-controller -->

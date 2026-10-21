@@ -50,10 +50,20 @@ export interface Config {
    * Default `deepseek-harness`. Rejected when blank, `.`, `..`, or a path.
    */
   productDirectory?: string
+  /**
+   * Create the default Workspace even when Sessions already exist. Default
+   * false keeps the official empty-history requirement; a product overlay that
+   * initializes the Workspace after sign-in sets true.
+   */
+  firstUseAllowExistingSessions?: boolean
 }
 
 /** Directory policy after schema defaults have been applied. */
-type ResolvedConfig = Config & { documentsLookupTimeoutMs: number; productDirectory: string }
+type ResolvedConfig = Config & {
+  documentsLookupTimeoutMs: number
+  productDirectory: string
+  firstUseAllowExistingSessions: boolean
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -70,6 +80,7 @@ export class WorkspaceController extends TypertRemoteService {
     documentsDirectory: z.string(),
     documentsLookupTimeoutMs: z.natural().min(1).default(10_000),
     productDirectory: z.string().min(1).pattern(PRODUCT_DIRECTORY_PATTERN).default(DEFAULT_PRODUCT_DIRECTORY),
+    firstUseAllowExistingSessions: z.boolean().default(false),
   })
 
   private readonly config: ResolvedConfig
@@ -121,7 +132,7 @@ export class WorkspaceController extends TypertRemoteService {
         this.config.documentsDirectory, AbortSignal.any([signal, timeout]),
         {}, this.config.productDirectory,
       )
-    })
+    }, { allowExistingSessions: this.config.firstUseAllowExistingSessions })
     return workspace === undefined ? undefined : { workspace: workspaceView(workspace) }
   }
 

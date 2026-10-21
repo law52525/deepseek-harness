@@ -1476,6 +1476,59 @@ describe('first-use Workspace preparation', () => {
     await expect(h.registry.initializeDefault(h.resolveDirectory)).resolves.toBeUndefined()
   })
 
+  it.each(['persisted', 'live', 'archived'] as const)('creates despite a %s Session when allowExistingSessions is set', async (kind) => {
+    const history = header('existing')
+    const h = await firstUse(kind === 'persisted' ? { sessions: [history] } : { liveSessions: [history] })
+    if (kind === 'archived') await h.registry.archiveSession(history.id)
+    const workspace = await h.registry.initializeDefault(h.resolveDirectory, { allowExistingSessions: true })
+    expect(workspace).toBeDefined()
+    expect(h.registry.list()).toEqual([workspace])
+    expect(storedState(h.pool).defaultWorkspaceId).toBe(workspace?.id)
+    expect(h.resolveDirectory).toHaveBeenCalledOnce()
+  })
+
+  it('creates despite a Session appearing during preparation when allowExistingSessions is set', async () => {
+    const h = await firstUse()
+    const arrived = header('arrived-during-preparation')
+    h.list.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      { header: arrived, revision: SessionPersistenceRevision('arrived-revision') },
+    ])
+    await expect(h.registry.initializeDefault(h.resolveDirectory, { allowExistingSessions: true }))
+      .resolves.toBeDefined()
+    expect(h.registry.list()).toHaveLength(1)
+  })
+
+  it('still requires an empty Workspace registry when allowExistingSessions is set', async () => {
+    const h = await firstUse({ liveSessions: [header('existing')] })
+    const explicit = await h.registry.create(h.directoryRoot)
+    await expect(h.registry.initializeDefault(h.resolveDirectory, { allowExistingSessions: true }))
+      .resolves.toBeUndefined()
+    expect(h.registry.list()).toEqual([explicit])
+    expect(h.resolveDirectory).not.toHaveBeenCalled()
+    expect(storedState(h.pool).defaultWorkspaceId).toBeUndefined()
+  })
+
+  it('does not recreate a deleted default Workspace when allowExistingSessions is set', async () => {
+    const h = await firstUse({ liveSessions: [header('existing')] })
+    const workspace = (await h.registry.initializeDefault(h.resolveDirectory, { allowExistingSessions: true }))!
+    await h.registry.delete(workspace.id)
+    await expect(h.registry.initializeDefault(h.resolveDirectory, { allowExistingSessions: true }))
+      .resolves.toBeUndefined()
+    expect(storedState(h.pool).defaultWorkspaceId).toBe(workspace.id)
+    expect(h.registry.list()).toEqual([])
+    expect(h.resolveDirectory).toHaveBeenCalledOnce()
+  })
+
+  it('keeps creation retryable after failure when allowExistingSessions is set', async () => {
+    const h = await firstUse({ liveSessions: [header('existing')] })
+    h.resolveDirectory.mockRejectedValueOnce(new Error('lookup unavailable'))
+    await expect(h.registry.initializeDefault(h.resolveDirectory, { allowExistingSessions: true }))
+      .rejects.toThrow('lookup unavailable')
+    expect(storedState(h.pool).defaultWorkspaceId).toBeUndefined()
+    await expect(h.registry.initializeDefault(h.resolveDirectory, { allowExistingSessions: true }))
+      .resolves.toBeDefined()
+  })
+
   it('fails on a same-path file and remains eligible after it is removed', async () => {
     const h = await firstUse()
     const parent = join(h.directoryRoot, 'nested')

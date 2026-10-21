@@ -62,7 +62,7 @@ ctx.workspaceRegistry.list() // shows the project, newest first
 <a id="first-use-workspace"></a>
 ### First-use Workspace
 
-`initializeDefault(resolveDirectory)` initializes the default Workspace without creating a Session. Initial creation requires an empty Workspace registry and no live, persisted, or archived Session, including Sessions without a working directory. The registry checks persistent history directly; an empty visible sidebar is insufficient.
+`initializeDefault(resolveDirectory, options?)` initializes the default Workspace without creating a Session. Initial creation requires an empty Workspace registry and — unless `options.allowExistingSessions` is true — no live, persisted, or archived Session, including Sessions without a working directory. The registry checks persistent history directly; an empty visible sidebar is insufficient. A product overlay that initializes after sign-in sets `allowExistingSessions` so Sessions that already exist do not block creation; the Workspace registry and the first-use identity must still be empty.
 
 The directory resolver runs inside the mutation queue only when creation is eligible. It returns an absolute path; the registry creates missing parent directories, canonicalizes the path, rechecks Session history, and commits the Workspace with its initialization marker, titled after the requested directory's final segment rather than the canonical one, so a symlink at that path does not retitle the Workspace after its target. An existing directory is reused; a file conflict or directory failure rejects initialization. The [Host controller](../../api/workspace-controller/README.md#first-use-workspace) supplies the Documents path policy.
 
