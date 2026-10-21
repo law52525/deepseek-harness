@@ -3940,9 +3940,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the existing or newly durable workspace.',
       },
       {
-        signature: 'initializeDefault(resolveDirectory: () => Promise<string>): Promise<Workspace | undefined>',
-        description: 'Initialize the default Workspace only while both the registry and Session history are empty. Repeated requests reuse its durable identity; deleting that registration permanently disables automatic creation.',
-        parameters: [{ name: 'resolveDirectory', description: 'resolve the absolute directory; called only for eligible creation, inside the registry mutation queue. Missing directories are created recursively before registration, and the initial title is the requested directory\'s own final segment — not the canonical one, so a symlink at that path does not retitle the Workspace after its target. After resolution, caller cancellation does not roll back creation or registration.' }],
+        signature: 'initializeDefault( resolveDirectory: () => Promise<string>, options: InitializeDefaultOptions = {}, ): Promise<Workspace | undefined>',
+        description: 'Initialize the default Workspace only while the registry holds no Workspace. By default Session history must also be empty; with InitializeDefaultOptions.allowExistingSessions existing Sessions do not block creation. Repeated requests reuse its durable identity; deleting that registration permanently disables automatic creation.',
+        parameters: [{ name: 'resolveDirectory', description: 'resolve the absolute directory; called only for eligible creation, inside the registry mutation queue. Missing directories are created recursively before registration, and the initial title is the requested directory\'s own final segment — not the canonical one, so a symlink at that path does not retitle the Workspace after its target. After resolution, caller cancellation does not roll back creation or registration.' }, { name: 'options', description: 'eligibility choices; the default requires empty Session history.' }],
         returns: 'the initialized Workspace, or undefined when automatic creation is ineligible.',
       },
       {
@@ -5709,6 +5709,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'IndexInjectionPlacement',
     declaration: 'export type IndexInjectionPlacement = \'head\' | \'body\';',
+  },
+  {
+    name: 'InitializeDefaultOptions',
+    declaration: 'export interface InitializeDefaultOptions {\n    readonly allowExistingSessions?: boolean;\n}',
   },
   {
     name: 'InspectOptions',
