@@ -91,7 +91,8 @@ describe('in-app authorization window', () => {
       onCancel,
       createWindow: () => window as unknown as BrowserWindow,
     })
-    expect(window.webContents.setWindowOpenHandler.mock.calls[0]![0]!()).toEqual({ action: 'deny' })
+    const setWindowOpenHandler = window.webContents.setWindowOpenHandler.mock.calls[0]?.[0]
+    expect(setWindowOpenHandler?.()).toEqual({ action: 'deny' })
     const event = { preventDefault: vi.fn() }
     window.webContents.emit('will-redirect', event, 'https://sso.example.test/dingtalk-redirect?code=c1&state=s1')
     expect(event.preventDefault).toHaveBeenCalledOnce()
