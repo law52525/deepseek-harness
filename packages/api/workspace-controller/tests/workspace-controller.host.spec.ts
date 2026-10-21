@@ -75,13 +75,13 @@ async function harness(options: {
     resources: { register: vi.fn(() => dispose) },
   } as never)
   new RemoteAccessService(ctx)
-  const controller = new WorkspaceController(ctx, options.systemDocuments === true
-    ? { productDirectory: options.productDirectory, firstUseAllowExistingSessions: options.firstUseAllowExistingSessions }
-    : {
-      documentsDirectory: root,
-      productDirectory: options.productDirectory,
-      firstUseAllowExistingSessions: options.firstUseAllowExistingSessions,
-    })
+  const controller = new WorkspaceController(ctx, {
+    ...(options.systemDocuments === true ? {} : { documentsDirectory: root }),
+    ...(options.productDirectory === undefined ? {} : { productDirectory: options.productDirectory }),
+    ...(options.firstUseAllowExistingSessions === undefined
+      ? {}
+      : { firstUseAllowExistingSessions: options.firstUseAllowExistingSessions }),
+  })
   return { controller, ctx, root, storageDomain }
 }
 
