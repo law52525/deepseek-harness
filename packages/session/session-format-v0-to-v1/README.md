@@ -44,7 +44,7 @@ const targetInheritedEventCount = stage.finish(migrationContext)
 
 The alpha edge refuses every event type outside its frozen inventory, including an unknown event marked `ignorable: true`. It also refuses unexpected payload members. `tool/result.meta` and nested PTC `arguments` remain explicit opaque JSON fields and are preserved without Session-sequence interpretation. Unknown content-block `type`, message-source `kind`, assistant finish-reason `kind`, and `turn/end` reason `kind` arms remain owner-opaque JSON while their known arms receive structural validation.
 
-The bounded historical normalizers convert `steering/message` to `user/message`, rename `compact/*` events to `compaction/*`, remove `turn/start.trigger`, convert retired `turn/end` reasons, add current message wrappers and deterministic ids for legacy messages, retry chains, and compaction groups, and remove the obsolete `request/header.header.messagePrefix` duplicate. Retired `request/header-delta`, `mode/set`, and the `request/header` fallback reason refuse migration. No other event, reference, source, or payload fact may change.
+The bounded historical normalizers convert `steering/message` to `user/message`, rename `compact/*` events to `compaction/*`, remove `turn/start.trigger`, convert retired `turn/end` reasons, add current message wrappers and deterministic ids for legacy messages, retry chains, and compaction groups, and remove the obsolete `request/header.header.messagePrefix` duplicate. Blank tool-call names (`''` or whitespace-only) become `invalid_tool_call` on `tool-call-delta`, `block-end` tool-call blocks, `assistant/message` tool-call content, `tool/call`, and packed `tool-call-chunks`; arguments, ids, and non-blank names stay unchanged on this edge. `unifyReleasedVacantSettledToolNames` overwrites every appearance of a `callId` whose settled name is vacant, including non-blank stream fragments, and the v1→v2 edge applies it after assembling an attempt. Retired `request/header-delta`, `mode/set`, and the `request/header` fallback reason refuse migration. No other event, reference, source, or payload fact may change.
 
 -----
 
@@ -63,6 +63,7 @@ The physical codec validates each packed row atomically, emits it as a compact r
 | [`src/payload-validation.ts`](src/payload-validation.ts) | Frozen nested payload semantics for every released-v0/v1 event type |
 | [`src/relationships.ts`](src/relationships.ts) | Frozen cross-event pairings: turns, steps, tool starts and results, retries, compaction, titles |
 | [`src/migration.ts`](src/migration.ts) | Identity edge and legacy normalization |
+| [`src/empty-tool-name.ts`](src/empty-tool-name.ts) | Blank historical tool-call name rewrite and vacant-settlement callId unification |
 | [`src/validation.ts`](src/validation.ts) | Exact source and target validation |
 
 </details>
