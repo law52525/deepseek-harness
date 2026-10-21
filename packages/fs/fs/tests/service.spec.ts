@@ -152,6 +152,24 @@ describe('FileSystem provider seam', () => {
       .rejects.toMatchObject({ code: 'FS_IO_ERROR' })
   })
 
+  it('rejects directory creation when a provider does not implement it', async () => {
+    const ctx = new Context()
+    await ctx.plugin(FakeFileSystem)
+    const fs = ctx.fs as FakeFileSystem
+    await expect(fs.createDirectory(await fs.resolve('made'))).rejects.toMatchObject({ code: 'FS_IO_ERROR' })
+    await expect(fs.createDirectory(await fs.resolve('made'), new AbortController().signal, { mode: 'workspace-write', workspaceRoot: '/' }))
+      .rejects.toMatchObject({ code: 'FS_IO_ERROR' })
+    expect(fs.files.size).toBe(0)
+  })
+
+  it('honors an already-aborted signal before refusing directory creation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(FakeFileSystem)
+    const fs = ctx.fs as FakeFileSystem
+    const target = await fs.resolve('made')
+    expect(() => fs.createDirectory(target, AbortSignal.abort())).toThrow()
+  })
+
   it('listDir returns child entry targets without reading file content', async () => {
     const ctx = new Context()
     await ctx.plugin(FakeFileSystem)
