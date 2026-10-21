@@ -74,6 +74,62 @@ describe('createFilesStore', () => {
     expect(getSnapshot().byTab[TAB]!.levels[child]).toEqual({ kind: 'ready', level: LEVEL })
   })
 
+  it('keeps one name row per tab through open, pending, refusal, and close', () => {
+    const store = createFilesStore().create()
+    const { actions } = store
+    const draft = (): unknown => store.getSnapshot().byTab[TAB]!.draft
+    const failure = new RemoteError('workspace-file/already-exists', 'taken', { path: `${ROOT}/a.md` })
+    actions.start(TAB, ROOT)
+    actions.draftPending(TAB)
+    actions.draftFailed(TAB, failure)
+    expect(draft()).toBeUndefined()
+    actions.draftOpened(TAB, ROOT, 'file')
+    expect(draft()).toEqual({ parent: ROOT, type: 'file', pending: false })
+    actions.draftFailed(TAB, failure)
+    expect(draft()).toEqual({ parent: ROOT, type: 'file', pending: false, failure })
+    actions.draftPending(TAB)
+    expect(draft()).toEqual({ parent: ROOT, type: 'file', pending: true })
+    actions.draftOpened(TAB, `${ROOT}/src`, 'directory')
+    expect(draft()).toEqual({ parent: `${ROOT}/src`, type: 'directory', pending: false })
+    actions.draftClosed(TAB)
+    expect(draft()).toBeUndefined()
+    expect('draft' in store.getSnapshot().byTab[TAB]!).toBe(false)
+  })
+
+  it('closes the name row when its directory is collapsed or leaves the listing', () => {
+    const store = createFilesStore().create()
+    const { actions } = store
+    const draft = (): unknown => store.getSnapshot().byTab[TAB]!.draft
+    const src = `${ROOT}/src`
+    const nested = `${src}/nested`
+    actions.start(TAB, ROOT)
+    actions.loaded(TAB, ROOT, LEVEL)
+    actions.toggled(TAB, src)
+    actions.toggled(TAB, nested)
+    // Expanding and collapsing an unrelated or descendant directory leaves the row alone.
+    actions.draftOpened(TAB, src, 'file')
+    actions.toggled(TAB, nested)
+    expect(draft()).toEqual({ parent: src, type: 'file', pending: false })
+    actions.toggled(TAB, `${ROOT}/srcs`)
+    actions.toggled(TAB, `${ROOT}/srcs`)
+    expect(draft()).toEqual({ parent: src, type: 'file', pending: false })
+    actions.toggled(TAB, src)
+    expect(draft()).toBeUndefined()
+    // A row in a descendant closes with its collapsed ancestor.
+    actions.toggled(TAB, src)
+    actions.draftOpened(TAB, nested, 'directory')
+    actions.toggled(TAB, src)
+    expect(draft()).toBeUndefined()
+    // A row in the root survives; one under a directory that vanished does not.
+    actions.draftOpened(TAB, ROOT, 'file')
+    actions.loaded(TAB, ROOT, { entries: [], truncated: false })
+    expect(draft()).toEqual({ parent: ROOT, type: 'file', pending: false })
+    actions.loaded(TAB, ROOT, LEVEL)
+    actions.draftOpened(TAB, nested, 'file')
+    actions.loaded(TAB, ROOT, { entries: [], truncated: false })
+    expect(draft()).toBeUndefined()
+  })
+
   it('reset drops levels while keeping expansion, scroll, and the automatic setting', () => {
     const store = createFilesStore().create()
     const { actions } = store

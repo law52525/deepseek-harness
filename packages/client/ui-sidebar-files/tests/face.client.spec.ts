@@ -3,12 +3,13 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceDirectoryListing } from '@deepseek-ai/dsh-api-workspace-files/types'
-import { childPath, createList, filesFace } from '../src/client/face.ts'
-import type { WorkspaceFilesListRemote } from '../src/client/face.ts'
+import { childPath, createCreate, createList, filesFace, isEntryName } from '../src/client/face.ts'
+import type { WorkspaceFilesCreateRemote, WorkspaceFilesListRemote } from '../src/client/face.ts'
 import { createFilesStore } from '../src/client/store.ts'
 import type { DirLevel } from '../src/client/store.ts'
 import { DirectoryNode } from '../src/client/directory-node.ts'
 import { scriptedList } from './scripted-list.client.ts'
+import { scriptedCreate } from './scripted-create.client.ts'
 import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 
 const SESSION = 's-1' as SessionId
@@ -20,13 +21,15 @@ const LEVEL: DirLevel = { entries: [{ name: 'src', type: 'directory' }], truncat
 function mount() {
   const instance = createFilesStore().create()
   const script = scriptedList()
-  const face = filesFace(script.list, script.watch)(SESSION, instance.actions)
+  const creation = scriptedCreate()
+  const face = filesFace(script.list, script.watch, creation.create)(SESSION, instance.actions)
   const controller = new AbortController()
   onTestFinished(async () => {
     controller.abort()
+    await creation.dispose()
     await script.dispose()
   })
-  return { ...script, face, controller, instance, actions: instance.actions, snapshot: () => instance.getSnapshot().byTab[TAB] }
+  return { ...script, creation, face, controller, instance, actions: instance.actions, snapshot: () => instance.getSnapshot().byTab[TAB] }
 }
 
 describe('filesFace', () => {
@@ -311,5 +314,175 @@ describe('childPath', () => {
     expect(childPath('/work/app/', 'src')).toBe('/work/app/src')
     expect(childPath('/', 'etc')).toBe('/etc')
     expect(childPath('C:\\work\\', 'src')).toBe('C:\\work/src')
+  })
+})
+
+describe('filesFace — creating an entry', () => {
+  const src = `${ROOT}/src`
+  const taken = new RemoteError('workspace-file/already-exists', 'taken', { path: `${src}/a.md` })
+
+  /** A settled root with `src` expanded and listed. */
+  async function opened() {
+    const h = mount()
+    h.face.start(TAB, ROOT, h.controller.signal)
+    await h.watches.ready(ROOT)
+    await h.settle({ ok: true, value: LEVEL })
+    h.face.toggle(TAB, ROOT, src, [ROOT], h.controller.signal)
+    await h.watches.ready(src)
+    await h.settle({ ok: true, value: { entries: [], truncated: false } })
+    return h
+  }
+
+  it('opens one name row per tab and closes it on cancel', async () => {
+    const h = await opened()
+    const { signal } = h.controller
+    h.face.beginCreate(TAB, src, 'file', signal)
+    expect(h.snapshot()!.draft).toEqual({ parent: src, type: 'file', pending: false })
+    h.face.beginCreate(TAB, ROOT, 'directory', signal)
+    expect(h.snapshot()!.draft).toEqual({ parent: ROOT, type: 'directory', pending: false })
+    h.face.cancelCreate(TAB, signal)
+    expect(h.snapshot()!.draft).toBeUndefined()
+    expect(h.creation.create).not.toHaveBeenCalled()
+  })
+
+  it('creates through the Remote, closes the row, and lists the directory again', async () => {
+    const h = await opened()
+    const { signal } = h.controller
+    h.face.beginCreate(TAB, src, 'file', signal)
+    h.face.create(TAB, src, 'a.md', 'file', signal)
+    expect(h.creation.create).toHaveBeenCalledExactlyOnceWith(SESSION, src, 'a.md', 'file', signal)
+    expect(h.snapshot()!.draft).toEqual({ parent: src, type: 'file', pending: true })
+    expect(h.outstanding()).toEqual([])
+    await h.creation.succeed()
+    expect(h.snapshot()!.draft).toBeUndefined()
+    expect(h.outstanding()).toEqual([src])
+    const listed: DirLevel = { entries: [{ name: 'a.md', type: 'file', size: 0 }], truncated: false }
+    await h.settle({ ok: true, value: listed })
+    expect(h.snapshot()!.levels[src]).toEqual({ kind: 'ready', level: listed })
+  })
+
+  it('refuses an unusable name without a request and keeps the row', async () => {
+    const h = await opened()
+    const { signal } = h.controller
+    h.face.beginCreate(TAB, src, 'directory', signal)
+    h.face.create(TAB, src, 'a/b', 'directory', signal)
+    expect(h.creation.create).not.toHaveBeenCalled()
+    const draft = h.snapshot()!.draft!
+    expect(draft).toMatchObject({ parent: src, type: 'directory', pending: false })
+    expect(draft.failure).toMatchObject({ code: 'workspace-file/invalid-name', details: { name: 'a/b' } })
+  })
+
+  it('keeps the row with the Host failure, and a second submission can succeed', async () => {
+    const h = await opened()
+    const { signal } = h.controller
+    h.face.beginCreate(TAB, src, 'file', signal)
+    h.face.create(TAB, src, 'a.md', 'file', signal)
+    await h.creation.fail(taken)
+    expect(h.snapshot()!.draft).toEqual({ parent: src, type: 'file', pending: false, failure: taken })
+    expect(h.outstanding()).toEqual([])
+    h.face.create(TAB, src, 'b.md', 'file', signal)
+    expect(h.snapshot()!.draft).toEqual({ parent: src, type: 'file', pending: true })
+    expect(h.creation.create).toHaveBeenLastCalledWith(SESSION, src, 'b.md', 'file', signal)
+    await h.creation.succeed()
+    expect(h.snapshot()!.draft).toBeUndefined()
+    await h.settle({ ok: true, value: { entries: [], truncated: false } })
+  })
+
+  it('ignores a second submission while one is in flight', async () => {
+    const h = await opened()
+    const { signal } = h.controller
+    h.face.beginCreate(TAB, src, 'file', signal)
+    h.face.create(TAB, src, 'a.md', 'file', signal)
+    h.face.create(TAB, src, 'a.md', 'file', signal)
+    h.face.create(TAB, src, 'a/b', 'file', signal)
+    expect(h.creation.create).toHaveBeenCalledTimes(1)
+    expect(h.snapshot()!.draft).toEqual({ parent: src, type: 'file', pending: true })
+    await h.creation.fail(taken)
+  })
+
+  it('does not let a late answer write a row opened after its submission', async () => {
+    const h = await opened()
+    const { signal } = h.controller
+    h.face.beginCreate(TAB, src, 'file', signal)
+    h.face.create(TAB, src, 'a.md', 'file', signal)
+    h.face.beginCreate(TAB, ROOT, 'directory', signal)
+    await h.creation.fail(taken)
+    expect(h.snapshot()!.draft).toEqual({ parent: ROOT, type: 'directory', pending: false })
+    // The row is free: the earlier submission no longer blocks it.
+    h.face.create(TAB, ROOT, 'docs', 'directory', signal)
+    h.face.beginCreate(TAB, src, 'file', signal)
+    await h.creation.succeed()
+    expect(h.snapshot()!.draft).toEqual({ parent: src, type: 'file', pending: false })
+    // The entry was created all the same, so its directory is listed again.
+    expect(h.outstanding()).toEqual([ROOT])
+    await h.settle({ ok: true, value: LEVEL })
+  })
+
+  it('settles quietly when the row was closed by collapsing its directory', async () => {
+    const h = await opened()
+    const { signal } = h.controller
+    h.face.beginCreate(TAB, src, 'file', signal)
+    h.face.create(TAB, src, 'a.md', 'file', signal)
+    h.face.toggle(TAB, ROOT, src, [ROOT, src], signal)
+    expect(h.snapshot()!.draft).toBeUndefined()
+    await h.creation.fail(taken)
+    expect(h.snapshot()!.draft).toBeUndefined()
+    h.face.beginCreate(TAB, ROOT, 'file', signal)
+    h.face.create(TAB, ROOT, 'b.md', 'file', signal)
+    h.face.cancelCreate(TAB, signal)
+    await h.creation.succeed()
+    expect(h.snapshot()!.draft).toBeUndefined()
+    await h.settle({ ok: true, value: LEVEL })
+  })
+
+  it.each(['succeed', 'fail'] as const)('writes nothing when the tab record aborted before the answer (%s)', async (outcome) => {
+    const h = await opened()
+    const { signal } = h.controller
+    h.face.beginCreate(TAB, src, 'file', signal)
+    h.face.create(TAB, src, 'a.md', 'file', signal)
+    const writes = vi.fn()
+    h.controller.abort()
+    expect(h.snapshot()).toBeUndefined()
+    const unsubscribe = h.instance.subscribe(writes)
+    onTestFinished(unsubscribe)
+    const listed = h.list.mock.calls.length
+    await (outcome === 'succeed' ? h.creation.succeed() : h.creation.fail(taken))
+    expect(writes).not.toHaveBeenCalled()
+    expect(h.snapshot()).toBeUndefined()
+    expect(h.list).toHaveBeenCalledTimes(listed)
+  })
+
+  it('does nothing for a tab record that already aborted', async () => {
+    const h = await opened()
+    const { signal } = h.controller
+    h.controller.abort()
+    expect(() => {
+      h.face.beginCreate(TAB, src, 'file', signal)
+      h.face.create(TAB, src, 'a.md', 'file', signal)
+      h.face.cancelCreate(TAB, signal)
+    }).not.toThrow()
+    expect(h.creation.create).not.toHaveBeenCalled()
+    expect(h.snapshot()).toBeUndefined()
+  })
+})
+
+describe('createCreate', () => {
+  it('passes the session, the parent, the name, the type, and the signal through', async () => {
+    const created = { ok: true, value: { absolutePath: `${ROOT}/src/a.md`, type: 'file' } } as const
+    const create = vi.fn<WorkspaceFilesCreateRemote['workspaceFiles']['create']>().mockResolvedValue(created)
+    const signal = new AbortController().signal
+    const result = await createCreate({ workspaceFiles: { create } })(SESSION, `${ROOT}/src`, 'a.md', 'file', signal)
+    expect(create).toHaveBeenCalledExactlyOnceWith(SESSION, `${ROOT}/src`, 'a.md', 'file', signal)
+    expect(result).toBe(created)
+  })
+})
+
+describe('isEntryName', () => {
+  it.each(['a.md', '.env', ' spaced name ', '子目录', 'a:b', '...'])('accepts %j', (name) => {
+    expect(isEntryName(name)).toBe(true)
+  })
+
+  it.each(['', ' ', '\t\n', '.', '..', 'a/b', '/a', '../a', 'a\\b', `a${String.fromCharCode(0)}b`])('refuses %j', (name) => {
+    expect(isEntryName(name)).toBe(false)
   })
 })

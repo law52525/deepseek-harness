@@ -10,6 +10,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { ShortcutCommand } from '@deepseek-ai/dsh-client-shortcuts/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { PaneId } from '@deepseek-ai/dsh-client-ui-dockkit'
+import { dockPaneIds, findTabPane, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
+import { createSidebarRightController } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/service.ts'
+import { createSidebarRightStore } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/stores.ts'
 import { SidebarRightTabRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/tab-registry.ts'
 import { FILES_ID, FILES_KIND } from '../src/client/definition.tsx'
 import { apply, inject } from '../src/client/index.ts'
@@ -27,9 +32,15 @@ interface Recorded {
   component: unknown
 }
 
-async function boot() {
+async function boot(real = false) {
   const ctx = new Context()
   const tabs = new SidebarRightTabRegistry(ctx)
+  const focused: (PaneId | undefined)[] = []
+  const controller = createSidebarRightController(tabs, vi.fn(), {
+    autoFullscreen: () => false,
+    openWithFocus: (_sessionId, open) => { focused.push(open()) },
+    closeWithFocus: (_sessionId, _paneId, close) => { close() },
+  })
   const registered: Recorded[] = []
   const slots = {
     inject: vi.fn((_name: string, register: () => () => void) => register()),
@@ -49,13 +60,17 @@ async function boot() {
     }),
   }
   const workspaceFiles = { list: vi.fn() }
-  const sidebar = { commandTarget: vi.fn(), openTabFromTarget: vi.fn() }
+  const sidebar = {
+    commandTarget: vi.fn(),
+    dockedPageTarget: vi.fn((_kind: string, target: unknown) => target),
+    openTabFromTarget: vi.fn(),
+  }
   const commands: ShortcutCommand[] = []
   ctx.provide('shortcuts', { register: (command: ShortcutCommand) => {
     commands.push(command)
     return () => { commands.splice(commands.indexOf(command), 1) }
   } } as never)
-  ctx.provide('sidebarRight', sidebar as never)
+  ctx.provide('sidebarRight', (real ? controller.controller : sidebar) as never)
   ctx.provide('sidebarRightTabs', tabs as never)
   ctx.provide('slots', slots as never)
   ctx.provide('locale', locale as never)
@@ -63,7 +78,7 @@ async function boot() {
   ctx.provide('remote.workspaceFiles', workspaceFiles as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { tabs, registered, dictionaries, fiber, sidebar, commands }
+  return { tabs, registered, dictionaries, fiber, sidebar, commands, focused, ...controller }
 }
 
 describe('ui-sidebar-files apply', () => {
@@ -78,10 +93,59 @@ describe('ui-sidebar-files apply', () => {
       const result = command.resolve(input)
       if (result.status !== 'handled') throw new Error('Expected files command to be available')
       result.run()
+      expect(h.sidebar.dockedPageTarget).toHaveBeenCalledWith('files', target)
       expect(h.sidebar.openTabFromTarget).toHaveBeenCalledWith('files', target)
     } finally { await h.fiber.dispose() }
     expect(h.commands).toEqual([])
   })
+  it('AC-8: reveals the docked files page from the preview\'s pane instead of opening a second one', async () => {
+    const SESSION = 's-files' as SessionId
+    const h = await boot(true)
+    try {
+      // Stands in for the package that claims `file:` addresses.
+      h.tabs.register({ id: 'test/text', kind: 'text', patterns: ['dsh-resource://file/**'], priority: 'fallback', title: () => 'preview' })
+      const instance = createSidebarRightStore(() => ({ kind: 'guide', title: 'seed' })).create()
+      const layout = () => instance.getSnapshot().bySession[SESSION]!.layout
+      /** Run the command with input focus outside the sidebar. */
+      const command = (): void => {
+        const result = h.commands[0]!.resolve({ region: 'page', modal: null, target: null })
+        if (result.status !== 'handled') throw new Error('Expected files command to be available')
+        result.run()
+      }
+      const files = () => Object.values(layout().tabs).filter(tab => tab.kind === FILES_KIND)
+      // The runtime mints the surface, adopts it, and puts its Session on screen
+      // with the room rule its seat reports; the adoption's subscription keeps
+      // the controller's layout in step after each commit.
+      h.adopt(SESSION, instance)
+      h.show(SESSION)
+      h.measure(SESSION, () => true)
+      instance.actions.setExpanded(SESSION, true)
+
+      // No files page anywhere: the command opens one in the active docked pane.
+      command()
+      expect(files()).toHaveLength(1)
+      const tree = files()[0]!.id
+      const treePane = findTabPane(layout(), tree).id
+      expect(getPane(layout(), treePane).tabs).toEqual([tree])
+
+      // A row click: the preview takes the other pane, which becomes the active one.
+      h.controller.tabDomain.occurrence(SESSION, { id: tree }).tabActions
+        .openResource('dsh-resource://file/session/s-files/a.txt', { preferOtherPane: true })
+      const previewPane = dockPaneIds(layout()).find(id => id !== treePane)!
+      const previews = getPane(layout(), previewPane).tabs
+      expect(previews).toHaveLength(1)
+      expect(layout().activePaneId).toBe(previewPane)
+
+      command()
+      expect(files().map(tab => tab.id)).toEqual([tree])
+      expect(getPane(layout(), treePane).tabs).toEqual([tree])
+      expect(getPane(layout(), treePane).activeTabId).toBe(tree)
+      expect(getPane(layout(), previewPane).tabs).toEqual(previews)
+      expect(layout().activePaneId).toBe(treePane)
+      expect(h.focused.at(-1)).toBe(treePane)
+    } finally { await h.fiber.dispose() }
+  })
+
   it('keeps the host Loader entry inert', () => {
     expect(hostApply).not.toThrow()
   })

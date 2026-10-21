@@ -37,7 +37,7 @@ import { sidebarTargetFromElement, type SidebarRightTarget } from './focus.ts'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { FloatRect, PaneId, TabId, TabRecord } from '@deepseek-ai/dsh-client-ui-dockkit'
-import { activeDockPaneId, canSplit, findContentTab, findPaneContentTab, dockPaneIds, findTabPane, getPane } from '@deepseek-ai/dsh-client-ui-dockkit'
+import { activeDockPaneId, canSplit, findPaneContentTab, dockPaneIds, findTabPane, getPane, getTab } from '@deepseek-ai/dsh-client-ui-dockkit'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SidebarRightNavigationParams, SidebarRightResourceParams, SidebarRightTabParamsFor } from './contract/params.ts'
@@ -153,11 +153,24 @@ export interface SidebarRightPlacement {
   readonly paneId?: PaneId
   /** Prefer a new pane for new content; use the target pane when splitting is unavailable. */
   readonly preferNewPane?: boolean
+  /**
+   * Keep the open out of the target pane. With another docked pane on the
+   * surface the open lands there, under that pane's own reveal rule; with the
+   * target pane alone it splits as `preferNewPane` does, and stays in the
+   * target pane when no split is available. A floating target pane is treated
+   * as it is without the preference. A copy of the resource in the target pane
+   * is neither revealed nor moved unless the open stays in that pane. A page
+   * opens in the other docked pane even when the target pane holds one of its
+   * kind; with the target pane alone, a page it holds is focused there instead
+   * of splitting. Ignored with `replaceTab`.
+   */
+  readonly preferOtherPane?: boolean
   /** Take this tab's place — its pane and its strip slot — and close it in the same step. */
   readonly replaceTab?: TabId
   /**
-   * Resource tabs reveal an existing (kind, contentId) by default; `false`
-   * permits duplicates. Pages always deduplicate within the target pane.
+   * Resource tabs reveal an existing (kind, contentId) within the target pane
+   * only, by default; `false` permits duplicates and a copy parked in another
+   * pane is never revealed. Pages always deduplicate within the target pane.
    */
   readonly revealIfOpened?: boolean
 }
@@ -376,6 +389,30 @@ export class SidebarRightController implements ISidebarRight {
     this.removeAfterCleanup(sessionId, tab, () => { actions.closeTab(sessionId, tabId) })
   }
 
+  /**
+   * Close every other closable tab of one tab's pane in one session, as one
+   * entry that keeps `tabId` focused with its pane. The gesture is the kit
+   * menu's close-others: a tab that may not close is left in place rather than
+   * failing the intent, and each removed tab passes its kind's close handler
+   * first — a handler that throws preserves every tab. Nothing happens for a
+   * session whose store was never adopted or whose adoption was released. Not
+   * part of `ISidebarRight`: the kit's tab-menu path.
+   * @param sessionId - the session the tab is in.
+   * @param tabId - the tab whose menu asked; the one that stays.
+   */
+  closeOthersIn(sessionId: SessionId, tabId: TabId): void {
+    const actions = this.actionsFor(sessionId)
+    const surface = this.adopted.get(sessionId)?.store.getSnapshot().bySession[sessionId]
+    if (actions === undefined || surface === undefined || surface.layout.tabs[tabId] === undefined) return
+    const closing = findTabPane(surface.layout, tabId).tabs.filter(id => id !== tabId && canCloseTab(surface, id))
+    if (closing.length === 0) return
+    for (const id of closing) {
+      const tab = getTab(surface.layout, id)
+      this.closeHandlers.get(tab.kind)?.(sessionId, tab)
+    }
+    actions.closeTabs(sessionId, closing, tabId)
+  }
+
   private removeAfterCleanup(sessionId: SessionId, tab: TabRecord, commit: () => void): void {
     this.closeHandlers.get(tab.kind)?.(sessionId, tab)
     commit()
@@ -417,34 +454,51 @@ export class SidebarRightController implements ISidebarRight {
     params: SidebarRightNavigationParams,
   ): void {
     const surface = this.adopted.get(sessionId)?.store.getSnapshot().bySession[sessionId]
-    const targetPane = surface === undefined ? undefined : placement.paneId ?? activeDockPaneId(surface.layout)
-    const target = targetPane === undefined ? undefined : surface?.layout.nodes[targetPane]
-    const preferNewPane = placement.preferNewPane === true
+    const layout = surface?.layout
+    const origin = layout === undefined ? undefined : placement.paneId ?? activeDockPaneId(layout)
+    const node = origin === undefined ? undefined : layout?.nodes[origin]
+    const docked = node?.kind === 'pane' && node.host === 'dock' ? node : undefined
+    // `preferOtherPane` settles here, before the store sees the intent: another
+    // docked pane becomes the intent's pane, and the store's per-pane reveal
+    // then applies to that pane.
+    const elsewhere = placement.preferOtherPane === true && placement.replaceTab === undefined && docked !== undefined
+    const other = elsewhere && layout !== undefined ? dockPaneIds(layout).find(id => id !== docked.id) : undefined
+    const preferNewPane = (placement.preferNewPane === true || elsewhere)
+      && other === undefined
       && placement.replaceTab === undefined
-      && surface !== undefined
-      && target?.kind === 'pane'
-      && target.host === 'dock'
-      && target.tabs.length > 0
-      && canSplit(surface.layout)
-      && dockPaneIds(surface.layout).length < 2
+      && layout !== undefined
+      && docked !== undefined
+      && docked.tabs.length > 0
+      && canSplit(layout)
+      && dockPaneIds(layout).length < 2
       && this.mounted.getSnapshot() === sessionId
-      && this.canSplitPane(sessionId, target.id)
+      && this.canSplitPane(sessionId, docked.id)
+    const paneId = other ?? placement.paneId
+    // The store splits only when it reveals nothing in the origin pane, so an
+    // open that leaves that pane must not reveal the copy the pane holds.
+    const revealIfOpened = elsewhere && preferNewPane ? false : placement.revealIfOpened
     const commit = (): void => { actions.openContent(sessionId, {
       kind: claim.kind,
       contentId: claim.contentId,
       title: claim.title,
-      ...placement.paneId === undefined ? {} : { paneId: placement.paneId },
+      ...paneId === undefined ? {} : { paneId },
       ...preferNewPane ? { preferNewPane: true } : {},
       ...placement.replaceTab === undefined ? {} : { replaceTab: placement.replaceTab },
-      ...placement.revealIfOpened === undefined ? {} : { revealIfOpened: placement.revealIfOpened },
+      ...revealIfOpened === undefined ? {} : { revealIfOpened },
     }, (tabId) => { this.tabDomain.navigate(sessionId, tabId, { address, params }) }) }
-    const layout = surface?.layout
     const replaced = placement.replaceTab === undefined ? undefined : layout?.tabs[placement.replaceTab]
-    const replacementPane = replaced === undefined || layout === undefined ? undefined : findTabPane(layout, replaced.id)
-    const revealed = layout === undefined ? undefined
-      : claim.contentId === pageAddress(claim.kind)
-        ? findPaneContentTab(layout, replacementPane?.host === 'dock' ? replacementPane.id : placement.paneId ?? activeDockPaneId(layout), claim.contentId, claim.kind)
-        : placement.revealIfOpened === false ? undefined : findContentTab(layout, claim.contentId, claim.kind)
+    // Predict the store's reveal the way the store decides it: per pane. A
+    // replaced docked tab lends its pane, and the open lands on a copy there —
+    // never on one parked in another pane, which a surface-wide lookup would
+    // reach first and mistake for the tab this open replaces.
+    const lent = replaced === undefined || layout === undefined ? undefined : findTabPane(layout, replaced.id)
+    const revealPane = (lent?.host === 'dock' ? lent.id : paneId)
+      ?? (layout === undefined ? undefined : activeDockPaneId(layout))
+    const page = claim.contentId === pageAddress(claim.kind)
+    const revealed = layout === undefined || revealPane === undefined ? undefined
+      : page || revealIfOpened !== false
+        ? findPaneContentTab(layout, revealPane, claim.contentId, claim.kind)
+        : undefined
     if (replaced === undefined || replaced.id === revealed) { commit(); return }
     this.removeAfterCleanup(sessionId, replaced, commit)
   }
@@ -524,6 +578,28 @@ export class SidebarRightController implements ISidebarRight {
     const held = tabId === undefined ? undefined : this.tabDomain.occurrence(sessionId, { id: tabId })
     return { sessionId, paneId: pane.id, host: pane.host, tabId,
       occurrence: held, navigationRevision: held?.navigation.getSnapshot().revision }
+  }
+
+  /**
+   * Redirect a captured target to the docked pane that already holds `kind`'s page,
+   * so a command reveals that page instead of adding one to another pane.
+   * @param kind - page kind held at most once per pane.
+   * @param target - target captured by `commandTarget` or `focusedTarget`.
+   * @returns `target` unchanged when its own docked pane holds the page or no docked pane does;
+   *   otherwise the first docked pane holding it, with the page as the captured tab.
+   */
+  dockedPageTarget(kind: string, target: SidebarRightTarget): SidebarRightTarget {
+    const layout = this.mountedSurface()?.layout
+    if (layout === undefined) return target
+    const holders = dockPaneIds(layout).flatMap((paneId) => {
+      const tabId = findPaneContentTab(layout, paneId, pageAddress(kind), kind)
+      return tabId === undefined ? [] : [{ paneId, tabId }]
+    })
+    const holder = holders.find(held => held.paneId === target.paneId) ?? holders[0]
+    if (holder === undefined || holder.paneId === target.paneId) return target
+    const occurrence = this.tabDomain.occurrence(target.sessionId, { id: holder.tabId })
+    return { sessionId: target.sessionId, paneId: holder.paneId, host: 'dock', tabId: holder.tabId,
+      occurrence, navigationRevision: occurrence.navigation.getSnapshot().revision }
   }
 
   /**

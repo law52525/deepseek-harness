@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use this package to preview files readable through a Session's filesystem from the web client. It reads UTF-8 text by page, reads bounded byte windows or complete files, resolves related files from a base file's directory, and reports file metadata. Follow changes to a file or a directory's direct entries. File reads and watches may target paths outside the workspace; directory listing and watches remain workspace-scoped. The service exposes no mutation operation.
+Use this package to preview files readable through a Session's filesystem from the web client. It reads UTF-8 text by page, reads bounded byte windows or complete files, resolves related files from a base file's directory, reports file metadata, and replaces one file's text under a version guard. Follow changes to a file or a directory's direct entries. File reads and watches may target paths outside the workspace; directory listing, watches, and writes remain workspace-scoped. `writeText` replaces one existing regular file's text and never creates one; `create` adds an empty file or directory and never replaces an existing entry.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ Use this package to preview files readable through a Session's filesystem from t
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount the package beside `dsh-fs`, `dsh-sandbox-policy`, the Session store, and the Typert Gateway; the bundle does so right after the Session Controller. Every method takes the Session identity on the wire, so a Client calls `remote.workspaceFiles.read(sessionId, path, range, signal)`, `stat(sessionId, path, signal)`, `readBytes(sessionId, path, options, signal)`, `list(sessionId, path, signal)`, or `changes(sessionId, path, signal)` and never names a root itself. The Host reads a live Session header or uses persistence `stat` for a cold Session; it does not activate an Agent, read the event body, or borrow a parent Session's root. Session persistence is optional for live reads, but without it a cold Session cannot resolve and the Gateway returns `gateway/lookup-not-found`.
+Mount the package beside `dsh-fs`, `dsh-sandbox-policy`, the Session store, and the Typert Gateway; the bundle does so right after the Session Controller. Every method takes the Session identity on the wire, so a Client calls `remote.workspaceFiles.read(sessionId, path, range, signal)`, `stat(sessionId, path, signal)`, `readBytes(sessionId, path, options, signal)`, `list(sessionId, path, signal)`, `create(sessionId, parentPath, name, type, signal)`, `writeText(sessionId, path, content, expectedVersion, signal)`, or `changes(sessionId, path, signal)` and never names a root itself. The Host reads a live Session header or uses persistence `stat` for a cold Session; it does not activate an Agent, read the event body, or borrow a parent Session's root. Session persistence is optional for live reads, but without it a cold Session cannot resolve and the Gateway returns `gateway/lookup-not-found`.
 
 | Method | Returns | Purpose |
 |---|---|---|
@@ -33,11 +33,13 @@ Mount the package beside `dsh-fs`, `dsh-sandbox-policy`, the Session store, and 
 | `read(path, { offset?, limit? })` | `WorkspaceFileText` = stat + `{ offset, text, lines, eof }` | One window of lines from a UTF-8 text file; `lines` counts them, so one empty line and a page past the end read differently |
 | `readBytes(path, { range?, baseFile? })` | `WorkspaceFileBytes` = stat + `{ offset, data, eof }` | Complete file or bounded byte range as `Uint8Array`; optionally resolve from another file's directory |
 | `list(path)` | `WorkspaceDirectoryListing { path, entries, truncated }` | Direct children of one directory |
+| `create(parentPath, name, type)` | `WorkspaceCreatedEntry { absolutePath, type }` | One empty file or one empty directory inside a workspace directory |
+| `writeText(path, content, expectedVersion)` | `WorkspaceFileStat { absolutePath, version, bytes }` | Replace one existing workspace file's complete text, guarded by the version the caller read |
 | `changes(path)` | stream of `WorkspaceFileWatchFrame` | Subscription readiness, then invalidations of one file or a directory's direct entries |
 
 ### Addressing and paths
 
-`read`, `readBytes`, and `stat` accept an absolute path or one relative to the selected Session's workspace root. The composed filesystem decides whether the path is readable; the service does not impose workspace containment on file reads. `readBytes` with `options.baseFile` resolves the relative target `path` from that file's directory, including when either file is outside the workspace. The base file itself accepts an absolute or workspace-relative path. Both files receive the same regular-file checks; an empty target, absolute target, URL, or NUL-containing target is rejected. File results report the absolute path in the filesystem's execution world. `list` remains workspace-scoped and reports the listed directory relative to that root. `changes` uses the same path resolution: file watches follow file-read authority, while directory watches remain workspace-scoped.
+`read`, `readBytes`, `stat`, and `writeText` accept an absolute path or one relative to the selected Session's workspace root. The composed filesystem decides whether the path is readable; the service does not impose workspace containment on file reads, while `writeText` requires its resolved target inside the workspace root. `readBytes` with `options.baseFile` resolves the relative target `path` from that file's directory, including when either file is outside the workspace. The base file itself accepts an absolute or workspace-relative path. Both files receive the same regular-file checks; an empty target, absolute target, URL, or NUL-containing target is rejected. File results report the absolute path in the filesystem's execution world. `list` remains workspace-scoped and reports the listed directory relative to that root. `changes` uses the same path resolution: file watches follow file-read authority, while directory watches remain workspace-scoped.
 
 ### Pages
 
@@ -51,7 +53,25 @@ Pass the required options object as `{}` for a complete file under `maxFileBytes
 
 ### File-read and directory checks
 
-Every operation first uses `lstat` to reject a missing path or the wrong file kind; the file-reading operations also refuse a final symlink, even one pointing back inside the workspace. `list` instead follows a final link — a directory symlink on any platform, including a Windows junction — and requires it to resolve to a directory inside the workspace root, so a linked directory lists like its target; `changes` confines the watched directory the same way. File operations then resolve and read through the composed filesystem without an additional workspace-containment check. The configured page, window, complete-file, and listing caps still apply. Text pages additionally reject invalid UTF-8 and NUL bytes; byte reads do not decode content. An empty read or listing path is a `gateway/bad-request`.
+Every operation first uses `lstat` to reject a missing path or the wrong file kind; reading and writing a file also refuse a final symlink, even one pointing back inside the workspace. `list` instead follows a final link — a directory symlink on any platform, including a Windows junction — and requires it to resolve to a directory inside the workspace root, so a linked directory lists like its target; `changes` confines the watched directory the same way. File reads then resolve through the composed filesystem without an additional workspace-containment check, while `writeText` requires its resolved target inside the workspace. The configured page, window, complete-file, and listing caps still apply. Text pages additionally reject invalid UTF-8 and NUL bytes; byte reads do not decode content. An empty read or listing path is a `gateway/bad-request`.
+
+### Creating an entry
+
+`create(parentPath, name, type)` adds one empty regular file (`type: 'file'`) or one empty directory (`type: 'directory'`) and returns its absolute path. `parentPath` takes the syntax `list` accepts and passes the same checks: it exists, it is a directory or a link resolving to one, and it resolves inside the workspace root. `name` is one path segment. The Host refuses a name that is empty or whitespace-only, is `.` or `..`, or carries `/`, `\`, or NUL, and on a drive-rooted filesystem also one that carries `:`; it applies these rules whatever the Client checked. The joined path is resolved and checked against the workspace root a second time, so a name that is itself a link leaving the workspace fails with `outside-workspace`.
+
+An entry of any type already at that name, a dangling link included, fails with `already-exists` and stays untouched. The Host checks the name with `lstat` first, and the provider's no-replace creation decides when an entry appears between that check and the write: a file is created by `fs.writeText` with the `createIfAbsent` intent, a directory by `fs.createDirectory`. A provider that cannot create a directory fails the call with its own error.
+
+The caller is the user, not a model tool, so the call consults neither the `fs/write-intent` waterfall nor tool approval, and emits no `fs/observed`. It passes the filesystem an explicit `workspace-write` policy rooted at the Session's workspace: a sandboxing backend fences the write to that root under every deployment or Session sandbox mode, `danger-full-access` included. An open `changes` generation on the parent directory reports the new entry through the provider's watch.
+
+### Replacing a file's text
+
+`writeText(path, content, expectedVersion)` replaces one existing regular file's complete text inside the workspace and returns its absolute path, its version after the write, and the written byte size. `path` is absolute or workspace-relative; the final component must already be a regular file — a symlink is refused as `not-regular-file` where `read` refuses one — and the resolved target must stay inside the workspace root, so a path reached through a link that leaves the workspace fails `outside-workspace`. The method never creates a file: a missing path is `not-found`, and a directory or non-file is `not-regular-file`.
+
+`expectedVersion` is required and names the version of the caller's last read; the Host passes it to the filesystem as the `replaceIfVersion` guard. A version that no longer matches the disk fails `stale-version` with the file's current version and writes nothing — there is no unconditional overwrite, so a caller that means to overwrite re-stats and calls again. The same code answers a change that lands between this call's stat and its write.
+
+Content above `maxWriteBytes` fails `too-large` before the path is resolved, whatever the Client checked. Callers send text with LF line endings; the file keeps its own style, because the filesystem seam writes the given text verbatim and the Host samples the file's leading 4 KiB to detect whether CRLF or LF dominates — the style that wins is restored before the write, and no other line-ending choice is made. A BOM is not restored: a UTF-8 decode drops one, so a round trip through this method cannot keep it.
+
+Like `create`, the call carries an explicit `workspace-write` policy rooted at the Session's workspace, consults neither the `fs/write-intent` waterfall nor tool approval, and emits no `fs/observed`. An open `changes` generation on the file or on its parent directory reports the write through the provider's watch.
 
 ### The change feed
 
@@ -65,12 +85,13 @@ Every operation first uses `lstat` to reject a missing path or the wrong file ki
 | `maxFileBytes` | `33554432` (32 MiB) | Inclusive complete-file cap for `readBytes` without `range`; larger files fail with `too-large` |
 | `maxLines` | `5000` | Default and largest page size in lines; a larger `limit` is refused |
 | `maxEntries` | `2000` | Cap on returned directory entries; the rest is dropped and reported cut |
+| `maxWriteBytes` | `1048576` (1 MiB) | Inclusive byte cap on one `writeText` content; larger content fails with `too-large` |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-api-workspace-files) is the exhaustive source for every accepted field and its JSDoc.
 
 ### Failures
 
-Each failure is one `RemoteError` code with typed details, declared in [`src/types.ts`](src/types.ts): `workspace-file/not-found`, `workspace-file/outside-workspace` (directory listing or watching), `workspace-file/watch-unsupported` (watch initialization failed), `workspace-file/too-large` (with `limit`, the applicable page, window, or complete-file cap), `workspace-file/not-text`, `workspace-file/not-regular-file` (`kind`: `directory`, `symlink`, or `other`), and `workspace-file/not-directory` (`kind`: `file`, `symlink`, or `other`). Callers branch on the code, never on message text.
+Each failure is one `RemoteError` code with typed details, declared in [`src/types.ts`](src/types.ts): `workspace-file/not-found`, `workspace-file/outside-workspace` (directory listing, watching, creation, or text replacement), `workspace-file/watch-unsupported` (watch initialization failed), `workspace-file/too-large` (with `limit`, the applicable page, window, complete-file, or write cap), `workspace-file/not-text`, `workspace-file/not-regular-file` (`kind`: `directory`, `symlink`, or `other`), `workspace-file/not-directory` (`kind`: `file`, `symlink`, or `other`), `workspace-file/already-exists` (with the taken `path`), `workspace-file/invalid-name` (with the refused `name`), and `workspace-file/stale-version` (with the file's current `version`). Callers branch on the code, never on message text.
 
 ### Client file resources
 
@@ -92,7 +113,7 @@ One supervised `changes` stream serves each Session and requested path; consumer
 
 ### Design concept
 
-Reads through `ctx.fs` use the backend's read authority; the sandboxing backend fences writes and edits, not reads. A Typert lookup derives `WorkspaceFileScope` from a live Session header or the persistence service's header-only `stat`, so cold subagent Sessions need neither Agent activation nor event-body reads. The service adds regular-file checks and bounded transfer, while workspace containment belongs only to directory listing and directory watching. A page is cut from `streamText`, which decodes and rejects non-UTF-8 chunk by chunk: the cutter counts lines before the window without keeping them, admits each in-window segment against the byte cap before buffering it, and returns at the first character past the window. One `stat` before the stream names the version and size the page reports.
+Reads through `ctx.fs` use the backend's read authority; the sandboxing backend fences writes and edits, not reads. A Typert lookup derives `WorkspaceFileScope` from a live Session header or the persistence service's header-only `stat`, so cold subagent Sessions need neither Agent activation nor event-body reads. The service adds regular-file checks and bounded transfer, while workspace containment belongs only to directory listing, directory watching, entry creation, and text replacement. A page is cut from `streamText`, which decodes and rejects non-UTF-8 chunk by chunk: the cutter counts lines before the window without keeping them, admits each in-window segment against the byte cap before buffering it, and returns at the first character past the window. One `stat` before the stream names the version and size the page reports.
 
 Complete-file reads delegate size enforcement to `fs.readBytes` and return raw bytes through the binary Remote.
 
@@ -100,7 +121,8 @@ Complete-file reads delegate size enforcement to `fs.readBytes` and return raw b
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | `WorkspaceFiles`: the `workspaceFiles` service and Remote namespace, `Config`, the gates, the page cutter, `read`, `readBytes`, `stat`, `list` |
+| [`src/index.ts`](src/index.ts) | `WorkspaceFiles`: the `workspaceFiles` service and Remote namespace, `Config`, the gates, the page cutter, `read`, `readBytes`, `stat`, `list`, `create`, `writeText` |
+| [`src/name.ts`](src/name.ts) | The rule for a name `create` accepts |
 | [`src/changes.ts`](src/changes.ts) | `WorkspaceChangeFeed`: target watchers, matching `fs/observed` notifications, and one queue per generation |
 | [`src/types.ts`](src/types.ts) | Wire types and the `RemoteErrorDetailsMap` codes, published as `./types` for Client packages |
 | [`src/client/index.ts`](src/client/index.ts), [`provider.ts`](src/client/provider.ts), [`change-feed.ts`](src/client/change-feed.ts) | Browser plugin, file metadata, and per-target change feeds |
@@ -137,6 +159,9 @@ None; this package neither assembles nor sends a provider request.
 
 <a id="known-limitations-and-deferred-work"></a>
 
+- **Provider creation support** — `create` makes a directory only on a backend that implements `createDirectory`; others, including SSH, fail with the provider's error. A file needs only `writeText`.
+- **A BOM is not restored** — `writeText` writes the content as received, and a UTF-8 decode drops a leading BOM, so a read-then-write round trip cannot keep one. Consumers that must preserve it exclude BOM files from editing.
+- **Mixed line endings come back uniform** — line-ending restoration applies the style detected in the file's leading 4 KiB to every line, so a file mixing CRLF and LF is written in its dominant style.
 - **Provider watch support** — unsupported backends, including SSH, report `watch-unsupported`; ordinary reads and manual refresh remain available, without polling for external changes.
 - **Linux parent-directory recreation** — automatic watch recovery after a parent directory is deleted and recreated is deferred; see [fs-local](../../fs/fs-local/README.md).
 - **Directory scope only** — directory listing and watches stay inside the Session workspace; file reads and watches use the filesystem backend's read authority.

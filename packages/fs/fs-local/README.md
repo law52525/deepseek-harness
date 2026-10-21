@@ -86,6 +86,8 @@ The backend builds on three ideas:
 
 Each write probes the target, enforces the optional guard (`createIfAbsent` or `replaceIfVersion`), captures a bounded `before` diff basis when both sides are small enough, stages the new content next to the target, fsyncs, and publishes atomically. Guarded creation uses a hard-link publication that never replaces a concurrent creator, rejecting it with `FS_NOT_OBSERVED` instead.
 
+`createDirectory` issues one non-recursive `mkdir` inside the per-target lock. The operating system refuses an occupied path, so an existing file, directory, or dangling link is reported as `FS_NOT_OBSERVED` without a preceding existence check; a missing parent is `FS_NOT_FOUND`, and a parent segment that is not a directory is `FS_NOT_DIRECTORY`.
+
 ### Edit path
 
 Each edit probes, verifies the version guard before literal matching (so stale edits report `FS_STALE_VERSION`, never a misleading no-match), reads the file, applies the literal replacement with LF normalization, restores the file's dominant line-ending style, and republishes — all inside the per-target lock.

@@ -20,6 +20,8 @@ import type { BoundActions } from '@deepseek-ai/dsh-client-store'
 import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ReadDocumentBytes, ReadWorkspaceFilePage, SessionFile } from './rpc.ts'
+import { carrierFailure } from './rpc.ts'
+import type { EditEngine } from './edit/engine.ts'
 import type { TextStore } from './store.ts'
 import type { DocumentLoadMode } from './document/registry.ts'
 import type { Resources } from '@deepseek-ai/dsh-client-resources/client'
@@ -82,6 +84,46 @@ export interface TextInjected {
    * @param reload - discard the previous content revision.
    */
   readonly prepareRenderer: (tabId: TabId, signal: AbortSignal, rendererId: string, observedVersion?: string, reload?: boolean) => void
+  /**
+   * Start editing a tab: read the complete file, keep it as the draft, and
+   * remember the version it was read at.
+   * @param tabId - the tab being edited.
+   * @param address - the tab's content address, which tells a replacement from a remount.
+   * @param file - the session and workspace path the tab's address names.
+   * @param signal - the tab record's lifetime.
+   * @param observedVersion - metadata version observed at open.
+   */
+  readonly openEditor: (
+    tabId: TabId, address: string, file: SessionFile, signal: AbortSignal, observedVersion?: string,
+  ) => void
+  /**
+   * Keep the editor's newest text.
+   * @param tabId - the tab being edited.
+   * @param text - the text the editor now holds.
+   */
+  readonly editChanged: (tabId: TabId, text: string) => void
+  /**
+   * Suspend saving while an input method editor composes.
+   * @param tabId - the tab being edited.
+   * @param active - whether a composition is in progress.
+   */
+  readonly editComposing: (tabId: TabId, active: boolean) => void
+  /** Save the newest text now. @param tabId - the tab being edited. */
+  readonly saveNow: (tabId: TabId) => void
+  /** Retry what the failure bar failed at. @param tabId - the tab being edited. */
+  readonly retryEdit: (tabId: TabId) => void
+  /** Write the draft over the disk version, whatever it is now. @param tabId - the tab being edited. */
+  readonly overwriteEdit: (tabId: TabId) => void
+  /**
+   * Replace the text with what is on disk.
+   * @param tabId - the tab being edited.
+   * @param observedVersion - metadata version observed when the reload was decided.
+   */
+  readonly reloadEdit: (tabId: TabId, observedVersion?: string) => void
+  /** Pause saving: the disk moved under a non-empty draft. @param tabId - the tab being edited. */
+  readonly conflictEdit: (tabId: TabId) => void
+  /** Pause saving: the file is gone. @param tabId - the tab being edited. */
+  readonly goneEdit: (tabId: TabId) => void
 }
 
 /**
@@ -103,14 +145,17 @@ interface TabReads {
  * @param read - the bound `workspaceFiles.read` call.
  * @param readAll - complete-byte workspace Remote read.
  * @param resources - shared metadata sources for the document and its dependencies.
- * @returns the Slot `inject` factory: bound actions in, face out. The slot's session id is unused because the address carries its own.
+ * @param edit - the editor engine, shared across Sessions and keyed by Session and tab.
+ * @returns the Slot `inject` factory: bound actions in, face out. The slot's session id names
+ * the Session the editor records run under; the reads take theirs from the address.
  */
 export function textFace(
   read: ReadWorkspaceFilePage,
   readAll: ReadDocumentBytes,
   resources: Resources,
+  edit: EditEngine,
 ): (sessionId: SessionId, actions: BoundActions<TextStore>) => TextInjected {
-  return (_sessionId: SessionId, actions: BoundActions<TextStore>): TextInjected => {
+  return (sessionId: SessionId, actions: BoundActions<TextStore>): TextInjected => {
     const tabs = new Map<TabId, TabReads>()
     // Reached with a live signal only: the record's end forgets the tab's
     // bucket and this bookkeeping in one listener, however often its body mounts.
@@ -185,10 +230,7 @@ export function textFace(
         actions.complete(tabId, file)
       }, (error: unknown) => {
         if (lifetime.aborted) return
-        actions.failed(tabId, Object.assign(
-          new Error(error instanceof Error ? error.message : String(error), { cause: error }),
-          { name: 'RemoteError', isDSHRemoteError: true as const, code: 'gateway/internal' as const, details: {} },
-        ))
+        actions.failed(tabId, carrierFailure(error))
       })
     }
     const restart = (
@@ -218,6 +260,17 @@ export function textFace(
         actions.loading(tabId, 'renderer', observedVersion, rendererId)
       },
       reloadAll: (tabId, file, signal, observedVersion) => { restart(tabId, file, signal, observedVersion, 'bytes-complete') },
+      openEditor: (tabId, address, file, signal, observedVersion) => {
+        edit.open(sessionId, tabId, address, file, observedVersion, actions, signal)
+      },
+      editChanged: (tabId, text) => { edit.changed(sessionId, tabId, text) },
+      editComposing: (tabId, active) => { edit.composition(sessionId, tabId, active) },
+      saveNow: (tabId) => { edit.flush(sessionId, tabId) },
+      retryEdit: (tabId) => { edit.retry(sessionId, tabId) },
+      overwriteEdit: (tabId) => { edit.overwrite(sessionId, tabId) },
+      reloadEdit: (tabId, observedVersion) => { edit.reload(sessionId, tabId, observedVersion) },
+      conflictEdit: (tabId) => { edit.conflict(sessionId, tabId) },
+      goneEdit: (tabId) => { edit.gone(sessionId, tabId) },
     }
   }
 }

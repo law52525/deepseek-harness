@@ -967,6 +967,74 @@ describe('DockSurface', () => {
   })
 })
 
+describe('the close-others menu item', () => {
+  it('sits between close and the embedder\'s items and reports the chip\'s own tab', () => {
+    const controller = seededController()
+    const tabId = controller.openContent({ contentId: 'resource:a', title: 'A', kind: 'test' })
+    const closeOthers = vi.fn()
+    const intents = { ...spyIntents(), closeOtherTabs: closeOthers }
+    const extras: TabMenuExtras = () => <button type="button" role="menuitem">embedder item</button>
+    renderSurface(controller, intents, true, extras)
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /A/u }))
+    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual(
+      [TEST_LABELS.closeTab, TEST_LABELS.closeOtherTabs, 'embedder item'],
+    )
+    fireEvent.click(screen.getByRole('menuitem', { name: TEST_LABELS.closeOtherTabs }))
+    expect(closeOthers).toHaveBeenCalledExactlyOnceWith(tabId)
+    expect(intents.closeTab).not.toHaveBeenCalled()
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('draws the item disabled while no other closable tab stands in the pane', () => {
+    // A lone tab: nothing beside it to close, and the item stays visible disabled.
+    const controller = seededController()
+    const intents = { ...spyIntents(), closeOtherTabs: vi.fn() }
+    renderSurface(controller, intents)
+    fireEvent.contextMenu(screen.getByRole('tab'))
+    const item = document.querySelector<HTMLButtonElement>('[data-dockkit-menu-close-others]')
+    expect(item).not.toBeNull()
+    expect(item?.disabled).toBe(true)
+    fireEvent.click(item!)
+    expect(intents.closeOtherTabs).not.toHaveBeenCalled()
+    expect(screen.getByRole('menuitem', { name: TEST_LABELS.closeOtherTabs })).toBeDefined()
+  })
+
+  it('draws the item disabled when the pane\'s other tabs may not close', () => {
+    const controller = seededController()
+    const allowed = controller.openContent({ contentId: 'resource:a', title: 'A', kind: 'test' })
+    const intents = { ...spyIntents(), closeOtherTabs: vi.fn() }
+    renderSurface(controller, intents, true, undefined, { canCloseTab: tabId => tabId === allowed })
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /A/u }))
+    // The chip's own close is allowed; the seed beside it may not close.
+    expect(screen.getByRole('button', { name: TEST_LABELS.closeTab })).toBeDefined()
+    const item = document.querySelector<HTMLButtonElement>('[data-dockkit-menu-close-others]')
+    expect(item?.disabled).toBe(true)
+    fireEvent.click(item!)
+    expect(intents.closeOtherTabs).not.toHaveBeenCalled()
+  })
+
+  it('offers no item at all when the embedder supplies no close-others intent', () => {
+    const controller = seededController()
+    controller.openContent({ contentId: 'resource:a', title: 'A', kind: 'test' })
+    renderSurface(controller, spyIntents())
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /A/u }))
+    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([TEST_LABELS.closeTab])
+    expect(document.querySelector('[data-dockkit-menu-close-others]')).toBeNull()
+  })
+
+  it('has no tab menu on a floating panel', () => {
+    const controller = seededController()
+    const tabId = controller.openContent({ contentId: 'resource:a', title: 'A', kind: 'test' })
+    controller.floatTab(tabId, { x: 10, y: 20, width: 300, height: 200 })
+    render(
+      <FloatLayer state={controller.getSnapshot().state} intents={spyIntents()} labels={TEST_LABELS} renderTab={() => null} />,
+    )
+    expect(document.querySelector('[data-dockkit-tab]')).toBeNull()
+    expect(document.querySelector('[data-dockkit-tab-menu]')).toBeNull()
+    expect(document.querySelector('[data-dockkit-menu-close-others]')).toBeNull()
+  })
+})
+
 describe('tab drags', () => {
   it('previews a caret at the slot under the pointer and reports that slot on release', () => {
     const { intents, first, fileTabId, chip } = twoPanes()

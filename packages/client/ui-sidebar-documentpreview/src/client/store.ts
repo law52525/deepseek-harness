@@ -8,6 +8,11 @@
  * it was rather than re-read or jump to its opening line again. Bucketed by tab
  * id because two tabs of one file scroll independently.
  *
+ * One bucket may also hold the tab's editor: the complete text being edited,
+ * the version it was loaded from, and how the last save went. That text is one
+ * whole file rather than pages, so it lives beside the pages and replaces them
+ * as what the body shows while the tab's viewer allows editing.
+ *
  * A bucket lives as long as its tab record: the face's first read of a tab arms
  * one listener on the owner's `signal` that forgets the bucket when the record
  * ends, and a tab that never read has no bucket to forget.
@@ -29,10 +34,43 @@ export interface TextPage {
   readonly lines: number
 }
 
+/** Why a file cannot be edited, as the editor learned it from the disk bytes. */
+export type EditBlockReason = 'not-text' | 'bom' | 'too-large' | 'unavailable'
+
+/**
+ * One tab's editor session: the complete text being edited and its disk state.
+ *
+ * `observedVersion` is the `file` metadata version the text was loaded under;
+ * together with `version` it tells an external write from the echo of this
+ * tab's own save, whose returned version arrives in the metadata afterwards.
+ */
+export interface EditTabState {
+  /** The text the body shows and edits; the draft when it differs from `savedText`. */
+  text: string
+  /** The text last known to be on disk; a save is skipped while `text` equals it. */
+  savedText: string
+  /** Version token of `savedText`; the baseline every save carries. */
+  version: string
+  /** Metadata version observed at load, so this tab's own saves read as no change. */
+  observedVersion: string | undefined
+  /** A save request is in flight. */
+  saving: boolean
+  /** Why the last save failed; cleared when the next one starts. */
+  failure: RemoteFailure | undefined
+  /** The last save was refused because the disk moved; the reader decides which side wins. */
+  conflict: boolean
+  /** The file is gone from disk; the text is kept for copying. */
+  gone: boolean
+  /** Why this file cannot be edited at all; absent while it can. */
+  blocked: EditBlockReason | undefined
+}
+
 /** One tab's pages and view. */
 export interface TextTabState {
   autoRefresh: boolean
   resourcesDirty: boolean
+  /** The tab's editor session; absent until the body opens or refuses one. */
+  edit?: EditTabState
   /** Explicit viewer choice for this tab; absence follows automatic matching. */
   rendererId?: string
   /** Current display-loading mode; absent before the first read. */
@@ -109,6 +147,14 @@ type TextActions = {
   scrolled: (draft: TextState, tabId: TabId, scrollTop: number) => void
   toggledWrap: (draft: TextState, tabId: TabId) => void
   navigated: (draft: TextState, tabId: TabId, revision: number) => void
+  editLoaded: (draft: TextState, tabId: TabId, text: string, version: string, observedVersion: string | undefined) => void
+  editDraft: (draft: TextState, tabId: TabId, text: string) => void
+  editSaving: (draft: TextState, tabId: TabId) => void
+  editSaved: (draft: TextState, tabId: TabId, text: string, version: string) => void
+  editFailed: (draft: TextState, tabId: TabId, failure: RemoteFailure) => void
+  editConflicted: (draft: TextState, tabId: TabId) => void
+  editGone: (draft: TextState, tabId: TabId) => void
+  editBlocked: (draft: TextState, tabId: TabId, reason: EditBlockReason) => void
   forget: (draft: TextState, tabId: TabId) => void
 }
 
@@ -246,6 +292,107 @@ export function createTextStore(): EngineStoreHandle<TextState, TextActions> {
        */
       navigated: (d, tabId: TabId, revision: number) => {
         bucket(d, tabId).revision = revision
+      },
+      /**
+       * Adopt complete text read from disk as the editor's content and baseline.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       * @param text - the complete file text.
+       * @param version - the version token the text was read at.
+       * @param observedVersion - the metadata version observed at load.
+       */
+      editLoaded: (d, tabId: TabId, text: string, version: string, observedVersion: string | undefined) => {
+        bucket(d, tabId).edit = {
+          text, savedText: text, version, observedVersion,
+          saving: false, failure: undefined, conflict: false, gone: false, blocked: undefined,
+        }
+      },
+      /**
+       * Keep the editor's current text; the draft may be ahead of disk.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       * @param text - the text the editor shows.
+       */
+      editDraft: (d, tabId: TabId, text: string) => {
+        const edit = d.byTab[tabId]?.edit
+        if (edit === undefined) return
+        edit.text = text
+        edit.failure = undefined
+      },
+      /** @param d - draft. @param tabId - owning tab. A save request is in flight. */
+      editSaving: (d, tabId: TabId) => {
+        const edit = d.byTab[tabId]?.edit
+        if (edit === undefined) return
+        edit.saving = true
+        edit.failure = undefined
+      },
+      /**
+       * Record the text now on disk; a draft may already have moved past it.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       * @param text - the content the Host confirmed.
+       * @param version - the version token the Host returned.
+       */
+      editSaved: (d, tabId: TabId, text: string, version: string) => {
+        const edit = d.byTab[tabId]?.edit
+        if (edit === undefined) return
+        edit.savedText = text
+        edit.version = version
+        edit.saving = false
+        edit.failure = undefined
+        edit.conflict = false
+        edit.gone = false
+      },
+      /**
+       * Record why a save failed; the draft stays for a retry.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       * @param failure - the settled Remote failure.
+       */
+      editFailed: (d, tabId: TabId, failure: RemoteFailure) => {
+        const edit = d.byTab[tabId]?.edit
+        if (edit === undefined) return
+        edit.saving = false
+        edit.failure = failure
+        edit.conflict = false
+        edit.gone = false
+      },
+      /**
+       * Record that the disk moved under the draft; saving pauses until the
+       * reader picks a side.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       */
+      editConflicted: (d, tabId: TabId) => {
+        const edit = d.byTab[tabId]?.edit
+        if (edit === undefined) return
+        edit.saving = false
+        edit.conflict = true
+        edit.gone = false
+      },
+      /**
+       * Record that the file is gone; the text stays for copying.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       */
+      editGone: (d, tabId: TabId) => {
+        const edit = d.byTab[tabId]?.edit
+        if (edit === undefined) return
+        edit.saving = false
+        edit.gone = true
+        edit.conflict = false
+      },
+      /**
+       * Record that this file cannot be edited, so the read-only rendering stands.
+       * @param d - draft state.
+       * @param tabId - the tab being drawn.
+       * @param reason - what the disk read or the file's bytes showed.
+       */
+      editBlocked: (d, tabId: TabId, reason: EditBlockReason) => {
+        bucket(d, tabId).edit = {
+          text: '', savedText: '', version: '', observedVersion: undefined,
+          saving: false, failure: undefined, conflict: false, gone: false, blocked: reason,
+        }
       },
       /**
        * Drop one tab's state, for a tab record that is gone.

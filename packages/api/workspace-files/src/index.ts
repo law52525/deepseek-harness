@@ -1,14 +1,16 @@
 /**
- * Workspace file service: read-only file previews, workspace directory
- * listings, and the filesystem-observation change feed, exposed as
- * `workspaceFiles`.
+ * Workspace file service: file previews, version-guarded text replacement,
+ * workspace directory listings, creation of one empty file or directory, and
+ * the filesystem-observation change feed, exposed as `workspaceFiles`.
  *
  * File reads follow the composed filesystem's read access, including paths
  * outside the workspace. The selected Session header supplies the base for
  * relative paths, with the sandbox policy root as its no-cwd fallback, not a
- * read-containment restriction. Directory listings and change observations
- * remain workspace-scoped. File-kind checks and configured read caps apply to
- * every preview; this service exposes no mutations.
+ * read-containment restriction. Directory listings, change observations, and
+ * writes remain workspace-scoped. File-kind checks and configured caps apply
+ * to every preview. Mutations stay inside the workspace: `create` adds one
+ * empty entry and never changes an existing one, and `writeText` replaces one
+ * existing file's complete text under the version guard its caller supplies.
  *
  * A page is cut from `streamText`, which decodes and rejects non-UTF-8 as it
  * goes, so the file is read only up to the first character past the page and
@@ -30,11 +32,14 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { Remote, RemoteError, TypertRemoteService, type TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
 import { WorkspaceChangeFeed } from './changes.ts'
+import { isEntryName } from './name.ts'
 import type {
+  WorkspaceCreatedEntry,
   WorkspaceByteRange,
   WorkspaceByteReadOptions,
   WorkspaceDirectoryEntry,
   WorkspaceDirectoryListing,
+  WorkspaceEntryKind,
   WorkspaceFileBytes,
   WorkspaceFileRange,
   WorkspaceFileStat,
@@ -82,6 +87,8 @@ export interface Config {
   readonly maxLines: number
   /** Cap on returned directory entries; the rest is dropped and reported cut. */
   readonly maxEntries: number
+  /** Inclusive byte cap on one `writeText` content; larger content is refused, never truncated. */
+  readonly maxWriteBytes: number
 }
 
 /** One page cut from a decoded text stream. */
@@ -179,7 +186,7 @@ function directoryEntry(child: FsDirEntry): WorkspaceDirectoryEntry {
   }
 }
 
-/** Host Remote file reads and workspace directory observations over the composed filesystem. */
+/** Host Remote file reads and writes and workspace directory observations over the composed filesystem. */
 export class WorkspaceFiles extends TypertRemoteService {
   static inject = ['fs', 'sandboxPolicy', 'sessions', 'typert']
 
@@ -188,6 +195,7 @@ export class WorkspaceFiles extends TypertRemoteService {
     maxFileBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER - 1).default(32 * 1024 * 1024),
     maxLines: z.number().step(1).min(1).default(5000),
     maxEntries: z.number().step(1).min(1).default(2000),
+    maxWriteBytes: z.number().step(1).min(1).default(1024 * 1024),
   })
 
   private readonly feed: WorkspaceChangeFeed
@@ -302,29 +310,116 @@ export class WorkspaceFiles extends TypertRemoteService {
    */
   @Remote
   async list(workspaceFileScope: WorkspaceFileScope, path: string, signal: AbortSignal): Promise<WorkspaceDirectoryListing> {
-    const { root, workspaceRoot, entry } = await this.inspect(workspaceFileScope, path, signal)
-    // A final link — a Windows junction or a symlink — is listed through the
-    // directory it resolves to, matching the child type `listDir` reports for
-    // that entry; `read` keeps its own no-follow gate on the final component.
-    if (entry.type !== 'directory' && entry.type !== 'symlink') {
-      throw new RemoteError(
-        'workspace-file/not-directory',
-        `"${path}" is a ${entry.type}`,
-        { path, kind: entry.type },
-      )
-    }
-    const target = await this.confine(root, workspaceRoot, path, signal)
-    if (entry.type === 'symlink') {
-      const info = await this.ctx.fs.stat(target, signal)
-      if (info?.type !== 'directory') {
-        throw new RemoteError('workspace-file/not-directory', `"${path}" does not resolve to a directory`, { path, kind: 'symlink' })
-      }
-    }
+    const { root, target } = await this.locateDirectory(workspaceFileScope, path, signal)
     const children = await this.ctx.fs.listDir(target, signal)
     return {
       path: workspacePathOf(this.ctx.fs.fileUrl(root), this.ctx.fs.fileUrl(target)),
       entries: children.slice(0, this.config.maxEntries).map(directoryEntry),
       truncated: children.length > this.config.maxEntries,
+    }
+  }
+
+  /**
+   * Create one empty file or one empty directory inside a workspace directory.
+   * An entry of any type already at that name fails the call and stays
+   * untouched. The write is fenced to the Session's workspace root under every
+   * sandbox mode, because the caller is the user and not a model tool.
+   * @param workspaceFileScope - header-derived workspace root for the Session identity on the wire.
+   * @param parentPath - existing workspace directory, absolute or relative to the workspace root; a final
+   *   link is followed as `list` follows it.
+   * @param name - the new entry's single path segment.
+   * @param type - whether to create a regular file or a directory.
+   * @param signal - caller cancellation.
+   * @returns the created entry's absolute path and type.
+   * @throws RemoteError `workspace-file/invalid-name` for a name that is not one path segment, and
+   *   `workspace-file/already-exists` when the name is taken.
+   */
+  @Remote
+  async create(
+    workspaceFileScope: WorkspaceFileScope,
+    parentPath: string,
+    name: string,
+    type: WorkspaceEntryKind,
+    signal: AbortSignal,
+  ): Promise<WorkspaceCreatedEntry> {
+    const { root, workspaceRoot, target: parent } = await this.locateDirectory(workspaceFileScope, parentPath, signal)
+    const parentAbsolute = this.ctx.fs.processPath(parent)
+    const paths = parentAbsolute.startsWith('/') ? posix : win32
+    // Checked here whatever the Client checked: the name is joined to a path this service writes.
+    if (!isEntryName(name, paths === win32)) {
+      throw new RemoteError('workspace-file/invalid-name', 'name must be one path segment', { name })
+    }
+    const path = paths.join(parentAbsolute, name)
+    // The name can itself be a link that leaves the workspace.
+    const target = await this.confine(root, workspaceRoot, path, signal)
+    const taken = (cause?: unknown): RemoteError =>
+      new RemoteError('workspace-file/already-exists', `an entry already exists at "${path}"`, { path }, { cause })
+    // Names an existing entry, a dangling link included, before the provider is
+    // asked; the provider's no-replace creation decides when one appears later.
+    if (await this.ctx.fs.lstat(path, { cwd: workspaceRoot }, signal) !== undefined) throw taken()
+    const sandboxPolicy = { mode: 'workspace-write', workspaceRoot } as const
+    try {
+      if (type === 'file') await this.ctx.fs.writeText(target, '', { kind: 'createIfAbsent' }, signal, sandboxPolicy)
+      else await this.ctx.fs.createDirectory(target, signal, sandboxPolicy)
+    } catch (error: unknown) {
+      if (isCreationCollision(error)) throw taken(error)
+      throw error
+    }
+    return { absolutePath: this.ctx.fs.processPath(target), type }
+  }
+
+  /**
+   * Replace one existing workspace file's complete text under a version guard.
+   * The target must already be a regular file inside the workspace; this
+   * method never creates one. The caller sends LF text and the file keeps its
+   * own line ending style: the style is detected from the file before the
+   * write and restored, because the filesystem seam writes the given text
+   * verbatim. Anything else about the content, a BOM included, is written as
+   * received. A caller-supplied version that no longer matches the disk — at
+   * the initial stat or discovered by the write's own guard — refuses with
+   * `stale-version` and leaves the file untouched; there is no unconditional
+   * overwrite. The write is fenced to the Session's workspace root under every
+   * sandbox mode, because the caller is the user and not a model tool.
+   * @param workspaceFileScope - header-derived workspace root for the Session identity on the wire.
+   * @param path - absolute path or path relative to the workspace root; the resolved target must stay inside the workspace.
+   * @param content - the complete new text, LF line endings; above the configured write cap it is refused.
+   * @param expectedVersion - the version of the caller's last read; the write is guarded against it.
+   * @param signal - caller cancellation.
+   * @returns the file's absolute path, its version after the write, and the written byte size.
+   * @throws RemoteError `workspace-file/stale-version` when the file changed since the version the caller read.
+   */
+  @Remote
+  async writeText(
+    workspaceFileScope: WorkspaceFileScope,
+    path: string,
+    content: string,
+    expectedVersion: string,
+    signal: AbortSignal,
+  ): Promise<WorkspaceFileStat> {
+    const limit = this.config.maxWriteBytes
+    if (Buffer.byteLength(content, 'utf8') > limit) {
+      throw new RemoteError('workspace-file/too-large', `content for "${path}" exceeds the ${limit} byte write cap`, { path, limit })
+    }
+    const { target, info } = await this.locateFile(workspaceFileScope, path, signal, true)
+    if (info.version !== expectedVersion) throw this.staleVersion(path, info.version)
+    const sample = await this.ctx.fs.readByteRange(target, { offset: 0, length: LINE_ENDING_SAMPLE_BYTES }, signal)
+    const restored = restoreLineEndings(content, detectLineEndings(sample))
+    const sandboxPolicy = { mode: 'workspace-write', workspaceRoot: workspaceFileScope.workspaceRoot } as const
+    try {
+      const outcome = await this.ctx.fs.writeText(
+        target,
+        restored,
+        { kind: 'replaceIfVersion', version: info.version },
+        signal,
+        sandboxPolicy,
+      )
+      return { absolutePath: this.ctx.fs.processPath(target), version: outcome.version, bytes: Buffer.byteLength(restored, 'utf8') }
+    } catch (error: unknown) {
+      if (!isStaleVersionRefusal(error)) throw error
+      // The guard refused between this call's stat and its write; the fresh
+      // locate reports the version the file holds now, or its new kind.
+      const current = await this.locateFile(workspaceFileScope, path, signal, true)
+      throw this.staleVersion(path, current.info.version)
     }
   }
 
@@ -399,6 +494,36 @@ export class WorkspaceFiles extends TypertRemoteService {
     return { root, workspaceRoot, entry }
   }
 
+  /**
+   * All gates for a workspace directory: the path exists, is a directory or a
+   * link resolving to one, and resolves inside the workspace.
+   */
+  private async locateDirectory(
+    workspaceFileScope: WorkspaceFileScope,
+    path: string,
+    signal: AbortSignal,
+  ): Promise<{ root: FsTarget; workspaceRoot: string; target: FsTarget }> {
+    const { root, workspaceRoot, entry } = await this.inspect(workspaceFileScope, path, signal)
+    // A final link — a Windows junction or a symlink — is listed through the
+    // directory it resolves to, matching the child type `listDir` reports for
+    // that entry; `read` keeps its own no-follow gate on the final component.
+    if (entry.type !== 'directory' && entry.type !== 'symlink') {
+      throw new RemoteError(
+        'workspace-file/not-directory',
+        `"${path}" is a ${entry.type}`,
+        { path, kind: entry.type },
+      )
+    }
+    const target = await this.confine(root, workspaceRoot, path, signal)
+    if (entry.type === 'symlink') {
+      const info = await this.ctx.fs.stat(target, signal)
+      if (info?.type !== 'directory') {
+        throw new RemoteError('workspace-file/not-directory', `"${path}" does not resolve to a directory`, { path, kind: 'symlink' })
+      }
+    }
+    return { root, workspaceRoot, target }
+  }
+
   /** Resolve an inspected path and refuse it unless the workspace contains it. */
   private async confine(root: FsTarget, workspaceRoot: string, path: string, signal: AbortSignal): Promise<FsTarget> {
     const target = await this.ctx.fs.resolve(path, { cwd: workspaceRoot, signal })
@@ -411,18 +536,22 @@ export class WorkspaceFiles extends TypertRemoteService {
   /**
    * All gates for a regular file, ending in the one stat that names its version
    * and size. The stat re-checks what `lstat` saw: the file may have gone or
-   * changed kind in between.
+   * changed kind in between. `confineToWorkspace` adds the write-side rule
+   * that the resolved target must stay inside the workspace.
    */
   private async locateFile(
     workspaceFileScope: WorkspaceFileScope,
     path: string,
     signal: AbortSignal,
+    confineToWorkspace = false,
   ): Promise<{ target: FsTarget; info: FsInfo }> {
-    const { workspaceRoot, entry } = await this.inspect(workspaceFileScope, path, signal)
+    const { root, workspaceRoot, entry } = await this.inspect(workspaceFileScope, path, signal)
     if (entry.type !== 'file') {
       throw new RemoteError('workspace-file/not-regular-file', `"${path}" is a ${entry.type}`, { path, kind: entry.type })
     }
-    const target = await this.ctx.fs.resolve(path, { cwd: workspaceRoot, signal })
+    const target = confineToWorkspace
+      ? await this.confine(root, workspaceRoot, path, signal)
+      : await this.ctx.fs.resolve(path, { cwd: workspaceRoot, signal })
     const info = await this.ctx.fs.stat(target, signal)
     if (info === undefined) {
       throw new RemoteError('workspace-file/not-found', `no entry at "${path}"`, { path })
@@ -439,6 +568,11 @@ export class WorkspaceFiles extends TypertRemoteService {
       version: info.version,
       ...info.size === undefined ? {} : { bytes: info.size },
     }
+  }
+
+  /** The refusal for a file whose disk version no longer matches the caller's. */
+  private staleVersion(path: string, version: string): RemoteError {
+    return new RemoteError('workspace-file/stale-version', `"${path}" changed on disk since the version the caller read`, { path, version })
   }
 
   /** Stream the file as text and cut the page, classifying the backend's non-text refusal. */
@@ -461,6 +595,59 @@ export class WorkspaceFiles extends TypertRemoteService {
  */
 function isNotTextRefusal(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'FS_NOT_TEXT'
+}
+
+/** Bytes sampled from the file before a write to detect its line ending style. */
+const LINE_ENDING_SAMPLE_BYTES = 4096
+
+/**
+ * Whether a byte sample uses CRLF more often than bare LF — the local
+ * backend's rule, mirrored so a read-then-write round trip keeps the file's own
+ * style. Counted on bytes because `0x0d` and `0x0a` never occur inside a UTF-8
+ * multi-byte sequence.
+ * @param sample - the file's leading bytes.
+ * @returns the style the write restores.
+ */
+function detectLineEndings(sample: Uint8Array): 'LF' | 'CRLF' {
+  let crlf = 0
+  let lf = 0
+  for (let index = 0; index < sample.length; index += 1) {
+    if (sample[index] !== 0x0a) continue
+    if (index > 0 && sample[index - 1] === 0x0d) crlf += 1
+    else lf += 1
+  }
+  return crlf > lf ? 'CRLF' : 'LF'
+}
+
+/**
+ * Convert LF content back to the file's line ending style before writing.
+ * `LF` is returned unchanged; `CRLF` re-normalizes first so an already-CRLF
+ * sequence is never doubled to `\r\r\n`.
+ * @param content - the caller's LF text.
+ * @param lineEndings - the style detected from the file.
+ * @returns the text in the file's own style.
+ */
+function restoreLineEndings(content: string, lineEndings: 'LF' | 'CRLF'): string {
+  return lineEndings === 'LF' ? content : content.replaceAll('\r\n', '\n').split('\n').join('\r\n')
+}
+
+/**
+ * The backend's stale-version refusal, recognized by code for the reason
+ * {@link isNotTextRefusal} gives.
+ */
+function isStaleVersionRefusal(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'FS_STALE_VERSION'
+}
+
+/**
+ * The backend's refusal to create over an existing entry, recognized by code
+ * for the reason {@link isNotTextRefusal} gives: a guarded creation reports
+ * `FS_NOT_OBSERVED`, and a guarded file write over an entry that is not a
+ * regular file reports `FS_NOT_REGULAR_FILE`.
+ */
+function isCreationCollision(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error
+    && (error.code === 'FS_NOT_OBSERVED' || error.code === 'FS_NOT_REGULAR_FILE')
 }
 
 export default WorkspaceFiles

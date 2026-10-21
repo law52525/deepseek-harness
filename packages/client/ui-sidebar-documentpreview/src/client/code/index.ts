@@ -5,7 +5,8 @@ import type {} from '../index.ts'
 import { CodeBody } from './CodeBody.tsx'
 import { en, zh } from './locales.ts'
 
-const ID = '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/code'
+/** This viewer's identity in the document registry: the key its body registers under. */
+export const CODE_BODY_ID = '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/code'
 const NS = 'sidebarCodePreview'
 
 /** @param ctx - owning plugin context. Register localized metadata and the matching keyed document body. */
@@ -13,7 +14,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }))
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.documentPreviews.register({
-    id: ID,
+    id: CODE_BODY_ID,
     extensions: CODE_HIGHLIGHT_EXTENSIONS,
     priority: 'builtin',
     title: () => t('title'),
@@ -21,6 +22,6 @@ export function apply(ctx: Context): void {
     wrap: true,
   }))
   ctx.effect(() => ctx.slots.inject('sidebar.right.tab.document', () => ctx.slots.register(
-    { name: 'sidebar.right.tab.document', key: ID, locale: NS }, CodeBody,
+    { name: 'sidebar.right.tab.document', key: CODE_BODY_ID, locale: NS }, CodeBody,
   )))
 }

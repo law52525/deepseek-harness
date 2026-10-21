@@ -81,18 +81,19 @@ export function apply(ctx: Context): void {
 |---|---|
 | `paneId` | 新 tab 落到这个 pane；缺省为活动的停靠 pane（活动的是浮窗时取第一个停靠 pane）。 |
 | `replaceTab` | 占用这个 tab 的 pane 与条上位置，并在同一步关闭它；浮窗里的 tab 让不出位置，新 tab 按未指定位置落位。 |
-| `revealIfOpened` | 缺省 `true`：已显示同一 `(kind, address)` 的 tab 被聚焦并收到 `params`。`false` 则无论如何再开一个。 |
+| `revealIfOpened` | 缺省 `true`：已显示同一 `(kind, address)` 的 tab 被聚焦并收到 `params`——但仅在目标分栏内；停在其它分栏的副本不动，本次打开落在目标分栏。`false` 则无论如何再开一个。 |
 | `preferNewPane` | 在普通格数预算与空间规则下优先新建停靠格；不能分栏时回退到目标格。与 `replaceTab` 一起使用时忽略。 |
+| `preferOtherPane` | 让打开的内容离开目标格：已有另一个停靠格时落在那一格，目标格是唯一一格时按 `preferNewPane` 的方式分栏，不能分栏时留在目标格。除留在目标格的情形外，目标格里的副本既不被 reveal 也不被移动。目标格是浮动面板时按不带该选项处理；浮动 tab 的 tab 动作未指定格时丢弃该选项，打开的内容落在活动停靠格。已有另一个停靠格时页面开在那一格，即使目标格已持有同类页面；目标格是唯一一格时，它已持有的页面在原处聚焦，不分栏。与 `replaceTab` 一起使用时忽略。 |
 | `kind`（仅 `openResource`） | 点名打开类型而不排候选；该 kind 的生效实现打开地址，它的 `canOpen` 仍生效。 |
 | `params` | 给正文的导航参数，作为 `navigation.params` 送达。`openResource` 按资源类型经声明合并表 `SidebarRightResourceParamsMap` 定型（文本预览声明 `{ line?: number }`）；`openTab<K>` 按 kind 经 `SidebarRightTabParamsMap` 定型，未声明的 kind 为 `undefined`；正文读到的是二者联合 `SidebarRightNavigationParams`。值按约定为 JSON 形状，运行时不校验。 |
 
-落位是调用方的选项，从不是类型的属性。会话区调 `openResource(fileAddressFor(sessionId, cwd, path))`，`read` 工具行另加 `{ params: { line } }`（来自调用的 1 起 `offset`）；引导页入口框调 `tab.actions.openTab(entry.kind, { replaceTab: true })`；文件树的行调 `tab.actions.openResource(address)`；tab 条的新增控件调 `openTab('guide', { paneId, revealIfOpened: false })`。
+落位是调用方的选项，从不是类型的属性。会话区调 `openResource(fileAddressFor(sessionId, cwd, path))`，`read` 工具行另加 `{ params: { line } }`（来自调用的 1 起 `offset`）；引导页入口框调 `tab.actions.openTab(entry.kind, { replaceTab: true })`；文件树的行调 `tab.actions.openResource(address, { preferOtherPane: true })`；tab 条的新增控件调 `openTab('guide', { paneId, revealIfOpened: false })`。
 
 `close(tabId)` 关闭一个 tab；`active()` 返回活动 pane 的活动 tab；`isExpanded()` 与 `toggleExpanded()` 读取与翻转这一列，翻转记入序列。无会话时读操作返回 `undefined` 或 `false`；写操作需要已挂载的会话面，没有时抛错而不是写进没人绘制的面。
 
 `focus(tabId)` 让一个 tab 成为其 pane 的活动 tab；`split(paneId?)` 分割活动的停靠 pane 或点名的 pane，返回新 pane 的 id——pane 数预算或列宽不允许时返回 `undefined` 且不记账；`float(tabId, rect?)` 把一个 tab 浮出为浮窗 pane；`dock(paneId)` 把浮窗 pane 收回停靠区。四者都走 store 既有动作、各记一条历史；目标不存在或已处于目标状态时是空操作，与 `open` 一样在没有已挂载会话面时抛错。`TabId`、`PaneId`、`TabRecord`、`FloatRect` 自本包 `/client` 入口再导出，调用方无需引 dockkit。
 
-`focusedTarget(element?)` 从实时 DOM 焦点（包括内嵌 iframe）捕获可见页面；侧栏外部或过期的侧栏标记不产生目标。`commandTarget(element?)` 还允许侧栏外部发起的打开操作使用已挂载 Session 的活动停靠窗格。`SidebarRightTarget` 捕获 Session、窗格、host、tab occurrence 和导航 revision。`isTargetCurrent(target)` 在执行前检查这些身份，因此重新打开记录或再次导航都会使已捕获的动作失效；它不会改为操作其他页面。关闭与落位结果见[控制器方法](../../packages/client/ui-sidebar-right/src/client/service.ts)。
+`focusedTarget(element?)` 从实时 DOM 焦点（包括内嵌 iframe）捕获可见页面；侧栏外部或过期的侧栏标记不产生目标。`commandTarget(element?)` 还允许侧栏外部发起的打开操作使用已挂载 Session 的活动停靠窗格。`dockedPageTarget(kind, target)` 把已捕获的目标改指向已持有该类页面的停靠窗格，优先使用捕获的窗格；没有停靠窗格持有该页面时原样返回目标；`workspace.files` 命令经它解析。`SidebarRightTarget` 捕获 Session、窗格、host、tab occurrence 和导航 revision。`isTargetCurrent(target)` 在执行前检查这些身份，因此重新打开记录或再次导航都会使已捕获的动作失效；它不会改为操作其他页面。关闭与落位结果见[控制器方法](../../packages/client/ui-sidebar-right/src/client/service.ts)。
 
 ## Slot 与 owner props
 
@@ -142,7 +143,7 @@ Host 的 `ctx.workspaceFiles` 服务与生成的 `workspaceFiles` Remote 命名�
 
 - **`guide`**——`builtin`，以 `openTab('guide')` 打开。一枚弱化的罗盘位于各类型按 `order` 贡献的入口胶囊上方；入口较少时显示已注册的描述，未提供图标的入口统一使用内置占位符。点选胶囊即在引导 tab 的位置把贡献它的类型作为页面打开。每个 pane 最多一个引导 tab，tab 条的新增控件只在本 pane 没有引导时出现。新 pane 使用已注册的默认页：只有一个引导入口时直接使用该入口，否则使用引导页（[引导](../../packages/client/ui-sidebar-right/README.zh.md#the-guide)）。
 - **`text`**——`fallback`，`dsh-resource://file/**`，只认领 Session 地址。Document Preview 通过 `useResource<'file'>` 观察元数据，经 Remote 回调加载内容，并拥有渲染器选择、工具栏、逐 tab 刷新、滚动与源码定位；未知扩展名按纯文本渲染（[README](../../packages/client/ui-sidebar-documentpreview/README.zh.md)）。
-- **`files`**——`builtin`，以 `openTab('files')` 打开。工作区目录树，经 `list` 懒加载，按展开目录建立监听，用 `tab.actions.openResource(fileAddressFor(sessionId, root, path))` 在自己所在 pane 打开文件（[README](../../packages/client/ui-sidebar-files/README.zh.md)）。
+- **`files`**——`builtin`，以 `openTab('files')` 打开。工作区目录树，经 `list` 懒加载，按展开目录建立监听，用 `tab.actions.openResource(fileAddressFor(sessionId, root, path), { preferOtherPane: true })` 在另一个停靠 pane 打开文件，文件树所在 pane 保持显示文件树（[README](../../packages/client/ui-sidebar-files/README.zh.md)）。
 - **`browser`**——可多开的 `builtin`，以 `openTab('browser', { params: { url? } })` 打开。Chat 的[链接偏好](../../packages/client/ui-chat/README.zh.md)决定 Assistant Markdown 是否在此打开 HTTP(S) 链接。它在默认 sandbox 下接受公共与 loopback HTTP(S) 目标，本地文件改用 Document Preview，并使用应用已知的 iframe history（[README](../../packages/client/ui-sidebar-browser/README.zh.md)）。
 - **`subagentchat`**——`builtin`，`dsh-resource://subagentchat/session/<child>?parent=<parent>&mode=<mode>`。资源提供方保留一个显式寻址的 subagent Conversation，并通过共享 Conversation Factory 渲染（[README](../../packages/client/ui-subagent/README.zh.md)）。
 
@@ -155,6 +156,6 @@ Host 的 `ctx.workspaceFiles` 服务与生成的 `workspaceFiles` Remote 命名�
 - tab 类型的 `option` 优先级档：没有「只列出、不许认领」的 tab 类型。
 - 改写记录的标题：`title(address)` 只捕获一次；活的 chip 来自标题 slot，而不是记录。
 - 打开时点名某个 tab 实现：`openResource` 最多点名一个 kind；文档渲染器由文件 tab 的工具栏选择。
-- 服务上的地址查找（`find`）：调用方用 `revealIfOpened` 打开，由停靠面去重。
+- 服务上的地址查找（`find`）：调用方用 `revealIfOpened` 打开，由目标分栏去重。
 - Sidebar 自身 `sidebar://<kind>` 记账之外的导航地址；其语法等导航控制器整体做时再定。
 - 面向用户的撤销与跨类型通用内容导航栈（[暂缓](../../.agents/notes/implemented/feature/2026-09-04-right-sidebar-docking-infrastructure.zh.md#deferred)）；Browser 只拥有自身页面历史。
