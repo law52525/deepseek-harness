@@ -8,6 +8,11 @@
  *   filesystem's execution world, because their consumer is the Client
  *   resource system, whose `dsh-resource://file/session/<id>/<path>` address carries that
  *   same path.
+ * - `create` takes its parent directory in the syntax `list` accepts and
+ *   answers with the created entry's absolute path.
+ * - `writeText` names its file the same way `create` names a parent — absolute
+ *   or relative to the workspace root — and, unlike the reads, refuses a
+ *   target outside the workspace.
  * - `list` speaks workspace paths — the same syntax its `path` argument accepts —
  *   because its consumer is a tree rooted at the workspace root.
  *
@@ -122,6 +127,17 @@ export interface WorkspaceDirectoryListing {
   readonly truncated: boolean
 }
 
+/** What `create` can add to a workspace directory. */
+export type WorkspaceEntryKind = 'file' | 'directory'
+
+/** One entry `create` added to a workspace directory. */
+export interface WorkspaceCreatedEntry {
+  /** Absolute path of the new entry, in the same form as {@link WorkspaceFileStat.absolutePath}. */
+  readonly absolutePath: string
+  /** What was created: an empty regular file or an empty directory. */
+  readonly type: WorkspaceEntryKind
+}
+
 /**
  * Current target metadata after a filesystem invalidation. File consumers may
  * ignore an already known version; directory consumers relist on every frame
@@ -167,10 +183,19 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
       readonly path: string
       readonly kind: 'directory' | 'symlink' | 'other'
     }
-    /** The path is not a directory, so it has no children to list. */
+    /** The path is not a directory, so it has no children to list and cannot hold a new entry. */
     'workspace-file/not-directory': {
       readonly path: string
       readonly kind: 'file' | 'symlink' | 'other'
     }
+    /** An entry of any type already occupies the path `create` was asked to fill; it is left untouched. */
+    'workspace-file/already-exists': { readonly path: string }
+    /** The name given to `create` is not exactly one path segment. */
+    'workspace-file/invalid-name': { readonly name: string }
+    /**
+     * The file's version no longer matches `writeText`'s `expectedVersion`;
+     * `version` is the file's current version and nothing was written.
+     */
+    'workspace-file/stale-version': { readonly path: string; readonly version: string }
   }
 }
