@@ -23,6 +23,11 @@ import {
   parseDesktopCorePackageSet,
   type DesktopCorePackageRecord,
 } from '../src/core-package-set.ts'
+import {
+  DESKTOP_EXTRA_PACKED_DIR_ENV,
+  DESKTOP_EXTRA_ROOT_PACKAGES_ENV,
+  parseCommaSeparatedNames,
+} from '../src/product-config.ts'
 import { capture } from '../../../scripts/release/process.ts'
 import { tarballFiles } from '../../../scripts/release/tarball.ts'
 import { resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
@@ -31,6 +36,15 @@ const DSH_PACKAGE = '@deepseek-ai/dsh'
 const ROOT_PACKAGES = [DSH_PACKAGE, DESKTOP_HOST_PACKAGE] as const
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
+
+/**
+ * Resolve package-set roots: official dsh + desktop-host, plus optional extra roots.
+ * @param env - Packaging environment.
+ * @returns Root package names in visit order.
+ */
+export function resolveDesktopRootPackages(env: NodeJS.ProcessEnv = process.env): string[] {
+  return [...ROOT_PACKAGES, ...parseCommaSeparatedNames(env[DESKTOP_EXTRA_ROOT_PACKAGES_ENV])]
+}
 
 const REQUIRED_DEPENDENCY_SECTIONS = ['dependencies', 'peerDependencies'] as const
 const OPTIONAL_DEPENDENCY_SECTION = 'optionalDependencies'
@@ -54,10 +68,12 @@ function dependencyNames(manifest: Readonly<Record<string, unknown>>, section: s
  * Select workspace dependencies rooted at dsh and its private Host; npm resolves external packages.
  * Reads the repository workspace manifest and package manifests to distinguish required local packages from npm-resolved externals.
  * @param available - Packed packages indexed by package name.
+ * @param roots - Root packages to visit; defaults to the packaging configuration.
  * @returns Selected packages sorted by name.
  */
 export function selectDesktopPackageClosure(
   available: ReadonlyMap<string, PackedDesktopPackage>,
+  roots: readonly string[] = resolveDesktopRootPackages(),
 ): PackedDesktopPackage[] {
   const workspace = yaml.load(readFileSync(join(REPOSITORY_ROOT, 'pnpm-workspace.yaml'), 'utf8')) as { packages: string[] }
   const workspaceNames = new Set(globSync(workspace.packages.map(pattern => `${pattern}/package.json`), { cwd: REPOSITORY_ROOT })
@@ -80,7 +96,7 @@ export function selectDesktopPackageClosure(
       if (available.has(dependency)) visit(dependency)
     }
   }
-  for (const name of ROOT_PACKAGES) {
+  for (const name of roots) {
     if (!available.has(name)) throw new Error(`desktop package set: packed inputs omit ${name}`)
     visit(name)
   }
@@ -160,10 +176,12 @@ export function prepareDesktopPackageSet(inputs: readonly string[], output: stri
 
 function main(): void {
   const buildPaths = resolveDesktopTargetBuildPaths()
+  const extraPacked = process.env[DESKTOP_EXTRA_PACKED_DIR_ENV]?.trim()
   const defaultInputs = [
     buildPaths.packedDsh,
     buildPaths.packedVendor,
     buildPaths.packedLandlock,
+    ...extraPacked === undefined || extraPacked === '' ? [] : [extraPacked],
   ]
   const { values } = parseArgs({
     options: { from: { type: 'string', multiple: true }, out: { type: 'string' } },

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AccountClientMetadata } from '@deepseek-ai/dsh-deepseek-account/types'
+import { desktopPolicyClientMetadata } from '../src/client-metadata.ts'
 import { DesktopMandatoryUpdatePolicy, desktopPolicyPage, resolveDesktopPolicyConfig, type DesktopPolicyState } from '../src/mandatory-update-policy.ts'
+import { DESKTOP_PRODUCT_VERSION_ENV } from '../src/product-config.ts'
 
 const identity = { platform: 'win32', arch: 'x64', channel: 'nightly', bundledDshVersion: '0.1.5-rc.1' } as const
 const client: AccountClientMetadata = { version: '1.2.3', locale: 'zh-CN', timezoneOffsetSeconds: 28_800 }
@@ -25,6 +27,7 @@ beforeEach(() => { vi.useFakeTimers() })
 afterEach(async () => {
   await Promise.all(instances.splice(0).map(policy => policy.dispose()))
   vi.useRealTimers()
+  vi.unstubAllEnvs()
 })
 
 describe('mandatory update policy', () => {
@@ -53,6 +56,34 @@ describe('mandatory update policy', () => {
     request.mockResolvedValueOnce(Response.json({ error: { code: 'UNAUTHENTICATED' } }, { status: 401 }))
     expect(await policy.check('launch')).toMatchObject({ error: 'unavailable' })
   })
+
+  it('sends the inlined client version when no product overlay is configured', async () => {
+    vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
+    vi.stubEnv(DESKTOP_PRODUCT_VERSION_ENV, undefined)
+    const { policy, request } = fixture('anonymous', () => desktopPolicyClientMetadata('zh-CN'))
+    await policy.check('launch')
+    expect((request.mock.calls[0]![1]?.headers as Record<string, string>)['x-client-version']).toBe('1.2.3')
+  })
+
+  it('sends the product version overlay as x-client-version when configured', async () => {
+    vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
+    vi.stubEnv(DESKTOP_PRODUCT_VERSION_ENV, '4.0.0')
+    const { policy, request } = fixture('anonymous', () => desktopPolicyClientMetadata('zh-CN'))
+    await policy.check('launch')
+    expect((request.mock.calls[0]![1]?.headers as Record<string, string>)['x-client-version']).toBe('4.0.0')
+  })
+  it('uses a configured policy path when present', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json(clear))
+    const publish = vi.fn<(state: DesktopPolicyState) => void>()
+    const policy = new DesktopMandatoryUpdatePolicy(resolveDesktopPolicyConfig({
+      ...deployment, path: '/wandox-work/api/v0/check_client_update',
+    })!, identity, publish, request, () => client)
+    instances.push(policy)
+    await policy.check('launch')
+    expect((request.mock.calls[0]![0] as URL).href)
+      .toBe('https://policy.example.com/wandox-work/api/v0/check_client_update?scenario=launch')
+  })
+
   it('sends an anonymous independent request with installed release headers and fixed Nightly', async () => {
     const { policy, request } = fixture()
     await expect(policy.check('launch')).resolves.toEqual({ blocking: false, checking: false })
@@ -198,7 +229,14 @@ describe('policy deployment and page validation', () => {
 
   it.each([{ intervalMs: 0 }, { timeoutMs: 1.5 }, { maxBackoffMs: 1000 }, { jitter: 2 }, { allowedPageOrigins: [] },
     { origin: 'https://example.com/path' }, { authentication: 'feishu' },
-    { authentication: 'feishu-test', origin: 'http://127.0.0.1:9000' }])('rejects invalid deployment input: %j', (change) => {
+    { authentication: 'feishu-test', origin: 'http://127.0.0.1:9000' },
+    { path: 'api/v0/check_client_update' }, { path: '/api/v0/check_client_update?x=1' }])('rejects invalid deployment input: %j', (change) => {
     expect(() => resolveDesktopPolicyConfig({ ...deployment, ...change })).toThrow()
+  })
+
+  it('defaults the policy path to the official check_client_update route', () => {
+    expect(resolveDesktopPolicyConfig(deployment)?.path).toBe('/api/v0/check_client_update')
+    expect(resolveDesktopPolicyConfig({ ...deployment, path: '/wandox-work/api/v0/check_client_update' })?.path)
+      .toBe('/wandox-work/api/v0/check_client_update')
   })
 })

@@ -95,6 +95,30 @@ describe('client build environment', () => {
     }).toThrow(/DSH_CLIENT_UNDECLARED/)
   })
 
+  it('lets DSH_DESKTOP_PRODUCT_NAME retitle the official client profile', () => {
+    const env = {
+      DSH_BUILD_CLIENT_PROFILE: 'official',
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
+      DSH_CLIENT_VERSION: '1.2.3',
+      DSH_CLIENT_TITLE: 'Local title',
+      DSH_DESKTOP_PRODUCT_NAME: 'Wandox Work',
+    }
+    expect(resolveClientBuildEnvironment(env)).toEqual({
+      DSH_CLIENT_BUILD_PROFILE: 'official',
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
+      DSH_CLIENT_TITLE: 'Wandox Work',
+      DSH_CLIENT_VERSION: '1.2.3',
+    })
+    // The complete build resolves the official profile from process.env merged under the
+    // repository environment, so the product name still reaches the title.
+    const fromRepository = repositoryClientBuildEnvironment(root, env)
+    expect(fromRepository.DSH_CLIENT_TITLE).toBe('Local title')
+    expect(resolveClientBuildEnvironment({ ...env, ...fromRepository }, 'official').DSH_CLIENT_TITLE).toBe('Wandox Work')
+    expect(officialClientBuildEnvironment(root, env).DSH_CLIENT_TITLE).toBe('Wandox Work')
+    expect(officialClientBuildEnvironment(root, { ...env, DSH_DESKTOP_PRODUCT_NAME: ' ' }).DSH_CLIENT_TITLE)
+      .toBe('DeepSeek Harness')
+  })
+
   it('inherits public values by default and isolates an explicit official profile', () => {
     const parent = {
       PATH: '/bin',

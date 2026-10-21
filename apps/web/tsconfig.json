@@ -48,6 +48,8 @@
     "tests/prefix-proxy.ts",
     "tests/auto-review-fixture.ts",
     "tests/scaffold-generation.spec.ts",
+    // Imports the repository build environment, which lives outside this project's rootDir.
+    "tests/manifest-brand.spec.ts",
     "tests/scaffold-hermetic.e2e.ts",
     "tests/startup-rpc-budget.e2e.ts",
     "tests/minimal-preset.snapshot.ts",

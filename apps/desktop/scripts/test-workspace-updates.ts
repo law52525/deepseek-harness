@@ -6,6 +6,7 @@ import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createDevelopmentProjectMetadata, createPluginProfile } from '../src/project-manager.ts'
+import { resolveDesktopProfileName } from '../src/product-config.ts'
 import { removeOwnedDirectory } from '../src/owned-directory.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { desktopTargetPlatform, developmentRuntimeDirectory, resolveDesktopBuildTarget } from './desktop-build-paths.mjs'
@@ -18,7 +19,7 @@ await mkdir(evidence, { recursive: true })
 const root = await mkdtemp(join(evidence, 'electron-workspace-updates-'))
 const application = join(root, 'app')
 const project = join(application, '.desktop-build/development/project')
-const profile = join(root, 'home/profiles/desktop')
+const profile = join(root, 'home/profiles', resolveDesktopProfileName())
 const manifest = JSON.parse(await readFile(join(repo, 'apps/desktop/package.json'), 'utf8')) as { version: string }
 const pnpm = JSON.parse(await readFile(join(repo, 'apps/desktop/node_modules/pnpm/package.json'), 'utf8')) as { version: string }
 try {

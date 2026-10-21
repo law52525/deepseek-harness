@@ -22,6 +22,18 @@ const OFFICIAL_CLIENT_BUILD_ENVIRONMENT = {
   DSH_CLIENT_TITLE: 'DeepSeek Harness',
 } as const
 
+/**
+ * Official browser title. `DSH_DESKTOP_PRODUCT_NAME` overrides the baked title so a
+ * product pipeline can keep the official profile (sidebar slot gating) without
+ * shipping the DeepSeek Harness window title. Unset ≡ official name.
+ */
+function officialClientTitle(environment: NodeJS.ProcessEnv): string {
+  const product = environment.DSH_DESKTOP_PRODUCT_NAME?.trim()
+  return product === undefined || product === ''
+    ? OFFICIAL_CLIENT_BUILD_ENVIRONMENT.DSH_CLIENT_TITLE
+    : product
+}
+
 /** Public variable carrying the source commit embedded in client artifacts. */
 const CLIENT_COMMIT_HASH_VARIABLE = 'DSH_CLIENT_COMMIT_HASH'
 
@@ -145,7 +157,8 @@ export function officialClientBuildEnvironment(
   return {
     DSH_CLIENT_COMMIT_HASH: repositoryCommitHash(root, environment),
     DSH_CLIENT_VERSION: repositoryVersion(root),
-    ...OFFICIAL_CLIENT_BUILD_ENVIRONMENT,
+    DSH_CLIENT_BUILD_PROFILE: OFFICIAL_CLIENT_BUILD_ENVIRONMENT.DSH_CLIENT_BUILD_PROFILE,
+    DSH_CLIENT_TITLE: officialClientTitle(environment),
   }
 }
 
@@ -201,7 +214,8 @@ export function resolveClientBuildEnvironment(
     return {
       DSH_CLIENT_COMMIT_HASH: commitHash,
       DSH_CLIENT_VERSION: version,
-      ...OFFICIAL_CLIENT_BUILD_ENVIRONMENT,
+      DSH_CLIENT_BUILD_PROFILE: OFFICIAL_CLIENT_BUILD_ENVIRONMENT.DSH_CLIENT_BUILD_PROFILE,
+      DSH_CLIENT_TITLE: officialClientTitle(environment),
     }
   }
   throw new Error(`unknown client build profile ${JSON.stringify(profile)}; expected "official"`)

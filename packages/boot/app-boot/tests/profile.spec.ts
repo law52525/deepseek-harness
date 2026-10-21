@@ -22,6 +22,9 @@ import {
   PROFILE_COMPATIBILITY_FILENAME,
   PROFILE_PATCH_FILENAME,
   PROFILE_TEMPLATES,
+  DESKTOP_MANAGED_PROFILE_MARK,
+  ensureDesktopManagedProfileMark,
+  isDesktopManagedProfileManifest,
   readProfileManifest,
   readProfilePatches,
   removeLinkProjections,
@@ -221,6 +224,29 @@ describe('initProfile', () => {
     initProfile(dir, ['other'])
     expect(readProfileManifest('t', dir).dsh?.profile?.bundles).toEqual(['@deepseek-ai/dsh-base'])
     expect(readFileSync(join(dir, PROFILE_PATCH_FILENAME), 'utf8')).toContain('- id: x')
+  })
+})
+
+describe('desktop-managed profile mark', () => {
+  it('writes the mark once and leaves unreadable files unchanged', () => {
+    const dir = tmp()
+    expect(isDesktopManagedProfileManifest({ managedBy: DESKTOP_MANAGED_PROFILE_MARK.value })).toBe(true)
+    expect(isDesktopManagedProfileManifest({ managedBy: 'other' })).toBe(false)
+    ensureDesktopManagedProfileMark(dir)
+    expect(existsSync(join(dir, 'package.json'))).toBe(false)
+    writeProfileManifest(dir, { name: 'p', dependencies: { plugin: '1.0.0' } })
+    ensureDesktopManagedProfileMark(dir)
+    expect(readProfileManifest('t', dir)).toMatchObject({
+      name: 'p',
+      dependencies: { plugin: '1.0.0' },
+      managedBy: 'desktop-app',
+    })
+    const marked = readFileSync(join(dir, 'package.json'), 'utf8')
+    ensureDesktopManagedProfileMark(dir)
+    expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(marked)
+    writeFileSync(join(dir, 'package.json'), '{broken')
+    ensureDesktopManagedProfileMark(dir)
+    expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe('{broken')
   })
 })
 
